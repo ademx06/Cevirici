@@ -93,7 +93,13 @@ Return ONLY valid JSON with these keys:
   "suggested_practice": "string or null",
   "category": "string or null",
   "inferred_meaning": "brief English summary of what student meant"
-}}"""
+}}
+
+CRITICAL RULES:
+- Always quote the student's EXACT words when referring to what they said.
+- NEVER claim they said a different sentence than they actually said.
+- If PENDING PRACTICE is set and student said something different, explain the difference gently — do NOT praise wrong answers as correct.
+- For A1 beginners: simple words, one idea at a time, warm tone, always teach through the conversation."""
 
 GREETINGS_TR = [
     "Merhaba! Ben senin robot öğretmeninim. Hadi birlikte konuşalım — sen konuş, ben dinlerim ve hatalarını Türkçe açıklarım.",
@@ -684,19 +690,53 @@ def _token_set(s: str) -> set[str]:
     return {w for w in _norm(s).split() if len(w) > 1}
 
 
+_PRACTICE_STOP = frozenset({
+    "i", "im", "i'm", "am", "is", "are", "was", "were", "be", "been",
+    "a", "an", "the", "to", "at", "in", "on", "for", "of", "and", "or",
+    "going", "go", "will", "would", "can", "do", "does", "did",
+    "today", "tomorrow", "yesterday", "now", "very", "so", "just",
+})
+
+
+def _content_tokens(s: str) -> set[str]:
+    return {w for w in _token_set(s) if w not in _PRACTICE_STOP}
+
+
+def _practice_phrase_match(user: str, pending: str) -> bool:
+    """Pratik cümlesi eşleşmesi — 'book' ile 'eat lunch' ASLA eşleşmesin."""
+    if not user or not pending:
+        return False
+    if _norm(user) == _norm(pending):
+        return True
+    cu, cp = _content_tokens(user), _content_tokens(pending)
+    if not cp:
+        return _norm(user) == _norm(pending)
+    if not cu:
+        return False
+    # Ana kelimeler tam eşleşmeli (book ≠ eat, lunch)
+    if cu == cp:
+        return True
+    if cp <= cu:
+        return True
+    overlap = len(cu & cp) / len(cp)
+    return overlap >= 0.9
+
+
 def _phrase_similar(a: str, b: str) -> bool:
     if not a or not b:
         return False
+    if _practice_phrase_match(a, b):
+        return True
     na, nb = _norm(a), _norm(b)
     if na == nb:
         return True
-    if na in nb or nb in na:
-        return True
-    ta, tb = _token_set(a), _token_set(b)
+    ta, tb = _content_tokens(a), _content_tokens(b)
     if not ta or not tb:
         return False
+    if ta == tb:
+        return True
     overlap = len(ta & tb) / max(len(ta), len(tb))
-    return overlap >= 0.55
+    return overlap >= 0.75
 
 
 TR_WORD_GLOSS: dict[str, tuple[str, str]] = {
@@ -1826,6 +1866,13 @@ def _try_ai_tutor_turn(
     last_teacher = profile.get("lastTeacherText") or _last_teacher_question(history, profile) or ""
     input_lang = "Turkish" if user_lang == "tr" else f"{lang_name} (learner, may be incomplete or wrong)"
     rp = (ROLEPLAYS.get(roleplay or "") or {}).get(target_lang) or "casual tutoring"
+    pending = profile.get("pendingPracticePhrase") or ""
+    pending_note = ""
+    if pending:
+        pending_note = (
+            f"\nPENDING PRACTICE PHRASE (student was practicing this): \"{pending}\"\n"
+            f"If student said something different, compare carefully — never say they said the practice phrase if they didn't."
+        )
 
     system = AI_TUTOR_JSON_PROMPT.format(
         lang_name=lang_name,
@@ -1837,7 +1884,7 @@ def _try_ai_tutor_turn(
         last_teacher=last_teacher[:500],
         input_lang=input_lang,
         user_text=user_text[:500],
-    )
+    ) + pending_note
     parsed = _llm_json(system, "Respond with the JSON object only.")
     if not parsed:
         return None
@@ -1913,25 +1960,26 @@ def _resume_after_help(
         return None
 
     lang_name = LANG_NAMES.get(target_lang, target_lang)
-    practiced = _phrase_similar(user_text, pending)
-    if not practiced and pending_tr and _phrase_similar(user_text, pending_tr):
+    practiced = _practice_phrase_match(user_text, pending)
+    if not practiced and pending_tr and _practice_phrase_match(user_text, pending_tr):
         practiced = True
     if not practiced and pending_tr and translate_fn and re.search(r"[ğüşıöçĞÜŞİÖÇ]", user_text):
         meaning = translate_fn(user_text, "tr", target_lang)
-        practiced = _phrase_similar(meaning, pending)
+        practiced = _practice_phrase_match(meaning, pending)
 
     if not practiced:
         return None
 
     clear_delta = {"pendingPracticePhrase": None, "pendingPracticeTr": None}
     teacher_en = (
-        f"Excellent! You said it well: \"{pending}\"\n\n"
-        f"That's exactly the sentence we practiced. "
-        f"Now let's keep chatting in {lang_name} — tell me, what else are you planning today?"
+        f"Excellent! You said it well:\n\"{user_text.strip()}\"\n\n"
+        f"That's the sentence we practiced"
+        + (f" (\"{pending}\")" if _norm(user_text) != _norm(pending) else "")
+        + f". Now let's keep chatting in {lang_name} — what else are you planning today?"
     )
     teacher_tr = (
-        f"🎉 Harika! Doğru söyledin:\n\"{pending}\"\n\n"
-        f"Tam olarak çalıştığımız cümleydi. "
+        f"🎉 Harika! Doğru söyledin:\n\"{user_text.strip()}\"\n\n"
+        f"Çalıştığımız cümleydi. "
         f"Şimdi {lang_name} sohbete devam edelim — bugün başka ne planlıyorsun?"
     )
     if translate_fn:
@@ -2296,15 +2344,6 @@ def process_turn(
         breakdown = grammar_breakdown(last_teacher, profile.get("currentLevel", "A1"))
         return _pack(profile, session_delta, breakdown, breakdown, None, 1, "breakdown", waiting=True, user_text=user_text)
 
-    # Yardım sonrası pratik cümlesi — sohbete geri dön
-    if profile.get("pendingPracticePhrase") and translate_fn:
-        resumed = _resume_after_help(
-            user_text, target_lang, profile, session_delta, translate_fn, history, roleplay,
-        )
-        if resumed:
-            resumed["weekly_progress"] = weekly_progress(resumed["profile"])
-            return resumed
-
     # "yardım" ile başlayan istek → cümle kurma öğretimi
     if translate_fn and _is_yardim_request(user_text):
         return _yardim_help_mode(user_text, target_lang, profile, session_delta, translate_fn)
@@ -2313,7 +2352,16 @@ def process_turn(
     if translate_fn and HELP_RE.search(user_text):
         return _help_mode(user_text, target_lang, translate_fn, profile, session_delta)
 
-    # AI öğretmen — ana beyin (OpenAI; kelime listesi değil, bağlamdan düşünür)
+    # Yardım sonrası pratik — sadece gerçekten doğru söylendiyse
+    if profile.get("pendingPracticePhrase") and translate_fn:
+        resumed = _resume_after_help(
+            user_text, target_lang, profile, session_delta, translate_fn, history, roleplay,
+        )
+        if resumed:
+            resumed["weekly_progress"] = weekly_progress(resumed["profile"])
+            return resumed
+
+    # AI öğretmen — ana beyin (pending pratik varken yanlış cümleyi de düzgün ele alır)
     ai_result = _try_ai_tutor_turn(
         original_text, user_lang, target_lang, history, profile,
         session_delta, roleplay, speak_slow, translate_fn,
@@ -2322,7 +2370,7 @@ def process_turn(
         ai_result["weekly_progress"] = weekly_progress(ai_result["profile"])
         return ai_result
 
-    # AI yoksa veya hata — kural tabanlı yedek
+    # AI yoksa — kural tabanlı yedek
     if translate_fn:
         intent_result = _try_intent_clarify(
             user_text, history, profile, session_delta, target_lang, translate_fn,
