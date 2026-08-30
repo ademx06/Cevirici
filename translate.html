@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Sesli Çevirmen">
+  <meta name="theme-color" content="#060B18">
+  <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%23060B18' width='100' height='100' rx='20'/><text x='50' y='62' font-size='48' text-anchor='middle' fill='%2338BDF8'>🌍</text></svg>">
+  <link rel="manifest" href="manifest.json">
+  <title>Çeviri — Sesli Çevirmen</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <div class="header-left">
+        <a href="/" class="back-btn" aria-label="Ana menü">←</a>
+        <div>
+          <h1>Çeviri</h1>
+          <p class="tagline">Otomatik çift yönlü çeviri</p>
+        </div>
+      </div>
+      <button id="clearBtn" class="ghost-btn hidden" type="button">Temizle</button>
+    </header>
+
+    <section class="lang-card">
+      <div class="lang-field">
+        <label for="myLang">Benim dilim</label>
+        <select id="myLang"></select>
+      </div>
+      <button id="swapBtn" class="swap-btn" type="button" aria-label="Dilleri değiştir">⇄</button>
+      <div class="lang-field">
+        <label for="otherLang">Karşı taraf</label>
+        <select id="otherLang"></select>
+      </div>
+    </section>
+
+    <div class="status-bar">
+      <span id="statusDot" class="status-dot"></span>
+      <span id="statusText">Basılı tut ve konuş</span>
+    </div>
+
+    <div id="errorBox" class="error-box hidden"></div>
+
+    <div id="interimBox" class="interim hidden">
+      <div class="interim-label">Dinleniyor...</div>
+      <div id="interimText"></div>
+    </div>
+
+    <main id="messages" class="messages">
+      <div class="empty-state">
+        <div class="empty-icon">💬</div>
+        <h2>Basılı tut ve konuş</h2>
+        <p>Butona basılı tut, konuş, bırak — çeviri otomatik gelir.</p>
+      </div>
+    </main>
+
+    <section class="controls">
+      <button id="micBtn" class="mic-btn" type="button">
+        <span class="mic-icon">🎤</span>
+        <span class="mic-text">
+          <strong id="micTitle">Basılı Tut ve Konuş</strong>
+          <small id="conversationSubtitle">Basılı tut → konuş → bırak</small>
+        </span>
+      </button>
+      <button id="testBtn" class="test-btn" type="button">🔊 Sesi Test Et</button>
+    </section>
+  </div>
+
+  <script src="app.js?v=47"></script>
+</body>
+</html>

@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Sesli Çevirmen">
+  <meta name="theme-color" content="#060B18">
+  <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%23060B18' width='100' height='100' rx='20'/><text x='50' y='62' font-size='48' text-anchor='middle' fill='%2338BDF8'>🌍</text></svg>">
+  <link rel="manifest" href="manifest.json">
+  <title>Eğitim — Sesli Çevirmen</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app edu-app">
+    <header class="header">
+      <div class="header-left">
+        <a href="/" class="back-btn" aria-label="Ana menü">←</a>
+        <div>
+          <h1>Eğitim</h1>
+          <p class="tagline">Robot öğretmen</p>
+        </div>
+      </div>
+      <div class="edu-header-actions">
+        <span id="levelBadge" class="level-badge">A1</span>
+        <button id="reportBtn" class="ghost-btn" type="button">Rapor</button>
+        <button id="clearBtn" class="ghost-btn hidden" type="button">Temizle</button>
+      </div>
+    </header>
+
+    <section class="robot-card">
+      <div class="robot-avatar" id="robotAvatar">🤖</div>
+      <div class="robot-info">
+        <strong id="robotName">Öğretmen</strong>
+        <p id="robotHint">Hedef dilde konuş · robot seni dinler ve düzeltir</p>
+      </div>
+    </section>
+
+    <section class="daily-goal" id="dailyGoal">
+      <div class="daily-goal-label">Bugünkü hedef: <span id="goalText">10 dk konuşma</span></div>
+      <div class="daily-goal-bar"><div id="goalProgress" class="daily-goal-fill"></div></div>
+      <div class="daily-goal-meta"><span id="goalMeta">0 / 10 dk</span></div>
+    </section>
+
+    <section class="lang-card edu-lang">
+      <div class="lang-field lang-field-full">
+        <label for="learnLang">Öğrenmek istediğim dil</label>
+        <select id="learnLang"></select>
+      </div>
+      <div class="lang-field lang-field-full">
+        <label for="roleplaySelect">Senaryo (isteğe bağlı)</label>
+        <select id="roleplaySelect">
+          <option value="">Serbest konuşma</option>
+          <option value="friend">Arkadaş</option>
+          <option value="hotel">Otel resepsiyonu</option>
+          <option value="restaurant">Restoran garsonu</option>
+          <option value="airport">Havalimanı görevlisi</option>
+          <option value="shop">Mağaza</option>
+          <option value="interview">İş görüşmesi</option>
+          <option value="teacher">Öğretmen</option>
+        </select>
+      </div>
+    </section>
+
+    <div class="lesson-chips" id="lessonChips">
+      <button type="button" class="chip" data-lesson="how_are_you">Nasılsın?</button>
+      <button type="button" class="chip" data-lesson="how_was_vacation">Tatil nasıldı?</button>
+      <button type="button" class="chip" data-lesson="thank_you">Teşekkürler</button>
+    </div>
+
+    <div class="status-bar edu-status">
+      <span id="statusDot" class="status-dot"></span>
+      <span id="statusText">Konuşmak için basılı tut</span>
+    </div>
+
+    <div id="errorBox" class="error-box hidden"></div>
+
+    <div id="interimBox" class="interim hidden">
+      <div id="interimText"></div>
+    </div>
+
+    <main id="messages" class="messages edu-messages">
+      <div class="empty-state">
+        <div class="empty-icon">🤖</div>
+        <h2>Robot öğretmenin hazır</h2>
+        <p>İngilizce konuş — robot doğal cevap verir.<br>
+        Gerekirse düzeltir. "Türkçe açıkla" diyebilirsin.</p>
+      </div>
+    </main>
+
+    <section class="edu-voice-controls">
+      <button type="button" id="speedNormal" class="voice-ctrl active" title="Normal hız">🔊 Normal</button>
+      <button type="button" id="speedSlow" class="voice-ctrl" title="Yavaş konuş">🐢 Yavaş</button>
+      <button type="button" id="repeatBtn" class="voice-ctrl" title="Son cümleyi tekrar">🔁 Tekrar</button>
+    </section>
+
+    <section class="controls">
+      <button id="micBtn" class="mic-btn mic-btn-edu" type="button">
+        <span class="mic-icon">🎤</span>
+        <span class="mic-text">
+          <strong id="micTitle">Basılı Tut ve Konuş</strong>
+          <small id="conversationSubtitle">Hedef dilde konuş</small>
+        </span>
+      </button>
+    </section>
+  </div>
+
+  <div id="reportModal" class="edu-modal hidden">
+    <div class="edu-modal-backdrop"></div>
+    <div class="edu-modal-card">
+      <h2>Bugünkü İngilizce</h2>
+      <div id="reportContent" class="report-content"></div>
+      <button type="button" id="closeReport" class="primary-btn">Tamam</button>
+    </div>
+  </div>
+
+  <script src="education.js?v=2"></script>
+</body>
+</html>
