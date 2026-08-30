@@ -27,7 +27,8 @@ const STATES = {
 const audio = document.createElement('audio');
 audio.setAttribute('playsinline', 'true');
 audio.setAttribute('webkit-playsinline', 'true');
-document.body.appendChild(audio);
+if (document.body) document.body.appendChild(audio);
+else document.addEventListener('DOMContentLoaded', () => document.body.appendChild(audio));
 
 const TAIL_MS = 450;
 const MIN_HOLD_MS = 450;
@@ -91,7 +92,10 @@ const MIC_OPTS = {
 function loadProfile() {
   try {
     const raw = localStorage.getItem(PROFILE_KEY);
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      const p = JSON.parse(raw);
+      if (p && typeof p === 'object' && !Array.isArray(p)) return p;
+    }
   } catch { /* ignore */ }
   return {
     targetLang: 'en', currentLevel: 'A1', dailyGoalMinutes: 10,
@@ -109,7 +113,10 @@ function saveProfile() {
 function loadHistory() {
   try {
     const raw = localStorage.getItem(HISTORY_KEY);
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    }
   } catch { /* ignore */ }
   return [];
 }
@@ -446,6 +453,7 @@ async function playB64(b64) {
 }
 
 function pushHistory(role, text) {
+  if (!Array.isArray(S.history)) S.history = [];
   S.history.unshift({ role, text });
   S.history = S.history.slice(0, 24);
   saveHistory();
@@ -1016,6 +1024,8 @@ window.addEventListener('pagehide', () => endSession());
 S.profile = loadProfile();
 S.history = loadHistory();
 S.msgs = loadChat();
+if (!Array.isArray(S.history)) S.history = [];
+if (!Array.isArray(S.msgs)) S.msgs = [];
 S.learnLang = S.profile?.targetLang || 'en';
 syncLearnLang();
 updateLevelBadge();
