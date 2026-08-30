@@ -1610,13 +1610,44 @@ def motivation_message(profile: dict) -> str | None:
     return None
 
 
+def _active_llm_provider() -> str | None:
+    """Öncelik: Groq/Gemini ücretsiz, sonra OpenAI."""
+    if os.environ.get("GROQ_API_KEY", "").strip():
+        return "groq"
+    if os.environ.get("GEMINI_API_KEY", "").strip():
+        return "gemini"
+    if os.environ.get("OPENAI_API_KEY", "").strip():
+        return "openai"
+    return None
+
+
 def llm_available() -> bool:
-    return bool(os.environ.get("OPENAI_API_KEY", "").strip())
+    return _active_llm_provider() is not None
+
+
+def ai_provider_info() -> dict[str, str | None]:
+    p = _active_llm_provider()
+    labels = {
+        "groq": "Groq (ücretsiz)",
+        "gemini": "Google Gemini (ücretsiz)",
+        "openai": "OpenAI",
+    }
+    models = {
+        "groq": os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile"),
+        "gemini": os.environ.get("GEMINI_MODEL", "gemini-2.0-flash"),
+        "openai": os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
+    }
+    return {
+        "provider": p,
+        "label": labels.get(p or "", None),
+        "model": models.get(p or "", None),
+    }
 
 
 def _llm(messages: list[dict], target_lang: str, level: str, roleplay: str | None = None,
            extra: str = "") -> str | None:
-    if not llm_available():
+    provider = _active_llm_provider()
+    if not provider:
         return None
     sys = SYSTEM_PROMPT + f"\nTarget language: {LANG_NAMES.get(target_lang, target_lang)}. User level: {level}."
     if roleplay and roleplay in ROLEPLAYS:
@@ -1625,44 +1656,27 @@ def _llm(messages: list[dict], target_lang: str, level: str, roleplay: str | Non
             sys += f"\nRoleplay scenario: {rp}"
     if extra:
         sys += f"\n{extra}"
-    body = json.dumps({
-        "model": os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
-        "messages": [{"role": "system", "content": sys}] + messages,
-        "temperature": 0.65,
-        "max_tokens": 280,
-    }).encode()
-    try:
-        req = Request(
-            "https://api.openai.com/v1/chat/completions",
-            data=body,
-            headers={"Authorization": f"Bearer {os.environ.get('OPENAI_API_KEY', '').strip()}", "Content-Type": "application/json"},
-            method="POST",
-        )
-        with urlopen(req, timeout=25) as resp:
-            data = json.loads(resp.read().decode())
-        return data["choices"][0]["message"]["content"].strip()
-    except Exception:
-        return None
+    full_messages = [{"role": "system", "content": sys}] + messages
+    if provider == "groq":
+        return _groq_chat(full_messages, max_tokens=280)
+    if provider == "gemini":
+        return _gemini_chat(sys, messages[-1]["content"] if messages else "", max_tokens=280)
+    return _openai_chat(full_messages, json_mode=False, max_tokens=280)
 
 
-def _llm_json(system: str, user: str, max_tokens: int = 520) -> dict[str, Any] | None:
-    """Yapılandırılmış JSON yanıt — AI öğretmen motoru."""
-    if not llm_available():
-        return None
-    body = json.dumps({
+def _openai_chat(messages: list[dict], json_mode: bool = False, max_tokens: int = 520) -> str | None:
+    body: dict[str, Any] = {
         "model": os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
-        "response_format": {"type": "json_object"},
-        "temperature": 0.72,
+        "messages": messages,
+        "temperature": 0.65 if not json_mode else 0.72,
         "max_tokens": max_tokens,
-    }).encode()
+    }
+    if json_mode:
+        body["response_format"] = {"type": "json_object"}
     try:
         req = Request(
             "https://api.openai.com/v1/chat/completions",
-            data=body,
+            data=json.dumps(body).encode(),
             headers={
                 "Authorization": f"Bearer {os.environ.get('OPENAI_API_KEY', '').strip()}",
                 "Content-Type": "application/json",
@@ -1671,7 +1685,102 @@ def _llm_json(system: str, user: str, max_tokens: int = 520) -> dict[str, Any] |
         )
         with urlopen(req, timeout=35) as resp:
             data = json.loads(resp.read().decode())
-        raw = data["choices"][0]["message"]["content"].strip()
+        return data["choices"][0]["message"]["content"].strip()
+    except Exception:
+        return None
+
+
+def _groq_chat(messages: list[dict], max_tokens: int = 520, json_mode: bool = False) -> str | None:
+    body: dict[str, Any] = {
+        "model": os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile"),
+        "messages": messages,
+        "temperature": 0.72,
+        "max_tokens": max_tokens,
+    }
+    if json_mode:
+        body["response_format"] = {"type": "json_object"}
+    try:
+        req = Request(
+            "https://api.groq.com/openai/v1/chat/completions",
+            data=json.dumps(body).encode(),
+            headers={
+                "Authorization": f"Bearer {os.environ.get('GROQ_API_KEY', '').strip()}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        with urlopen(req, timeout=35) as resp:
+            data = json.loads(resp.read().decode())
+        return data["choices"][0]["message"]["content"].strip()
+    except Exception:
+        return None
+
+
+def _gemini_chat(system: str, user: str, max_tokens: int = 520) -> str | None:
+    key = os.environ.get("GEMINI_API_KEY", "").strip()
+    model = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+    if not key:
+        return None
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
+    body = json.dumps({
+        "systemInstruction": {"parts": [{"text": system}]},
+        "contents": [{"role": "user", "parts": [{"text": user}]}],
+        "generationConfig": {"temperature": 0.72, "maxOutputTokens": max_tokens},
+    }).encode()
+    try:
+        req = Request(url, data=body, headers={"Content-Type": "application/json"}, method="POST")
+        with urlopen(req, timeout=35) as resp:
+            data = json.loads(resp.read().decode())
+        parts = data["candidates"][0]["content"]["parts"]
+        return "".join(p.get("text", "") for p in parts).strip()
+    except Exception:
+        return None
+
+
+def _llm_json(system: str, user: str, max_tokens: int = 520) -> dict[str, Any] | None:
+    """Yapılandırılmış JSON yanıt — Groq / Gemini / OpenAI."""
+    provider = _active_llm_provider()
+    if not provider:
+        return None
+    raw: str | None = None
+    if provider == "groq":
+        raw = _groq_chat(
+            [{"role": "system", "content": system}, {"role": "user", "content": user}],
+            max_tokens=max_tokens,
+            json_mode=True,
+        )
+    elif provider == "gemini":
+        url = (
+            f"https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{os.environ.get('GEMINI_MODEL', 'gemini-2.0-flash')}:generateContent"
+            f"?key={os.environ.get('GEMINI_API_KEY', '').strip()}"
+        )
+        body = json.dumps({
+            "systemInstruction": {"parts": [{"text": system}]},
+            "contents": [{"role": "user", "parts": [{"text": user}]}],
+            "generationConfig": {
+                "responseMimeType": "application/json",
+                "temperature": 0.72,
+                "maxOutputTokens": max_tokens,
+            },
+        }).encode()
+        try:
+            req = Request(url, data=body, headers={"Content-Type": "application/json"}, method="POST")
+            with urlopen(req, timeout=35) as resp:
+                data = json.loads(resp.read().decode())
+            parts = data["candidates"][0]["content"]["parts"]
+            raw = "".join(p.get("text", "") for p in parts).strip()
+        except Exception:
+            raw = None
+    else:
+        raw = _openai_chat(
+            [{"role": "system", "content": system}, {"role": "user", "content": user}],
+            json_mode=True,
+            max_tokens=max_tokens,
+        )
+    if not raw:
+        return None
+    try:
         parsed = json.loads(raw)
         return parsed if isinstance(parsed, dict) else None
     except Exception:

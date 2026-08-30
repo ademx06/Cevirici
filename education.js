@@ -222,12 +222,12 @@ async function fetchAiStatus() {
     if (!banner) return;
     if (d.ai_enabled) {
       banner.classList.add('hidden');
-      safeText('statusText', 'AI öğretmen aktif');
+      safeText('statusText', d.ai_provider_label ? `AI: ${d.ai_provider_label}` : 'AI öğretmen aktif');
       return;
     }
     banner.textContent =
-      '⚠️ AI öğretmen kapalı — sunucuda OPENAI_API_KEY gerekli. '
-      + 'Şu an basit kural modu çalışıyor; gerçek düşünen eğitmen için .env dosyasına anahtar ekleyin.';
+      '⚠️ AI öğretmen kapalı. ÜCRETSİZ açmak için iPhone Safari: console.groq.com → Sign up → '
+      + 'API Keys → Create → gsk_... anahtarını bana gönder (kredi kartı gerekmez).';
     banner.classList.remove('hidden');
     safeText('statusText', 'Kural modu (AI kapalı)');
   } catch {

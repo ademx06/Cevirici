@@ -14,7 +14,7 @@ import tempfile
 from tutor import get_lesson, tutor_reply
 from education_engine import (
     process_turn, greeting, session_report, daily_lesson, default_profile,
-    finalize_session, weekly_progress, merge_profile, llm_available,
+    finalize_session, weekly_progress, merge_profile, llm_available, ai_provider_info,
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -747,13 +747,16 @@ class Handler(SimpleHTTPRequestHandler):
         else:
             proto = "http"
         origin = f"{proto}://{host}" if host else ""
+        info = ai_provider_info()
         body = json.dumps(
             {
                 "ok": True,
                 "origin": origin,
                 "port": PORT,
                 "ai_enabled": llm_available(),
-                "ai_model": os.environ.get("OPENAI_MODEL", "gpt-4o-mini") if llm_available() else None,
+                "ai_provider": info.get("provider"),
+                "ai_provider_label": info.get("label"),
+                "ai_model": info.get("model"),
             },
             ensure_ascii=False,
         ).encode()
