@@ -112,7 +112,11 @@ def _norm(s: str) -> str:
 
 def _extract_turkish_phrase(text: str) -> str:
     t = text.strip()
+    t = re.sub(r"^\s*yardım\b[,\s!:.-]*", "", t, flags=re.I).strip()
     for pat in (
+        r"(.+?)\s+kısmını\s+söyle(?:y)?emiyorum",
+        r"(.+?)\s+nasıl\s+söylerim",
+        r"bunu\s+nasıl\s+söylerim.*?[:\s]+(.+)",
         r"söylemek\s+istiyorum[:\s]+(.+)",
         r"demek\s+istiyorum[:\s]+(.+)",
         r"ingilizcede\s+(.+?)(?:\s+nasıl|\s*\.|$)",
@@ -125,11 +129,15 @@ def _extract_turkish_phrase(text: str) -> str:
         m = re.search(pat, t, re.I)
         if m:
             phrase = m.group(1).strip(" ?.!")
+            phrase = re.sub(
+                r"^(?:ben\s+)?(?:şunu|bunu|onu)\s+", "", phrase, flags=re.I,
+            ).strip()
             if len(phrase) > 2:
                 return phrase
     cleaned = re.sub(
         r"(?:ingilizcede|rusçada|gürcücede|fransızca|almanca|nasıl\s+söylerim|"
-        r"nasıl\s+derim|yardım|lütfen|bana|bir|şey|söylemek\s+istiyorum)",
+        r"nasıl\s+derim|yardım|lütfen|bana|bir|şey|söylemek\s+istiyorum|"
+        r"söyleyemiyorum|anlatır\s+mısın|bunu|şunu|kısmını)",
         " ",
         t,
         flags=re.I,

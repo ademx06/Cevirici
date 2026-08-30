@@ -684,7 +684,7 @@ class Handler(SimpleHTTPRequestHandler):
         except Exception:
             profile = {}
         try:
-            result = greeting(lang, profile)
+            result = greeting(lang, profile, translate_fn=translate_text)
             result = self._education_tts(result, lang)
             body = json.dumps(result, ensure_ascii=False).encode()
             self.send_response(200)

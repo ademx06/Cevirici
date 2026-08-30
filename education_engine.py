@@ -8,6 +8,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 from urllib.request import Request, urlopen
 
+from tutor import _extract_turkish_phrase
+
 LANG_NAMES = {
     "en": "English", "de": "German", "fr": "French", "es": "Spanish",
     "ru": "Russian", "ka": "Georgian", "it": "Italian", "ar": "Arabic", "zh": "Chinese",
@@ -122,10 +124,13 @@ VOCAB_LIBRARY: dict[str, list[dict[str, str]]] = {
 }
 
 HELP_RE = re.compile(
-    r"(nasıl\s+(?:söylerim|derim|denir)|ingilizcede|ne\s+demek|çevirir\s+misin|"
-    r"how\s+do\s+i\s+say|what\s+is\s+.+\s+in\s+english)",
+    r"(^\s*yardım\b|nasıl\s+(?:söylerim|derim|denir)|ingilizcede|ne\s+demek|çevirir\s+misin|"
+    r"kısmını\s+söyle(?:y)?emiyorum|how\s+do\s+i\s+say|what\s+is\s+.+\s+in\s+english|"
+    r"bunu\s+nasıl\s+söylerim|anlatır\s+mısın)",
     re.I,
 )
+
+YARDIM_PREFIX_RE = re.compile(r"^\s*yardım\b[,\s!:.-]*", re.I)
 
 BREAKDOWN_RE = re.compile(
     r"(cümle\s+yapısı|break\s+down|gramer\s+açıkla|explain\s+(?:the\s+)?grammar|"
@@ -448,6 +453,75 @@ def _norm(s: str) -> str:
     return re.sub(r"[^\w\s']", "", s.lower()).strip()
 
 
+def _is_yardim_request(text: str) -> bool:
+    return bool(YARDIM_PREFIX_RE.search(text))
+
+
+def _to_tr(text: str, translate_fn: Callable[[str, str, str], str], from_lang: str = "en") -> str:
+    if not text or not translate_fn:
+        return ""
+    try:
+        return translate_fn(text.strip(), from_lang, "tr")
+    except Exception:
+        return ""
+
+
+def _teacher_tr_from_en(
+    teacher_en: str,
+    translate_fn: Callable[[str, str, str], str] | None,
+    target_lang: str = "en",
+    correction_tr: str | None = None,
+    note_tr: str | None = None,
+) -> str:
+    """Türkçe blok = İngilizce cevabın tam çevirisi (+ varsa düzeltme/not)."""
+    parts: list[str] = []
+    if note_tr:
+        parts.append(note_tr)
+    if correction_tr:
+        parts.append(correction_tr)
+    if teacher_en and translate_fn:
+        tr = _to_tr(teacher_en, translate_fn, target_lang)
+        if tr:
+            parts.append(tr)
+    elif correction_tr:
+        return correction_tr
+    return "\n\n".join(p for p in parts if p)
+
+
+def _explain_sentence_structure_tr(phrase_tr: str, phrase_en: str, lang_name: str) -> str:
+    parts: list[str] = []
+    if re.search(r"gideceğim|gideceksin|gidecek|gideceğiz", phrase_tr, re.I):
+        parts.append("• \"-eceğim/-acağım\" → am going to / will (yakın gelecek planı)")
+    if re.search(r"yapacağım|yapacaksın|edeceğim", phrase_tr, re.I):
+        parts.append("• \"-eceğim\" fiili → will / am going to + fiil")
+    if re.search(r"\bişe\b|\bokula\b|\beve\b", phrase_tr, re.I):
+        parts.append("• \"işe / okula / eve\" → to work / to school / home (yön)")
+    if re.search(r"bugün|yarın|dün|hafta", phrase_tr, re.I):
+        parts.append("• Zaman: today / tomorrow / yesterday — genelde cümlenin sonunda")
+    if re.search(r"\bben\b", phrase_tr, re.I):
+        parts.append("• \"ben\" → I (özne, cümlenin başında)")
+    if re.search(r"çok|biraz|çok\s+yorgun", phrase_tr, re.I):
+        parts.append("• \"çok\" → very; sıfattan önce gelir: very tired")
+    if not parts:
+        parts.append(f"• Özne (I) + fiil + nesne/zaman sırasıyla kur — {lang_name} doğal akışı böyle.")
+    parts.append(f"• Tam cümle: \"{phrase_en}\"")
+    return "\n".join(parts)
+
+
+def _explain_sentence_structure_en(phrase_tr: str, phrase_en: str) -> str:
+    parts: list[str] = []
+    if re.search(r"gideceğim|gideceksin", phrase_tr, re.I):
+        parts.append("• Turkish \"-eceğim\" → I'm going to ... / I will ...")
+    if re.search(r"\bben\b", phrase_tr, re.I):
+        parts.append("• \"ben\" = I (subject at the start)")
+    if re.search(r"bugün|yarın", phrase_tr, re.I):
+        parts.append("• Time words like \"bugün\" usually go at the end in English")
+    if not parts:
+        parts.append("• Subject + verb + object/time — natural English order")
+    parts.append(f"• Full sentence: \"{phrase_en}\"")
+    return "\n".join(parts)
+
+
 def grammar_breakdown(sentence: str, level: str) -> str:
     s = sentence.strip()
     if not s:
@@ -583,50 +657,77 @@ def _fallback_reply(
 
 def _help_mode(
     user_text: str, target_lang: str, translate_fn: Callable[[str, str, str], str],
+    profile: dict, session_delta: dict,
 ) -> dict[str, Any]:
-    from tutor import _extract_turkish_phrase
-
     phrase_tr = _extract_turkish_phrase(user_text)
     translated = translate_fn(phrase_tr, "tr", target_lang)
     lang_name = LANG_NAMES.get(target_lang, target_lang)
-    teacher_en = f"Try saying: \"{translated}\""
-    explain = f"🇹🇷 \"{phrase_tr}\"\n\n🇬🇧 {lang_name}: \"{translated}\"\n\nTekrar et ve birlikte çalışalım."
-    return {
-        "type": "help",
-        "user_text": user_text,
-        "teacher_text": explain,
-        "teacher_en": translated,
-        "teacher_tr": f"Türkçe: \"{phrase_tr}\"\n{lang_name}: \"{translated}\"",
-        "explain_tr": explain,
-        "correction": translated,
-        "correction_level": 1,
-        "speak_text": translated,
-        "waiting_for_user": True,
-    }
+    struct_tr = _explain_sentence_structure_tr(phrase_tr, translated, lang_name)
+    struct_en = _explain_sentence_structure_en(phrase_tr, translated)
+
+    teacher_en = (
+        f"Of course — here's how to say it in {lang_name}:\n\n"
+        f"\"{translated}\"\n\n"
+        f"How to build it:\n{struct_en}\n\n"
+        f"Now try saying it out loud in {lang_name} — I'm listening!"
+    )
+    teacher_tr = (
+        f"Tabii, yardım edeyim.\n\n"
+        f"🎯 Demek istediğin:\n\"{phrase_tr}\"\n\n"
+        f"✅ {lang_name}:\n\"{translated}\"\n\n"
+        f"📖 Cümle yapısı:\n{struct_tr}\n\n"
+        f"🔄 Şimdi sen dene — yüksek sesle söyle!"
+    )
+    delta = {**session_delta, "lastTeacherText": translated}
+    return _pack(
+        profile, delta, teacher_en, teacher_tr, translated, 1, "help",
+        waiting=True, user_text=user_text, teacher_en=teacher_en, speak_text=translated,
+    )
 
 
-def _turkish_to_practice(
+def _yardim_help_mode(
     user_text: str, target_lang: str, profile: dict, session_delta: dict,
     translate_fn: Callable[[str, str, str], str],
 ) -> dict[str, Any]:
-    """Türkçe konuşuldu — çeviri uygulaması gibi davranma, İngilizce pratik yaptır."""
+    return _help_mode(user_text, target_lang, translate_fn, profile, session_delta)
+
+
+def _turkish_in_conversation(
+    user_text: str, target_lang: str, profile: dict, session_delta: dict,
+    translate_fn: Callable[[str, str, str], str],
+    history: list[dict], roleplay: str | None,
+) -> dict[str, Any]:
+    """Türkçe konuşuldu ama yardım istenmedi — hedef dilde sohbete devam et."""
     lang_name = LANG_NAMES.get(target_lang, target_lang)
-    en_phrase = translate_fn(user_text, "tr", target_lang)
-    teacher_tr = (
-        f"Anladım! 🇹🇷 \"{user_text}\"\n\n"
-        f"Bunu {lang_name} denemek için:\n\"{en_phrase}\"\n\n"
-        f"Şimdi sen {lang_name} söyle — dinliyorum!"
+    meaning_en = translate_fn(user_text, "tr", target_lang)
+
+    llm_msgs = []
+    for h in history[-10:]:
+        role = "assistant" if h.get("role") == "teacher" else "user"
+        llm_msgs.append({"role": role, "content": h.get("text", "")})
+    llm_msgs.append({
+        "role": "user",
+        "content": (
+            f"[Student spoke Turkish: \"{user_text}\" — meaning roughly: \"{meaning_en}\"] "
+            f"Reply naturally in {lang_name}. Acknowledge briefly, then continue the conversation "
+            f"with a follow-up question. Encourage them to answer in {lang_name}."
+        ),
+    })
+    teacher_en = _llm(
+        llm_msgs, target_lang, profile.get("currentLevel", "A1"), roleplay,
+        extra="Do not translate word-for-word. Be warm like a human tutor.",
     )
-    teacher_en = (
-        f"I understand what you mean!\n"
-        f"In English, try saying:\n\"{en_phrase}\"\n\n"
-        f"Now you say it in English — I'm listening!"
-    )
-    display = f"{teacher_tr}\n\n———\n{teacher_en}"
-    delta = {**session_delta, "lastTeacherText": en_phrase}
+    if not teacher_en:
+        teacher_en = (
+            f"I understand — you said something like: \"{meaning_en}\". "
+            f"Let's keep going in {lang_name}. Can you tell me more about that in {lang_name}?"
+        )
+
+    note = "💬 Türkçe konuştun — anladım. Hedef dilde devam edelim."
+    teacher_tr = _teacher_tr_from_en(teacher_en, translate_fn, target_lang, note_tr=note)
     return _pack(
-        profile, delta, display, teacher_tr, en_phrase, 1, "coach_tr",
-        waiting=True, user_text=user_text, teacher_en=teacher_en, speak_text=en_phrase,
+        profile, session_delta, teacher_en, teacher_tr, None, 1, "coach_tr",
+        waiting=True, user_text=user_text, teacher_en=teacher_en, speak_text=teacher_en,
     )
 
 
@@ -653,21 +754,24 @@ def _conversation_tr_hint() -> str:
     return random.choice(CONVERSATION_TR)
 
 
-def greeting(lang: str, profile: dict | None = None) -> dict[str, Any]:
+def greeting(
+    lang: str,
+    profile: dict | None = None,
+    translate_fn: Callable[[str, str, str], str] | None = None,
+) -> dict[str, Any]:
     import random
     profile = merge_profile(profile, None)
     profile = reset_daily_if_needed(profile)
     text_en = random.choice(GREETINGS.get(lang, GREETINGS["en"]))
-    text_tr = random.choice(GREETINGS_TR)
+    intro_tr = random.choice(GREETINGS_TR)
     motiv = motivation_message(profile)
     if motiv:
-        text_tr = f"{motiv}\n\n{text_tr}"
+        intro_tr = f"{motiv}\n\n{intro_tr}"
     srs_prompt, srs_id = pick_srs_prompt(profile)
     if srs_prompt:
         text_en = f"{text_en}\n\n{srs_prompt}"
     teacher_en = text_en
-    teacher_tr = text_tr
-    display = f"{text_tr}\n\n———\n🇬🇧 {text_en}" if lang == "en" else f"{text_tr}\n\n———\n{text_en}"
+    teacher_tr = _teacher_tr_from_en(text_en, translate_fn, lang, note_tr=intro_tr) if translate_fn else intro_tr
     delta = {
         "lastTeacherText": text_en,
         "waitingForUser": True,
@@ -675,7 +779,7 @@ def greeting(lang: str, profile: dict | None = None) -> dict[str, Any]:
         "pendingSrsId": srs_id,
     }
     result = _pack(
-        profile, delta, display, text_tr, None, 1, "greeting",
+        profile, delta, teacher_en, teacher_tr, None, 1, "greeting",
         waiting=True, teacher_en=teacher_en, speak_text=text_en,
     )
     result["daily_lesson"] = daily_lesson(profile)
@@ -703,17 +807,21 @@ def process_turn(
 
     last_teacher = profile.get("lastTeacherText") or ""
     if not user_text:
-        return greeting(target_lang, profile)
+        return greeting(target_lang, profile, translate_fn=translate_fn)
 
     if SPECIAL_TR.search(user_text):
         low = user_text.lower()
         if re.search(r"türkçe|anlamadım", low):
-            tr = (
-                f"🇹🇷 Son İngilizce cümlem:\n\"{last_teacher}\"\n\n"
-                f"Anlamadıysan tekrar sorabilir veya 'tekrar et' diyebilirsin."
+            tr_explain = (
+                f"Son {LANG_NAMES.get(target_lang, target_lang)} cümlem:\n\"{last_teacher}\"\n\n"
             )
+            if translate_fn and last_teacher:
+                tr_explain += _to_tr(last_teacher, translate_fn, target_lang)
+            else:
+                tr_explain += last_teacher
+            tr_explain += "\n\nAnlamadıysan tekrar sorabilir veya 'tekrar et' diyebilirsin."
             return _pack(
-                profile, session_delta, f"{last_teacher}\n\n———\n{tr}", tr,
+                profile, session_delta, last_teacher, tr_explain,
                 None, 1, "explain_tr", waiting=True, user_text=user_text, teacher_en=last_teacher,
             )
         if re.search(r"repeat|tekrar", low) and last_teacher:
@@ -725,20 +833,19 @@ def process_turn(
         breakdown = grammar_breakdown(last_teacher, profile.get("currentLevel", "A1"))
         return _pack(profile, session_delta, breakdown, breakdown, None, 1, "breakdown", waiting=True, user_text=user_text)
 
-    # Yalnızca açık yardım isteğinde çeviri modu (Türkçe konuşmak ≠ çeviri)
-    if translate_fn and HELP_RE.search(user_text):
-        help_result = _help_mode(user_text, target_lang, translate_fn)
-        p = merge_profile(profile, session_delta)
-        p["lastTeacherText"] = help_result["speak_text"]
-        help_result["profile"] = p
-        help_result["current_level"] = p.get("currentLevel", "A1")
-        help_result["target_lang"] = target_lang
-        help_result["user_lang"] = user_lang
-        return help_result
+    # "yardım" ile başlayan istek → cümle kurma öğretimi
+    if translate_fn and _is_yardim_request(user_text):
+        return _yardim_help_mode(user_text, target_lang, profile, session_delta, translate_fn)
 
-    # Kullanıcı Türkçe konuştu — çevirme, öğret ve İngilizceye yönlendir
+    # Açık yardım ifadeleri (nasıl söylerim, kısmını söyleyemiyorum…)
+    if translate_fn and HELP_RE.search(user_text):
+        return _help_mode(user_text, target_lang, translate_fn, profile, session_delta)
+
+    # Türkçe konuşuldu, yardım değil → hedef dilde sohbet
     if user_lang == "tr" and translate_fn:
-        return _turkish_to_practice(user_text, target_lang, profile, session_delta, translate_fn)
+        return _turkish_in_conversation(
+            user_text, target_lang, profile, session_delta, translate_fn, history, roleplay,
+        )
 
     correction_level = 1
     correct_phrase = None
@@ -809,22 +916,16 @@ def process_turn(
             srs_prompt, vocab_hint if isinstance(vocab_hint, dict) else None,
         )
 
-    explain = None
+    teacher_en = teacher
     correction_tr_block = None
     if correction_level >= 2:
         correction_tr_block = _build_correction_tr(
             user_text, correct_phrase, explain_tr, explain_en, correction_level,
         )
-        explain = correction_tr_block
 
-    teacher_en = teacher
-    teacher_tr = correction_tr_block or _conversation_tr_hint()
-    if correction_level == 1 and not correction_tr_block:
-        teacher_tr = f"{_conversation_tr_hint()}\n(Hedef dilde sohbet ediyoruz — devam et!)"
+    teacher_tr = _teacher_tr_from_en(teacher_en, translate_fn, target_lang)
 
     display_teacher = teacher_en
-    if correction_tr_block:
-        display_teacher = f"{teacher_en}\n\n———\n{correction_tr_block}"
 
     result = _pack(
         merged, session_delta, display_teacher, teacher_tr, correct_phrase, correction_level,

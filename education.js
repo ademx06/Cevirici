@@ -324,8 +324,8 @@ function render() {
     el.innerHTML = `<div class="chat-welcome">
       <div class="chat-welcome-avatar">🤖</div>
       <p>Merhaba! Ben senin öğretmeninim.<br>
-      <strong>İngilizce konuş</strong> veya <strong>yaz</strong> — hatalarını Türkçe açıklarım,<br>
-      cevabımı hem Türkçe hem İngilizce görürsün.</p></div>`;
+      <strong>İngilizce konuş</strong> — hatalarını düzeltirim, cevabımın <strong>Türkçe çevirisini</strong> görürsün.<br>
+      Takılırsan: <strong>yardım ben bugün işe gideceğim…</strong> de — cümleyi adım adım öğretirim.</p></div>`;
     $('clearBtn').classList.add('hidden');
     return;
   }
