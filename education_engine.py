@@ -12,6 +12,14 @@ from urllib.request import Request, urlopen
 from tutor import _extract_turkish_phrase
 
 _ENGINE_DIR = Path(__file__).resolve().parent
+HTTP_UA = "Mozilla/5.0 (compatible; SesliCevirmen/1.0)"
+
+
+def _api_headers(extra: dict[str, str] | None = None) -> dict[str, str]:
+    h = {"User-Agent": HTTP_UA, "Content-Type": "application/json"}
+    if extra:
+        h.update(extra)
+    return h
 
 
 def _load_dotenv() -> None:
@@ -1633,7 +1641,7 @@ def ai_provider_info() -> dict[str, str | None]:
         "openai": "OpenAI",
     }
     models = {
-        "groq": os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile"),
+        "groq": os.environ.get("GROQ_MODEL", "qwen/qwen3.8-27b"),
         "gemini": os.environ.get("GEMINI_MODEL", "gemini-2.0-flash"),
         "openai": os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
     }
@@ -1677,10 +1685,7 @@ def _openai_chat(messages: list[dict], json_mode: bool = False, max_tokens: int 
         req = Request(
             "https://api.openai.com/v1/chat/completions",
             data=json.dumps(body).encode(),
-            headers={
-                "Authorization": f"Bearer {os.environ.get('OPENAI_API_KEY', '').strip()}",
-                "Content-Type": "application/json",
-            },
+            headers=_api_headers({"Authorization": f"Bearer {os.environ.get('OPENAI_API_KEY', '').strip()}"}),
             method="POST",
         )
         with urlopen(req, timeout=35) as resp:
@@ -1692,7 +1697,7 @@ def _openai_chat(messages: list[dict], json_mode: bool = False, max_tokens: int 
 
 def _groq_chat(messages: list[dict], max_tokens: int = 520, json_mode: bool = False) -> str | None:
     body: dict[str, Any] = {
-        "model": os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile"),
+        "model": os.environ.get("GROQ_MODEL", "qwen/qwen3.8-27b"),
         "messages": messages,
         "temperature": 0.72,
         "max_tokens": max_tokens,
@@ -1703,10 +1708,7 @@ def _groq_chat(messages: list[dict], max_tokens: int = 520, json_mode: bool = Fa
         req = Request(
             "https://api.groq.com/openai/v1/chat/completions",
             data=json.dumps(body).encode(),
-            headers={
-                "Authorization": f"Bearer {os.environ.get('GROQ_API_KEY', '').strip()}",
-                "Content-Type": "application/json",
-            },
+            headers=_api_headers({"Authorization": f"Bearer {os.environ.get('GROQ_API_KEY', '').strip()}"}),
             method="POST",
         )
         with urlopen(req, timeout=35) as resp:
@@ -1728,7 +1730,7 @@ def _gemini_chat(system: str, user: str, max_tokens: int = 520) -> str | None:
         "generationConfig": {"temperature": 0.72, "maxOutputTokens": max_tokens},
     }).encode()
     try:
-        req = Request(url, data=body, headers={"Content-Type": "application/json"}, method="POST")
+        req = Request(url, data=body, headers=_api_headers(), method="POST")
         with urlopen(req, timeout=35) as resp:
             data = json.loads(resp.read().decode())
         parts = data["candidates"][0]["content"]["parts"]
@@ -1765,7 +1767,7 @@ def _llm_json(system: str, user: str, max_tokens: int = 520) -> dict[str, Any] |
             },
         }).encode()
         try:
-            req = Request(url, data=body, headers={"Content-Type": "application/json"}, method="POST")
+            req = Request(url, data=body, headers=_api_headers(), method="POST")
             with urlopen(req, timeout=35) as resp:
                 data = json.loads(resp.read().decode())
             parts = data["candidates"][0]["content"]["parts"]
