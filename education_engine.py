@@ -169,6 +169,12 @@ EN_RULES: list[tuple[re.Pattern, str, str, str, str]] = [
      "Use 'am going to' for near future.", "Yakın gelecek: am going to."),
     (re.compile(r"\bi don't want go\b", re.I), "I don't want to go.", "negative",
      "After 'want', use 'to + verb': want to go.", "Want'tan sonra to + fiil: want to go."),
+    (re.compile(r"\bi book\b", re.I), "I read a book today.", "intent_fragment",
+     "You said 'book' — sounds like you wanted to say you read a book.",
+     "Kitap okudum demeye çalıştın — tam cümle: I read a book."),
+    (re.compile(r"\b(read book|a book)\b", re.I), "I read a book today.", "intent_fragment",
+     "Use a full sentence: I read a book today.",
+     "Tam cümle kur: I read a book today = Bugün bir kitap okudum."),
     (re.compile(r"\bi very tired today\b", re.I), "I'm very tired today.", "be_verb",
      "Use 'I'm' before adjectives.", "'I'm very tired today' de."),
 ]
@@ -524,6 +530,7 @@ def _build_conversation_teach(
         "past_tense": ("Geçmiş zaman hatası", "Past tense error"),
         "word_order": ("Kelime sırası hatası", "Word order error"),
         "missing_verb": ("Fiil eksik", "Missing verb"),
+        "intent_fragment": ("Eksik cümle — tam cümle kur", "Incomplete sentence"),
         "grammar": ("Gramer hatası", "Grammar error"),
     }
     cat_tr, cat_en = cat_labels.get(category or "grammar", ("Dil hatası", "Language error"))
@@ -533,6 +540,8 @@ def _build_conversation_teach(
         f"❌ Senin cümlen:\n\"{user_text}\"",
         f"📋 Hata türü: {cat_tr}",
     ]
+    if category == "intent_fragment":
+        teach_tr_parts[0] = "🤔 Sanırım ne demek istediğini anlıyorum:"
     if explain_tr:
         teach_tr_parts.append(f"💡 Neden: {explain_tr}")
     elif explain_en:
@@ -699,6 +708,257 @@ def _recent_user_texts(history: list[dict], n: int = 4) -> list[str]:
 
 def _is_yardim_request(text: str) -> bool:
     return bool(YARDIM_PREFIX_RE.search(text))
+
+
+def _normalize_stt_text(text: str) -> str:
+    """Ses tanıma hatalarını düzelt (ay book → a book vb.)."""
+    t = text.strip()
+    fixes = (
+        (r"\bay book\b", "a book"),
+        (r"\bi book\b", "I read a book"),
+        (r"\bread book\b", "read a book"),
+        (r"\bi read book\b", "I read a book"),
+        (r"\bi went park\b", "I went to the park"),
+        (r"\bi go work\b", "I go to work"),
+        (r"\btoday i\b", "today I"),
+    )
+    for pat, rep in fixes:
+        t = re.sub(pat, rep, t, flags=re.I)
+    return t.strip()
+
+
+def _is_real_turkish(text: str) -> bool:
+    """Gerçek Türkçe mi — kırık İngilizce parçalarını Türkçe sayma."""
+    if re.search(r"[ğüşıöçĞÜŞİÖÇ]", text):
+        return True
+    if re.search(
+        r"\b(merhaba|nasılsın|nasilsin|teşekkür|teşekkürler|evet|hayır|tamam|iyiyim|"
+        r"günaydın|neler|yapıyorum|yapıyorsun|yaptım|gittim|yorgunum|istiyorum|"
+        r"istemiyorum|bugün|yarın|dün|çünkü|için|lütfen|anlamadım|kitap|okudum|"
+        r"geldim|konuştum|dedim|sandım|galiba|belki|çok|biraz)\b",
+        text,
+        re.I,
+    ):
+        return True
+    # Tek İngilizce kelime / kırık parça → Türkçe değil
+    if re.search(r"\b(book|read|park|work|home|tired|hello|yes|no|today|yesterday)\b", text, re.I):
+        if not re.search(r"[ğüşıöçĞÜŞİÖÇ]", text):
+            return False
+    return bool(re.search(r"\b(ben|sen|biz|siz|onlar|için|ile|de|da|ki|mi|mı|mu|mü)\b", text, re.I))
+
+
+def _last_teacher_question(history: list[dict], profile: dict) -> str:
+    for h in history:
+        if h.get("role") == "teacher":
+            t = (h.get("text") or "").strip()
+            if "?" in t:
+                return t
+    return (profile.get("lastTeacherText") or "").strip()
+
+
+def _is_daily_activity_question(q: str) -> bool:
+    ql = q.lower()
+    return bool(re.search(
+        r"what did you do|what do you do|what have you done|tell me about your day|"
+        r"what happened|how was your day|what were you doing|did you do anything|"
+        r"bugün ne|neler yapt",
+        ql,
+    ))
+
+
+def _is_fragment_attempt(text: str) -> bool:
+    t = text.strip()
+    if len(t) < 2:
+        return True
+    words = t.split()
+    if len(words) <= 2:
+        return True
+    ul = t.lower()
+    has_verb = bool(re.search(
+        r"\b(is|are|am|was|were|have|has|had|do|does|did|will|can|could|"
+        r"went|go|going|read|played|ate|watched|walked|studied|spoke|said|"
+        r"don't|didn't|wasn't|i'm|i've)\b",
+        ul,
+    ))
+    has_noun_only = bool(re.search(
+        r"\b(book|books|park|work|home|food|movie|tv|game|gym|school|friend)\b",
+        ul,
+    ))
+    if has_noun_only and not has_verb:
+        return True
+    if re.search(r"^(i|a|an|the)\s+\w+$", ul) and len(words) <= 3:
+        return True
+    return False
+
+
+def _infer_meant_sentence(user_text: str, teacher_q: str) -> tuple[str | None, str | None]:
+    """
+    Kırık/eksik cümleden niyeti tahmin et.
+    Returns (inferred_en, reason_tr) or (None, None).
+    """
+    ul = user_text.lower().strip()
+    tq = teacher_q.lower()
+    daily = _is_daily_activity_question(tq)
+    time_word = "yesterday" if "yesterday" in tq else "today"
+
+    patterns: list[tuple[re.Pattern, str, str]] = [
+        (re.compile(r"\b(book|books|a book|read)\b", re.I),
+         f"I read a book {time_word}.",
+         "Kitap okudum / bir kitap okudum demeye çalışmış olabilirsin."),
+        (re.compile(r"\bpark\b", re.I),
+         f"I went to the park {time_word}.",
+         "Parka gittim demeye çalışmış olabilirsin."),
+        (re.compile(r"\b(work|office|job)\b", re.I),
+         f"I went to work {time_word}.",
+         "İşe gittim demeye çalışmış olabilirsin."),
+        (re.compile(r"\b(home|house|rest|sleep|slept)\b", re.I),
+         f"I stayed at home {time_word}.",
+         "Evde kaldım / dinlendim demeye çalışmış olabilirsin."),
+        (re.compile(r"\b(tv|television|movie|film|netflix|series)\b", re.I),
+         f"I watched TV {time_word}.",
+         "Televizyon / film izledim demeye çalışmış olabilirsin."),
+        (re.compile(r"\b(food|eat|ate|lunch|dinner|breakfast|cook|cooked)\b", re.I),
+         f"I ate at home {time_word}.",
+         "Yemek yedim demeye çalışmış olabilirsin."),
+        (re.compile(r"\b(gym|sport|run|ran|walk|walked|exercise|football|soccer)\b", re.I),
+         f"I exercised {time_word}.",
+         "Spor yaptım demeye çalışmış olabilirsin."),
+        (re.compile(r"\b(friend|friends|visit|visited)\b", re.I),
+         f"I visited a friend {time_word}.",
+         "Arkadaş ziyareti yaptım demeye çalışmış olabilirsin."),
+        (re.compile(r"\b(shop|shopping|bought|buy|market|store)\b", re.I),
+         f"I went shopping {time_word}.",
+         "Alışveriş yaptım demeye çalışmış olabilirsin."),
+        (re.compile(r"\b(study|studied|homework|lesson|class|school)\b", re.I),
+         f"I studied {time_word}.",
+         "Ders çalıştım demeye çalışmış olabilirsin."),
+        (re.compile(r"\b(tired|exhausted|sleepy)\b", re.I),
+         f"I was very tired {time_word}.",
+         "Çok yorgundum demeye çalışmış olabilirsin."),
+    ]
+
+    for pat, sentence, reason in patterns:
+        if pat.search(ul):
+            if daily or "today" in ul or "yesterday" in ul or len(ul.split()) <= 3:
+                return sentence, reason
+
+    if re.match(r"^(a |an |the )?\w+$", ul):
+        word = ul.split()[-1]
+        noun_map = {
+            "book": (f"I read a book {time_word}.", "Kitap okudum demeye çalıştın."),
+            "park": (f"I went to the park {time_word}.", "Parka gittim demeye çalıştın."),
+            "work": (f"I went to work {time_word}.", "İşe gittim demeye çalıştın."),
+        }
+        if word in noun_map:
+            return noun_map[word]
+
+    return None, None
+
+
+def _build_intent_word_help(inferred: str, trigger_word: str) -> str:
+    """Tahmin edilen cümledeki ana kelimeleri açıkla."""
+    ul = inferred.lower()
+    lines: list[str] = []
+    if "read" in ul and "book" in ul:
+        lines.append("  • read = okumak (geçmiş: read — düzensiz fiil, yazılışı aynı)")
+        lines.append("  • a book = bir kitap")
+        lines.append("  • I read a book = Bir kitap okudum")
+    if "went" in ul:
+        lines.append("  • went = gitmek fiilinin geçmiş hali (go → went)")
+    if "today" in ul:
+        lines.append("  • today = bugün (zaman kelimesi genelde sonda)")
+    if "yesterday" in ul:
+        lines.append("  • yesterday = dün")
+    if "work" in ul:
+        lines.append("  • work = iş / to work = işe gitmek")
+    if not lines and trigger_word:
+        entry = TR_WORD_GLOSS.get(trigger_word.lower())
+        if entry:
+            lines.append(f"  • \"{trigger_word}\" → {entry[0]} — {entry[1]}")
+    return "\n".join(lines)
+
+
+def _intent_clarify_mode(
+    user_text: str,
+    inferred: str,
+    reason_tr: str,
+    target_lang: str,
+    profile: dict,
+    session_delta: dict,
+    translate_fn: Callable[[str, str, str], str] | None,
+    display_text: str | None = None,
+) -> dict[str, Any]:
+    """Kırık cümle — 'bunu mu demek istedin?' modu."""
+    shown = display_text or user_text
+    lang_name = LANG_NAMES.get(target_lang, target_lang)
+    trigger = re.findall(r"[a-zA-Z']+", user_text.lower())
+    trigger_word = trigger[-1] if trigger else ""
+    word_help = _build_intent_word_help(inferred, trigger_word)
+    meaning_tr = _to_tr(inferred, translate_fn, target_lang) if translate_fn else ""
+
+    teacher_en = (
+        f"I think I understand what you're trying to say!\n\n"
+        f"You said: \"{shown}\"\n\n"
+        f"📌 Did you mean:\n\"{inferred}\"?\n\n"
+    )
+    if word_help:
+        teacher_en += f"🔤 Key words:\n{word_help}\n\n"
+    teacher_en += (
+        f"💡 Tip: Don't just say \"book\" — use a full sentence: "
+        f"\"I read a book today.\"\n\n"
+        f"🔄 Try saying the full sentence out loud!"
+    )
+
+    teacher_tr = (
+        f"🤔 Sanırım ne demek istediğini anladım!\n\n"
+        f"Sen dedin: \"{shown}\"\n\n"
+        f"📌 Bunu mu demeye çalıştın?\n\"{inferred}\"\n\n"
+    )
+    if reason_tr:
+        teacher_tr += f"💡 {reason_tr}\n\n"
+    if meaning_tr:
+        teacher_tr += f"🇹🇷 Türkçesi: {meaning_tr}\n\n"
+    if word_help:
+        teacher_tr += f"🔤 Kelimeler:\n{word_help}\n\n"
+    teacher_tr += (
+        f"💡 İpucu: Sadece \"book\" deme — tam cümle kur:\n"
+        f"\"I read a book today.\" = Bugün bir kitap okudum.\n\n"
+        f"🔄 Şimdi tam cümleyi yüksek sesle söyle!"
+    )
+
+    delta = {
+        **session_delta,
+        "lastTeacherText": inferred,
+        "pendingPracticePhrase": inferred,
+        "pendingPracticeTr": meaning_tr or reason_tr or user_text,
+    }
+    return _pack(
+        profile, delta, teacher_en, teacher_tr, None, 1, "intent_guess",
+        waiting=True, user_text=shown, teacher_en=teacher_en, speak_text=inferred,
+    )
+
+
+def _try_intent_clarify(
+    user_text: str,
+    history: list[dict],
+    profile: dict,
+    session_delta: dict,
+    target_lang: str,
+    translate_fn: Callable[[str, str, str], str] | None,
+    display_text: str | None = None,
+) -> dict[str, Any] | None:
+    if target_lang != "en" or not translate_fn:
+        return None
+    teacher_q = _last_teacher_question(history, profile)
+    if not _is_fragment_attempt(user_text) and not _is_daily_activity_question(teacher_q):
+        return None
+    inferred, reason = _infer_meant_sentence(user_text, teacher_q)
+    if not inferred:
+        return None
+    return _intent_clarify_mode(
+        user_text, inferred, reason or "", target_lang, profile, session_delta, translate_fn,
+        display_text=display_text,
+    )
 
 
 def _to_tr(text: str, translate_fn: Callable[[str, str, str], str], from_lang: str = "en") -> str:
@@ -1332,7 +1592,10 @@ def process_turn(
 ) -> dict[str, Any]:
     profile = merge_profile(profile, None)
     profile = reset_daily_if_needed(profile)
-    user_text = user_text.strip()
+    original_text = user_text.strip()
+    user_text = _normalize_stt_text(original_text)
+    if user_lang == "tr" and target_lang == "en" and not _is_real_turkish(user_text):
+        user_lang = "en"
     session_delta: dict[str, Any] = {
         "totalSentences": profile.get("totalSentences", 0) + (1 if user_text else 0),
     }
@@ -1382,8 +1645,18 @@ def process_turn(
     if translate_fn and HELP_RE.search(user_text):
         return _help_mode(user_text, target_lang, translate_fn, profile, session_delta)
 
-    # Türkçe konuşuldu, yardım değil → hedef dilde sohbet
-    if user_lang == "tr" and translate_fn:
+    # Kırık/eksik cümle — niyet tahmini ("bunu mu demek istedin?")
+    if translate_fn:
+        intent_result = _try_intent_clarify(
+            user_text, history, profile, session_delta, target_lang, translate_fn,
+            display_text=original_text,
+        )
+        if intent_result:
+            intent_result["weekly_progress"] = weekly_progress(intent_result["profile"])
+            return intent_result
+
+    # Gerçek Türkçe konuşuldu → hedef dilde sohbet
+    if user_lang == "tr" and translate_fn and _is_real_turkish(user_text):
         return _turkish_in_conversation(
             user_text, target_lang, profile, session_delta, translate_fn, history, roleplay,
         )

@@ -275,7 +275,9 @@ def looks_like_lang(text: str, lang: str) -> bool:
     if lang == "en":
         return bool(re.search(
             r"\b(what|how|are|you|doing|hello|thanks|thank|yes|no|good|please|fine|"
-            r"where|when|who|why|the|this|that|is|are|was|were|your|holiday|i'm|im)\b",
+            r"where|when|who|why|the|this|that|is|are|was|were|your|holiday|i'm|im|"
+            r"i|a|an|book|read|went|work|tired|today|yesterday|park|home|ate|had|"
+            r"played|watched|walked|studied|spoke|said|like|want|need|have|did|don't)\b",
             t,
             re.I,
         ))
@@ -374,6 +376,8 @@ def resolve_lang_from_text(text: str, my: str, other: str, stt_lang: str) -> str
             t,
             re.I,
         ))
+        if en_hits >= 1 and tr_hits == 0 and re.search(r"\b[a-zA-Z]{2,}\b", t):
+            return "en"
         if en_hits >= 2 and en_hits > tr_hits:
             return "en"
         if tr_hits >= 1 and en_hits == 0:
