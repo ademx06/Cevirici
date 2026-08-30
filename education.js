@@ -14,6 +14,7 @@ const LANGUAGES = [
 const LEARN_LANGS = LANGUAGES.filter((l) => l.code !== 'tr');
 const PROFILE_KEY = 'edu_profile_v2';
 const HISTORY_KEY = 'edu_history_v2';
+const CHAT_KEY = 'edu_chat_v3';
 
 const STATES = {
   IDLE: { text: 'Konuşmak için basılı tut', mic: 'Basılı Tut ve Konuş', live: false },
@@ -92,6 +93,20 @@ function loadHistory() {
   return [];
 }
 
+function saveChat() {
+  try {
+    localStorage.setItem(CHAT_KEY, JSON.stringify(S.msgs.slice(-80)));
+  } catch { /* ignore */ }
+}
+
+function loadChat() {
+  try {
+    const raw = localStorage.getItem(CHAT_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch { /* ignore */ }
+  return [];
+}
+
 function saveHistory() {
   try {
     localStorage.setItem(HISTORY_KEY, JSON.stringify(S.history.slice(0, 24)));
@@ -104,6 +119,14 @@ function setUiState(name) {
   $('statusText').textContent = st.text;
   $('statusDot').classList.toggle('active', st.live);
   $('micTitle').textContent = st.mic;
+}
+
+function showTyping() {
+  $('typingIndicator').classList.remove('hidden');
+}
+
+function hideTyping() {
+  $('typingIndicator').classList.add('hidden');
 }
 
 function showErr(t) {
@@ -128,15 +151,13 @@ function isRecording() {
 
 function showThinking() {
   $('micBtn').classList.remove('recording');
-  $('interimBox').classList.remove('hidden');
-  $('interimText').textContent = 'Düşünüyor...';
+  showTyping();
   setUiState('PROCESSING');
 }
 
 function showSpeaking() {
   $('micBtn').classList.add('recording');
-  $('interimBox').classList.remove('hidden');
-  $('interimText').textContent = 'Konuşun...';
+  hideTyping();
   setUiState('LISTENING');
 }
 
@@ -147,7 +168,7 @@ function resetIdle() {
   S.safetyTimer = null;
   S.holdActive = false;
   $('micBtn').classList.remove('recording');
-  clearInterim();
+  hideTyping();
   if (S.busyCount === 0 && S.uiState !== 'SPEAKING') setUiState('IDLE');
 }
 
@@ -270,45 +291,77 @@ function renderSessionLog(log) {
     </article>`).join('');
 }
 
+function renderCorrectionCard(detail) {
+  if (!detail) return '';
+  const parts = [];
+  if (detail.userSaid) {
+    parts.push(`<div class="corr-row corr-wrong"><span>❌ Senin cümlen</span><p>${esc(detail.userSaid)}</p></div>`);
+  }
+  if (detail.correctEn) {
+    parts.push(`<div class="corr-row corr-right"><span>✅ Doğrusu (EN)</span><p>${esc(detail.correctEn)}</p></div>`);
+  }
+  if (detail.explainTr) {
+    parts.push(`<div class="corr-row corr-tip"><span>💡 Türkçe</span><p>${esc(detail.explainTr)}</p></div>`);
+  } else if (detail.explainEn) {
+    parts.push(`<div class="corr-row corr-tip"><span>💡 Açıklama</span><p>${esc(detail.explainEn)}</p></div>`);
+  }
+  return `<div class="correction-card">${parts.join('')}</div>`;
+}
+
 function render() {
   const el = $('messages');
   if (!S.msgs.length) {
-    el.innerHTML = `<div class="empty-state"><div class="empty-icon">🤖</div>
-      <h2>Robot öğretmenin hazır</h2>
-      <p>İngilizce konuş — robot doğal cevap verir.<br>
-      Gerekirse düzeltir. "Türkçe açıkla" diyebilirsin.</p></div>`;
+    el.innerHTML = `<div class="chat-welcome">
+      <div class="chat-welcome-avatar">🤖</div>
+      <p>Merhaba! Ben senin öğretmeninim.<br>
+      <strong>İngilizce konuş</strong> veya <strong>yaz</strong> — hatalarını Türkçe açıklarım,<br>
+      cevabımı hem Türkçe hem İngilizce görürsün.</p></div>`;
     $('clearBtn').classList.add('hidden');
     return;
   }
   $('clearBtn').classList.remove('hidden');
+  const lg = getLang(S.learnLang);
   el.innerHTML = S.msgs.map((m, i) => {
+    const time = m.time ? `<span class="chat-time">${m.time}</span>` : '';
     if (m.role === 'user') {
-      const lg = getLang(m.lang || S.learnLang);
-      return `<article class="bubble me edu-user">
-        <div class="bubble-label">Sen ${lg.flag}</div>
-        <div class="bubble-original">${esc(m.text)}</div></article>`;
+      return `<div class="chat-row chat-row-user">
+        <div class="chat-bubble chat-bubble-user">
+          <div class="chat-meta">Sen · ${time}</div>
+          <div class="chat-text">${esc(m.text)}</div>
+        </div></div>`;
     }
-    const lg = getLang(m.targetLang || S.learnLang);
-    const explain = m.explain ? `<div class="bubble-divider"></div>
-      <div class="bubble-label">🇹🇷 Açıklama</div>
-      <div class="bubble-translated edu-explain">${esc(m.explain).replace(/\n/g, '<br>')}</div>` : '';
-    const corr = m.correction && m.correctionLevel >= 2
-      ? `<div class="edu-correction">✏️ ${esc(m.correction)}</div>` : '';
-    const vocab = m.newWord ? `<div class="edu-vocab-card">📚 <strong>${esc(m.newWord.word)}</strong> = ${esc(m.newWord.meaningTr)}</div>` : '';
-    return `<article class="bubble other edu-robot">
-      <div class="bubble-label">🤖 Öğretmen · ${lg.flag} ${lg.name}</div>
-      <div class="bubble-original edu-teacher-text">${esc(m.teacher).replace(/\n/g, '<br>')}</div>
-      ${corr}${vocab}${explain}
-      ${m.audio ? `<button type="button" class="replay-btn" data-idx="${i}">🔊 Tekrar dinle</button>` : ''}</article>`;
+    const teacherEn = m.teacherEn || m.teacher || '';
+    const teacherTr = m.teacherTr || m.explain || '';
+    let corr = m.correctionDetail ? renderCorrectionCard(m.correctionDetail) : '';
+    if (!corr && m.correction && m.correctionLevel >= 2) {
+      corr = renderCorrectionCard({
+        userSaid: m.userSaid,
+        correctEn: m.correction,
+        explainTr: m.explain,
+      });
+    }
+    const vocab = m.newWord
+      ? `<div class="chat-vocab">📚 <strong>${esc(m.newWord.word)}</strong> = ${esc(m.newWord.meaningTr)}</div>` : '';
+    return `<div class="chat-row chat-row-teacher">
+        <div class="chat-avatar">🤖</div>
+        <div class="chat-bubble chat-bubble-teacher">
+          <div class="chat-meta">Öğretmen · ${lg.flag} ${lg.name} · ${time}</div>
+          ${teacherEn ? `<div class="chat-lang-block chat-en"><span>${lg.flag} ${lg.name}</span><p>${esc(teacherEn).replace(/\n/g, '<br>')}</p></div>` : ''}
+          ${teacherTr ? `<div class="chat-lang-block chat-tr"><span>🇹🇷 Türkçe</span><p>${esc(teacherTr).replace(/\n/g, '<br>')}</p></div>` : ''}
+          ${corr}${vocab}
+          ${m.audio ? `<button type="button" class="replay-btn chat-replay" data-idx="${i}">🔊 Dinle</button>` : ''}
+        </div></div>`;
   }).join('');
-  el.querySelectorAll('.replay-btn').forEach((btn) => {
+  el.querySelectorAll('.chat-replay').forEach((btn) => {
     btn.onclick = (e) => {
       e.preventDefault();
       unlockAudioSync();
       playB64(S.msgs[parseInt(btn.dataset.idx, 10)].audio);
     };
   });
-  el.scrollTop = 0;
+  requestAnimationFrame(() => {
+    el.scrollTop = el.scrollHeight;
+  });
 }
 
 function unlockAudioSync() {
@@ -360,6 +413,39 @@ function pushHistory(role, text) {
   saveHistory();
 }
 
+function chatTime() {
+  return new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+}
+
+function appendUserMsg(text, lang) {
+  S.msgs.push({ role: 'user', text, lang: lang || S.learnLang, time: chatTime() });
+  saveChat();
+  pushHistory('user', text);
+}
+
+function appendTeacherMsg(d) {
+  const teacherEn = d.teacher_en || d.robot_target || d.teacher_text || '';
+  const teacherTr = d.teacher_tr || d.explain_tr || '';
+  S.msgs.push({
+    role: 'teacher',
+    teacher: d.teacher_text || teacherEn,
+    teacherEn,
+    teacherTr,
+    explain: teacherTr,
+    correction: d.correction || '',
+    correctionLevel: d.correction_level || 1,
+    correctionDetail: d.correction_detail || null,
+    userSaid: d.user_text || '',
+    targetLang: d.target_lang || S.learnLang,
+    audio: d.audio || null,
+    type: d.type,
+    newWord: d.new_word || null,
+    time: chatTime(),
+  });
+  saveChat();
+  pushHistory('teacher', teacherEn);
+}
+
 function handleEducationResult(d) {
   if (d.profile) {
     S.profile = d.profile;
@@ -373,29 +459,50 @@ function handleEducationResult(d) {
   if (d.daily_lesson) updatePersonalLesson(d.daily_lesson);
   if (d.motivation) showMotivation(d.motivation);
 
-  if (d.user_text) {
-    S.msgs.unshift({
-      role: 'user',
-      text: d.user_text,
-      lang: d.user_lang || S.learnLang,
-    });
-    pushHistory('user', d.user_text);
-  }
-  const teacher = d.teacher_text || d.robot_target || '';
-  S.msgs.unshift({
-    role: 'teacher',
-    teacher,
-    explain: d.explain_tr || '',
-    correction: d.correction || '',
-    correctionLevel: d.correction_level || 1,
-    targetLang: d.target_lang || S.learnLang,
-    audio: d.audio || null,
-    type: d.type,
-    newWord: d.new_word || null,
-  });
-  pushHistory('teacher', teacher);
+  if (d.user_text) appendUserMsg(d.user_text, d.user_lang);
+  appendTeacherMsg(d);
+  hideTyping();
   render();
   if (d.audio) playB64(d.audio);
+}
+
+async function processEducationChat(text) {
+  const r = await fetch(`/api/education/chat?${new URLSearchParams({ lang: S.learnLang })}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      text,
+      profile: S.profile,
+      history: S.history,
+      roleplay: S.roleplay || null,
+      speak_slow: S.speakSlow,
+      user_lang: 'tr',
+    }),
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || 'Bağlantı sorunu. Tekrar dene.');
+  return d;
+}
+
+async function sendTextMessage() {
+  const input = $('textInput');
+  const text = input.value.trim();
+  if (!text || S.busyCount > 0 || isRecording()) return;
+  input.value = '';
+  hideErr();
+  S.busyCount += 1;
+  showTyping();
+  setUiState('PROCESSING');
+  try {
+    const d = await processEducationChat(text);
+    handleEducationResult(d);
+  } catch (e) {
+    hideTyping();
+    showErr(e.message || 'Gönderilemedi');
+  } finally {
+    S.busyCount -= 1;
+    resetIdle();
+  }
 }
 
 async function processEducationVoice(blob) {
@@ -430,7 +537,8 @@ async function fetchLessonPlan() {
 async function fetchGreeting() {
   if (S.greetingLoaded && S.msgs.length > 0) return;
   S.busyCount += 1;
-  showThinking();
+  showTyping();
+  setUiState('PROCESSING');
   try {
     const params = new URLSearchParams({
       lang: S.learnLang,
@@ -444,6 +552,7 @@ async function fetchGreeting() {
     S.sessionStart = Date.now();
     S.sessionSaved = false;
   } catch (e) {
+    hideTyping();
     showErr(e.message || 'Bağlantı sorunu. Tekrar dene.');
   } finally {
     S.busyCount -= 1;
@@ -459,14 +568,18 @@ async function loadLesson(id) {
     const r = await fetch(`/api/tutor/lesson?${new URLSearchParams({ id, lang: S.learnLang })}`);
     const d = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(d.error || 'Ders yüklenemedi');
-    S.msgs.unshift({
+    S.msgs.push({
       role: 'teacher',
       teacher: d.robot_target,
+      teacherEn: d.robot_target,
+      teacherTr: d.robot_tr,
       explain: d.robot_tr,
       targetLang: d.target_lang,
       audio: d.audio,
       type: 'lesson',
+      time: chatTime(),
     });
+    saveChat();
     render();
     if (d.audio) playB64(d.audio);
   } catch (e) {
@@ -722,7 +835,7 @@ function syncLearnLang() {
   const lg = getLang(S.learnLang);
   $('learnLang').value = S.learnLang;
   $('robotName').textContent = `${lg.flag} ${lg.name} Öğretmeni`;
-  $('conversationSubtitle').textContent = `${lg.name} konuş · robot cevap verir`;
+  $('conversationSubtitle').textContent = `${lg.name} konuş veya yaz`;
   if (S.profile) {
     S.profile.targetLang = S.learnLang;
     saveProfile();
@@ -797,6 +910,7 @@ $('clearBtn').onclick = () => {
   if (!isRecording() && S.busyCount === 0) {
     endSession();
     S.msgs = [];
+    saveChat();
     S.history = [];
     saveHistory();
     S.greetingLoaded = false;
@@ -805,6 +919,14 @@ $('clearBtn').onclick = () => {
     fetchGreeting();
   }
 };
+
+$('sendBtn').onclick = () => sendTextMessage();
+$('textInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    sendTextMessage();
+  }
+});
 
 document.querySelectorAll('.modal-tab').forEach((tab) => {
   tab.onclick = () => switchReportTab(tab.dataset.tab);
@@ -826,14 +948,20 @@ window.addEventListener('pagehide', () => endSession());
 
 S.profile = loadProfile();
 S.history = loadHistory();
+S.msgs = loadChat();
 S.learnLang = S.profile.targetLang || 'en';
 syncLearnLang();
 updateLevelBadge();
 updateDailyGoal();
 fetchLessonPlan();
 render();
-resetIdle();
-fetchGreeting();
+if (S.msgs.length > 0) {
+  S.greetingLoaded = true;
+  S.sessionStart = Date.now();
+} else {
+  resetIdle();
+  fetchGreeting();
+}
 
 if (!navigator.mediaDevices?.getUserMedia) {
   showErr('Mikrofon için Safari gerekli');

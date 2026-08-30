@@ -16,15 +16,29 @@ LANG_NAMES = {
 LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"]
 SRS_INTERVALS_DAYS = [1, 3, 7, 14, 30]
 
-SYSTEM_PROMPT = """You are a professional personal language tutor.
-Speak primarily in the target language. Do not behave like a translation app.
-Maintain natural conversation. Adapt to the user's level.
-Correct important mistakes without killing the flow.
-When correcting: give natural sentence, brief explanation if useful, then continue.
-Use Turkish ONLY when user asks for Turkish explanation or seems confused.
-Behave like a patient human teacher, not a translator.
-Keep responses concise (2-4 sentences max unless explaining grammar).
+SYSTEM_PROMPT = """You are a professional personal language tutor for a Turkish-speaking student.
+Speak primarily in the TARGET LANGUAGE (English etc.) for natural conversation.
+The student's native language is Turkish — provide Turkish explanations for errors and grammar.
+Do not behave like a translation app during conversation.
+Maintain natural conversation and drive it forward with follow-up questions.
+Adapt to the user's level. Correct important mistakes clearly.
+When correcting: show wrong sentence, correct sentence, brief Turkish explanation, then continue.
+Behave like a patient human teacher sitting across from the student.
+Keep target-language responses concise (2-4 sentences). Always end with a question when appropriate.
 Wait for the user to respond — do not answer your own questions."""
+
+GREETINGS_TR = [
+    "Merhaba! Ben senin robot öğretmeninim. Hadi birlikte konuşalım — sen konuş, ben dinlerim ve hatalarını Türkçe açıklarım.",
+    "Selam! Bugün hedef dilde pratik yapalım. Yanlış yaparsan endişelenme, birlikte düzeltiriz.",
+    "Hoş geldin! Karşımda bir öğrenci varmış gibi sohbet edeceğiz. Hazır mısın?",
+]
+
+CONVERSATION_TR = [
+    "Güzel, devam et!",
+    "Anladım, anlat bakalım.",
+    "Harika, dinliyorum.",
+    "Çok iyi gidiyorsun!",
+]
 
 GREETINGS = {
     "en": [
@@ -576,11 +590,13 @@ def _help_mode(
     translated = translate_fn(phrase_tr, "tr", target_lang)
     lang_name = LANG_NAMES.get(target_lang, target_lang)
     teacher = f"Try saying: \"{translated}\""
-    explain = f"🇹🇷 \"{phrase_tr}\" → {lang_name}: \"{translated}\""
+    explain = f"🇹🇷 \"{phrase_tr}\"\n\n🇬🇧 {lang_name}: \"{translated}\"\n\nTekrar et ve birlikte çalışalım."
     return {
         "type": "help",
         "user_text": user_text,
-        "teacher_text": teacher,
+        "teacher_text": explain,
+        "teacher_en": translated,
+        "teacher_tr": f"Türkçe: \"{phrase_tr}\"\n{lang_name}: \"{translated}\"",
         "explain_tr": explain,
         "correction": translated,
         "correction_level": 1,
@@ -589,25 +605,54 @@ def _help_mode(
     }
 
 
+def _build_correction_tr(
+    user_text: str, correct: str | None, explain_tr: str | None, explain_en: str | None,
+    corr_level: int,
+) -> str:
+    parts = []
+    if corr_level >= 2:
+        parts.append(f"❌ Senin cümlen:\n\"{user_text}\"")
+        if correct:
+            parts.append(f"✅ Doğrusu (İngilizce):\n\"{correct}\"")
+        if explain_tr:
+            parts.append(f"💡 Türkçe açıklama:\n{explain_tr}")
+        elif explain_en:
+            parts.append(f"💡 Açıklama:\n{explain_en}")
+        if corr_level >= 3:
+            parts.append("🔄 Şimdi sen dene — doğru cümleyi söyle, sonra devam ederiz.")
+    return "\n\n".join(parts)
+
+
+def _conversation_tr_hint() -> str:
+    import random
+    return random.choice(CONVERSATION_TR)
+
+
 def greeting(lang: str, profile: dict | None = None) -> dict[str, Any]:
     import random
     profile = merge_profile(profile, None)
     profile = reset_daily_if_needed(profile)
-    opts = GREETINGS.get(lang, GREETINGS["en"])
-    text = random.choice(opts)
+    text_en = random.choice(GREETINGS.get(lang, GREETINGS["en"]))
+    text_tr = random.choice(GREETINGS_TR)
     motiv = motivation_message(profile)
     if motiv:
-        text = f"{motiv}\n\n{text}"
+        text_tr = f"{motiv}\n\n{text_tr}"
     srs_prompt, srs_id = pick_srs_prompt(profile)
-    if srs_prompt and random.random() > 0.5:
-        text = f"{text}\n\n{srs_prompt}"
+    if srs_prompt:
+        text_en = f"{text_en}\n\n{srs_prompt}"
+    teacher_en = text_en
+    teacher_tr = text_tr
+    display = f"{text_tr}\n\n———\n🇬🇧 {text_en}" if lang == "en" else f"{text_tr}\n\n———\n{text_en}"
     delta = {
-        "lastTeacherText": text,
+        "lastTeacherText": text_en,
         "waitingForUser": True,
         "sessionStartAt": _now_iso(),
         "pendingSrsId": srs_id,
     }
-    result = _pack(profile, delta, text, None, None, 1, "greeting", waiting=True)
+    result = _pack(
+        profile, delta, display, text_tr, None, 1, "greeting",
+        waiting=True, teacher_en=teacher_en, speak_text=text_en,
+    )
     result["daily_lesson"] = daily_lesson(profile)
     result["motivation"] = motiv
     result["weekly_progress"] = weekly_progress(profile)
@@ -638,8 +683,14 @@ def process_turn(
     if SPECIAL_TR.search(user_text):
         low = user_text.lower()
         if re.search(r"türkçe|anlamadım", low):
-            tr = f"Son cümlem: \"{last_teacher}\"\nPratik için tekrar deneyebilirsin."
-            return _pack(profile, session_delta, last_teacher, tr, None, 1, "explain_tr", waiting=True, user_text=user_text)
+            tr = (
+                f"🇹🇷 Son İngilizce cümlem:\n\"{last_teacher}\"\n\n"
+                f"Anlamadıysan tekrar sorabilir veya 'tekrar et' diyebilirsin."
+            )
+            return _pack(
+                profile, session_delta, f"{last_teacher}\n\n———\n{tr}", tr,
+                None, 1, "explain_tr", waiting=True, user_text=user_text, teacher_en=last_teacher,
+            )
         if re.search(r"repeat|tekrar", low) and last_teacher:
             return _pack(profile, session_delta, last_teacher, None, None, 1, "repeat", waiting=True, user_text=user_text)
         if re.search(r"slow|yavaş", low) and last_teacher:
@@ -729,15 +780,35 @@ def process_turn(
         )
 
     explain = None
-    if correction_level >= 2 and explain_tr:
-        explain = explain_tr
-    elif correction_level >= 2 and explain_en:
-        explain = explain_en
+    correction_tr_block = None
+    if correction_level >= 2:
+        correction_tr_block = _build_correction_tr(
+            user_text, correct_phrase, explain_tr, explain_en, correction_level,
+        )
+        explain = correction_tr_block
+
+    teacher_en = teacher
+    teacher_tr = correction_tr_block or _conversation_tr_hint()
+    if correction_level == 1 and not correction_tr_block:
+        teacher_tr = f"{_conversation_tr_hint()}\n\n🇬🇧 Öğretmen: {teacher_en[:200]}"
+
+    display_teacher = teacher_en
+    if correction_tr_block:
+        display_teacher = f"{teacher_en}\n\n———\n{correction_tr_block}"
 
     result = _pack(
-        merged, session_delta, teacher, explain, correct_phrase, correction_level,
+        merged, session_delta, display_teacher, teacher_tr, correct_phrase, correction_level,
         "correction" if correction_level >= 2 else "conversation",
         waiting=True, user_text=user_text, speak_slow=speak_slow,
+        teacher_en=teacher_en,
+        correction_detail={
+            "userSaid": user_text,
+            "correctEn": correct_phrase,
+            "explainTr": explain_tr,
+            "explainEn": explain_en,
+            "category": category,
+            "level": correction_level,
+        } if correction_level >= 2 else None,
     )
     if new_word_card:
         result["new_word"] = {
@@ -760,21 +831,27 @@ def _pack(
     profile: dict, delta: dict, teacher: str, explain_tr: str | None,
     correction: str | None, corr_level: int, msg_type: str,
     waiting: bool = True, user_text: str = "", speak_slow: bool = False,
+    teacher_en: str | None = None, speak_text: str | None = None,
+    correction_detail: dict | None = None,
 ) -> dict:
     p = merge_profile(profile, delta)
-    p["lastTeacherText"] = teacher
+    en = teacher_en or teacher
+    p["lastTeacherText"] = en
     p["waitingForUser"] = waiting
-    speak = correction if corr_level >= 3 and correction else teacher
+    speak = speak_text or (correction if corr_level >= 3 and correction else en)
     return {
         "type": msg_type,
         "user_text": user_text,
         "user_lang": profile.get("targetLang", "en"),
         "teacher_text": teacher,
+        "teacher_en": en,
+        "teacher_tr": explain_tr or "",
         "robot_tr": explain_tr or "",
-        "robot_target": teacher,
+        "robot_target": en,
         "explain_tr": explain_tr,
         "correction": correction,
         "correction_level": corr_level,
+        "correction_detail": correction_detail,
         "target_lang": profile.get("targetLang", "en"),
         "current_level": p.get("currentLevel", "A1"),
         "profile": p,

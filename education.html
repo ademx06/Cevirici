@@ -13,110 +13,106 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <div class="app edu-app">
-    <header class="header">
+  <div class="app edu-app edu-chat-layout">
+    <header class="header edu-header-compact">
       <div class="header-left">
         <a href="/" class="back-btn" aria-label="Ana menü">←</a>
         <div>
           <h1>Eğitim</h1>
-          <p class="tagline">Robot öğretmen</p>
+          <p class="tagline" id="robotName">🇬🇧 English Öğretmeni</p>
         </div>
       </div>
       <div class="edu-header-actions">
         <span id="levelBadge" class="level-badge">A1</span>
         <button id="historyBtn" class="ghost-btn" type="button">Geçmiş</button>
         <button id="reportBtn" class="ghost-btn" type="button">Rapor</button>
-        <button id="clearBtn" class="ghost-btn hidden" type="button">Temizle</button>
       </div>
     </header>
 
     <div id="motivationBanner" class="motivation-banner hidden"></div>
 
-    <section class="robot-card">
-      <div class="robot-avatar" id="robotAvatar">🤖</div>
-      <div class="robot-info">
-        <strong id="robotName">Öğretmen</strong>
-        <p id="robotHint">Hedef dilde konuş · robot seni dinler ve düzeltir</p>
+    <details class="edu-settings-panel">
+      <summary>⚙️ Ayarlar & günlük ders</summary>
+      <section class="personal-lesson" id="personalLesson">
+        <div class="personal-lesson-grid">
+          <div class="lesson-stat"><span>Zayıf alan</span><strong id="lessonWeak">—</strong></div>
+          <div class="lesson-stat"><span>Kelime</span><strong id="lessonVocab">—</strong></div>
+          <div class="lesson-stat"><span>Konu</span><strong id="lessonTopic">—</strong></div>
+          <div class="lesson-stat"><span>Hedef</span><strong id="lessonPractice">10 dk</strong></div>
+        </div>
+        <div class="lesson-srs-meta" id="lessonSrsMeta"></div>
+      </section>
+      <section class="daily-goal" id="dailyGoal">
+        <div class="daily-goal-label">Bugün: <span id="goalText">10 dk</span> · <span id="goalMeta">0/10</span></div>
+        <div class="daily-goal-bar"><div id="goalProgress" class="daily-goal-fill"></div></div>
+      </section>
+      <section class="lang-card edu-lang">
+        <div class="lang-field lang-field-full">
+          <label for="learnLang">Öğrenmek istediğim dil</label>
+          <select id="learnLang"></select>
+        </div>
+        <div class="lang-field lang-field-full">
+          <label for="roleplaySelect">Senaryo</label>
+          <select id="roleplaySelect">
+            <option value="">Serbest konuşma</option>
+            <option value="friend">Arkadaş</option>
+            <option value="hotel">Otel resepsiyonu</option>
+            <option value="restaurant">Restoran</option>
+            <option value="airport">Havalimanı</option>
+            <option value="shop">Mağaza</option>
+            <option value="interview">İş görüşmesi</option>
+            <option value="teacher">Öğretmen</option>
+          </select>
+        </div>
+      </section>
+      <div class="lesson-chips" id="lessonChips">
+        <button type="button" class="chip" data-lesson="how_are_you">Nasılsın?</button>
+        <button type="button" class="chip" data-lesson="how_was_vacation">Tatil</button>
+        <button type="button" class="chip" data-lesson="thank_you">Teşekkürler</button>
       </div>
-    </section>
+    </details>
 
-    <section class="personal-lesson" id="personalLesson">
-      <div class="personal-lesson-header">
-        <span>📋 Bugünkü Kişisel Dersin</span>
-      </div>
-      <div class="personal-lesson-grid">
-        <div class="lesson-stat"><span>Zayıf alan</span><strong id="lessonWeak">—</strong></div>
-        <div class="lesson-stat"><span>Kelime</span><strong id="lessonVocab">—</strong></div>
-        <div class="lesson-stat"><span>Konuşma</span><strong id="lessonTopic">—</strong></div>
-        <div class="lesson-stat"><span>Pratik</span><strong id="lessonPractice">10 dk</strong></div>
-      </div>
-      <div class="lesson-srs-meta" id="lessonSrsMeta"></div>
-    </section>
-
-    <section class="daily-goal" id="dailyGoal">
-      <div class="daily-goal-label">Bugünkü hedef: <span id="goalText">10 dk konuşma</span></div>
-      <div class="daily-goal-bar"><div id="goalProgress" class="daily-goal-fill"></div></div>
-      <div class="daily-goal-meta"><span id="goalMeta">0 / 10 dk</span></div>
-    </section>
-
-    <section class="lang-card edu-lang">
-      <div class="lang-field lang-field-full">
-        <label for="learnLang">Öğrenmek istediğim dil</label>
-        <select id="learnLang"></select>
-      </div>
-      <div class="lang-field lang-field-full">
-        <label for="roleplaySelect">Senaryo (isteğe bağlı)</label>
-        <select id="roleplaySelect">
-          <option value="">Serbest konuşma</option>
-          <option value="friend">Arkadaş</option>
-          <option value="hotel">Otel resepsiyonu</option>
-          <option value="restaurant">Restoran garsonu</option>
-          <option value="airport">Havalimanı görevlisi</option>
-          <option value="shop">Mağaza</option>
-          <option value="interview">İş görüşmesi</option>
-          <option value="teacher">Öğretmen</option>
-        </select>
-      </div>
-    </section>
-
-    <div class="lesson-chips" id="lessonChips">
-      <button type="button" class="chip" data-lesson="how_are_you">Nasılsın?</button>
-      <button type="button" class="chip" data-lesson="how_was_vacation">Tatil nasıldı?</button>
-      <button type="button" class="chip" data-lesson="thank_you">Teşekkürler</button>
-    </div>
-
-    <div class="status-bar edu-status">
+    <div class="edu-chat-toolbar">
+      <span class="edu-chat-title">💬 Sohbet</span>
       <span id="statusDot" class="status-dot"></span>
-      <span id="statusText">Konuşmak için basılı tut</span>
+      <span id="statusText" class="edu-chat-status">Hazır</span>
+      <button id="clearBtn" class="ghost-btn ghost-btn-sm hidden" type="button">Temizle</button>
     </div>
 
     <div id="errorBox" class="error-box hidden"></div>
 
-    <div id="interimBox" class="interim hidden">
-      <div id="interimText"></div>
-    </div>
-
-    <main id="messages" class="messages edu-messages">
-      <div class="empty-state">
-        <div class="empty-icon">🤖</div>
-        <h2>Robot öğretmenin hazır</h2>
-        <p>İngilizce konuş — robot doğal cevap verir.<br>
-        Gerekirse düzeltir. "Türkçe açıkla" diyebilirsin.</p>
+    <main id="messages" class="edu-chat-messages">
+      <div class="chat-welcome">
+        <div class="chat-welcome-avatar">🤖</div>
+        <p>Merhaba! Ben senin öğretmeninim.<br>
+        <strong>İngilizce konuş</strong> veya <strong>yaz</strong> — hatalarını Türkçe açıklarım,<br>
+        cevabımı hem Türkçe hem İngilizce görürsün.</p>
       </div>
     </main>
 
-    <section class="edu-voice-controls">
-      <button type="button" id="speedNormal" class="voice-ctrl active" title="Normal hız">🔊 Normal</button>
-      <button type="button" id="speedSlow" class="voice-ctrl" title="Yavaş konuş">🐢 Yavaş</button>
-      <button type="button" id="repeatBtn" class="voice-ctrl" title="Son cümleyi tekrar">🔁 Tekrar</button>
+    <div id="typingIndicator" class="chat-typing hidden">
+      <span></span><span></span><span></span>
+      Öğretmen yazıyor...
+    </div>
+
+    <section class="edu-composer">
+      <input id="textInput" type="text" enterkeyhint="send" autocomplete="off"
+        placeholder="Mesaj yaz veya mikrofonu kullan..." maxlength="500">
+      <button id="sendBtn" class="send-btn" type="button" aria-label="Gönder">➤</button>
     </section>
 
-    <section class="controls">
+    <section class="edu-voice-controls">
+      <button type="button" id="speedNormal" class="voice-ctrl active">🔊 Normal</button>
+      <button type="button" id="speedSlow" class="voice-ctrl">🐢 Yavaş</button>
+      <button type="button" id="repeatBtn" class="voice-ctrl">🔁 Tekrar</button>
+    </section>
+
+    <section class="controls edu-mic-section">
       <button id="micBtn" class="mic-btn mic-btn-edu" type="button">
         <span class="mic-icon">🎤</span>
         <span class="mic-text">
           <strong id="micTitle">Basılı Tut ve Konuş</strong>
-          <small id="conversationSubtitle">Hedef dilde konuş</small>
+          <small id="conversationSubtitle">Sesli cevap ver</small>
         </span>
       </button>
     </section>
@@ -155,6 +151,6 @@
     </div>
   </div>
 
-  <script src="education.js?v=3"></script>
+  <script src="education.js?v=4"></script>
 </body>
 </html>

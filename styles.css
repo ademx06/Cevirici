@@ -1171,3 +1171,362 @@ body {
   text-align: center;
   padding: 16px 0;
 }
+
+/* —— Eğitim sohbet düzeni —— */
+.edu-chat-layout {
+  padding-bottom: 8px;
+}
+
+.edu-header-compact {
+  margin-bottom: 8px;
+}
+
+.edu-header-compact h1 {
+  font-size: 20px;
+}
+
+.edu-header-compact .tagline {
+  font-size: 12px;
+}
+
+.edu-settings-panel {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 14px;
+  margin-bottom: 8px;
+  overflow: hidden;
+}
+
+.edu-settings-panel summary {
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #94A3B8;
+  cursor: pointer;
+  list-style: none;
+}
+
+.edu-settings-panel summary::-webkit-details-marker {
+  display: none;
+}
+
+.edu-settings-panel[open] summary {
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.edu-settings-panel .personal-lesson,
+.edu-settings-panel .daily-goal,
+.edu-settings-panel .edu-lang,
+.edu-settings-panel .lesson-chips {
+  margin: 0;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 0;
+}
+
+.edu-settings-panel .lesson-chips {
+  padding-bottom: 12px;
+}
+
+.edu-chat-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 4px 8px;
+  flex-shrink: 0;
+}
+
+.edu-chat-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #E2E8F0;
+  flex: 1;
+}
+
+.edu-chat-status {
+  font-size: 11px;
+  color: #64748B;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ghost-btn-sm {
+  padding: 4px 8px;
+  font-size: 11px;
+}
+
+.edu-chat-messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 8px 4px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: rgba(0,0,0,0.15);
+  border: 1px solid rgba(255,255,255,0.05);
+  border-radius: 16px;
+  margin-bottom: 8px;
+}
+
+.chat-welcome {
+  text-align: center;
+  padding: 24px 16px;
+  color: #94A3B8;
+  font-size: 14px;
+  line-height: 1.55;
+  margin: auto;
+}
+
+.chat-welcome-avatar {
+  font-size: 44px;
+  margin-bottom: 12px;
+}
+
+.chat-welcome strong {
+  color: #E2E8F0;
+}
+
+.chat-row {
+  display: flex;
+  width: 100%;
+}
+
+.chat-row-user {
+  justify-content: flex-end;
+}
+
+.chat-row-teacher {
+  justify-content: flex-start;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.chat-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 16px;
+  background: rgba(167,139,250,0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+  margin-bottom: 4px;
+}
+
+.chat-bubble {
+  max-width: 88%;
+  border-radius: 18px;
+  padding: 10px 14px;
+  line-height: 1.45;
+}
+
+.chat-bubble-user {
+  background: linear-gradient(135deg, #2563EB, #38BDF8);
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+
+.chat-bubble-teacher {
+  background: rgba(30,27,75,0.85);
+  border: 1px solid rgba(167,139,250,0.25);
+  border-bottom-left-radius: 4px;
+}
+
+.chat-meta {
+  font-size: 10px;
+  opacity: 0.7;
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+
+.chat-time {
+  opacity: 0.8;
+}
+
+.chat-text {
+  font-size: 15px;
+  word-break: break-word;
+}
+
+.chat-lang-block {
+  margin-bottom: 8px;
+}
+
+.chat-lang-block:last-of-type {
+  margin-bottom: 0;
+}
+
+.chat-lang-block span {
+  display: block;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 4px;
+}
+
+.chat-lang-block p {
+  margin: 0;
+  font-size: 14px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chat-en span {
+  color: #93C5FD;
+}
+
+.chat-en p {
+  color: #F1F5F9;
+}
+
+.chat-tr span {
+  color: #A7F3D0;
+}
+
+.chat-tr p {
+  color: #D1FAE5;
+  font-size: 13px;
+}
+
+.correction-card {
+  margin-top: 10px;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(251,191,36,0.25);
+}
+
+.corr-row {
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+.corr-row span {
+  display: block;
+  font-size: 10px;
+  font-weight: 700;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+}
+
+.corr-row p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.corr-wrong {
+  background: rgba(239,68,68,0.12);
+  color: #FCA5A5;
+}
+
+.corr-right {
+  background: rgba(34,197,94,0.12);
+  color: #86EFAC;
+}
+
+.corr-tip {
+  background: rgba(251,191,36,0.1);
+  color: #FDE68A;
+}
+
+.chat-vocab {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: rgba(52,211,153,0.12);
+  border-radius: 10px;
+  font-size: 13px;
+  color: #A7F3D0;
+}
+
+.chat-replay {
+  margin-top: 8px;
+  background: rgba(167,139,250,0.15);
+  border: 1px solid rgba(167,139,250,0.3);
+  color: #E9D5FF;
+  padding: 6px 12px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.chat-typing {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px 8px;
+  font-size: 12px;
+  color: #64748B;
+  flex-shrink: 0;
+}
+
+.chat-typing.hidden {
+  display: none;
+}
+
+.chat-typing span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #A78BFA;
+  animation: typingBounce 1.2s infinite;
+}
+
+.chat-typing span:nth-child(2) { animation-delay: 0.15s; }
+.chat-typing span:nth-child(3) { animation-delay: 0.3s; }
+
+@keyframes typingBounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+  30% { transform: translateY(-4px); opacity: 1; }
+}
+
+.edu-composer {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 0 8px;
+  flex-shrink: 0;
+}
+
+.edu-composer input {
+  flex: 1;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 22px;
+  color: #F8FAFC;
+  font-size: 15px;
+  padding: 12px 16px;
+  outline: none;
+}
+
+.edu-composer input:focus {
+  border-color: rgba(167,139,250,0.5);
+}
+
+.send-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 22px;
+  border: none;
+  background: linear-gradient(135deg, #6366F1, #A78BFA);
+  color: white;
+  font-size: 18px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.edu-mic-section {
+  padding-bottom: env(safe-area-inset-bottom, 8px);
+}
+
+.edu-chat-layout .edu-voice-controls {
+  margin-bottom: 4px;
+}
+
+.edu-chat-layout .personal-lesson-header {
+  display: none;
+}
