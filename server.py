@@ -19,6 +19,7 @@ from education_engine import (
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 PORT = 8780
+EDU_STATE_MARKER = b"\n--EDU_STATE_END--\n"
 
 UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15"
 
@@ -744,6 +745,13 @@ class Handler(SimpleHTTPRequestHandler):
             return
         data = self.rfile.read(length)
         state_raw = self.headers.get("X-Education-State", "")
+        if self.headers.get("X-Education-Combined") == "1" and EDU_STATE_MARKER in data:
+            idx = data.index(EDU_STATE_MARKER)
+            try:
+                state_raw = data[:idx].decode("utf-8")
+            except Exception:
+                state_raw = ""
+            data = data[idx + len(EDU_STATE_MARKER):]
         try:
             state = json.loads(state_raw) if state_raw else {}
         except Exception:

@@ -621,19 +621,23 @@ async function sendTextMessage() {
 }
 
 async function processEducationVoice(blob) {
-  const state = JSON.stringify({
+  const stateObj = {
     profile: S.profile,
     history: sanitizeHistory(S.history),
     roleplay: S.roleplay || null,
     speak_slow: S.speakSlow,
     last_lang: S.learnLang,
-  });
+  };
+  const state = JSON.stringify(stateObj);
+  const enc = new TextEncoder();
+  const marker = enc.encode('\n--EDU_STATE_END--\n');
+  const body = new Blob([enc.encode(state), marker, blob], { type: blob.type || 'audio/mp4' });
   const r = await fetch(`/api/education/voice?${new URLSearchParams({ lang: S.learnLang })}`, {
     method: 'POST',
-    body: blob,
+    body,
     headers: {
       'Content-Type': blob.type || 'audio/mp4',
-      'X-Education-State': state,
+      'X-Education-Combined': '1',
     },
   });
   let d = {};
@@ -853,7 +857,14 @@ function startRecorder(gen) {
     showThinking();
 
     processEducationVoice(blob)
-      .then(handleEducationResult)
+      .then((d) => {
+        try {
+          handleEducationResult(d);
+        } catch (e) {
+          hideTyping();
+          showErr(safeErrMsg(e) || 'Mesaj işlenemedi');
+        }
+      })
       .catch((e) => showErr(safeErrMsg(e) || 'Duyamadım — tekrar dene'))
       .finally(() => {
         S.busyCount -= 1;

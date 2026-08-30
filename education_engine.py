@@ -221,6 +221,8 @@ def default_profile(lang: str = "en") -> dict[str, Any]:
         "lastSessionDate": None,
         "pendingSrsId": None,
         "pendingVocabWord": None,
+        "pendingPracticePhrase": None,
+        "pendingPracticeTr": None,
     }
 
 
@@ -254,6 +256,7 @@ def merge_profile(profile: dict | None, delta: dict | None) -> dict:
         "totalCorrections", "sessionCorrections", "yesterdayCorrections",
         "lastTeacherText", "waitingForUser", "targetLang", "todayDate",
         "sessionStartAt", "lastSessionDate", "pendingSrsId", "pendingVocabWord",
+        "pendingPracticePhrase", "pendingPracticeTr",
     )
     for key in scalar_keys:
         if key in delta:
@@ -465,6 +468,109 @@ def _norm(s: str) -> str:
     return re.sub(r"[^\w\s']", "", s.lower()).strip()
 
 
+def _token_set(s: str) -> set[str]:
+    return {w for w in _norm(s).split() if len(w) > 1}
+
+
+def _phrase_similar(a: str, b: str) -> bool:
+    if not a or not b:
+        return False
+    na, nb = _norm(a), _norm(b)
+    if na == nb:
+        return True
+    if na in nb or nb in na:
+        return True
+    ta, tb = _token_set(a), _token_set(b)
+    if not ta or not tb:
+        return False
+    overlap = len(ta & tb) / max(len(ta), len(tb))
+    return overlap >= 0.55
+
+
+TR_WORD_GLOSS: dict[str, tuple[str, str]] = {
+    "ben": ("I", "özne — cümlenin kimin hakkında olduğunu söyler"),
+    "sen": ("you", "karşıdaki kişi"),
+    "bugün": ("today", "zaman zarfı — genelde cümlenin sonunda"),
+    "yarın": ("tomorrow", "gelecek gün"),
+    "dün": ("yesterday", "geçmiş gün — geçmiş zaman fiili gerekir"),
+    "işe": ("to work", "iş + -e hali = yönelme (to work)"),
+    "okula": ("to school", "okul + -a/-e = to school"),
+    "eve": ("home", "eve = home (yönelme)"),
+    "gideceğim": ("I will go", "gitmek fiilinin gelecek zamanı (yakın plan)"),
+    "gideceksin": ("you will go", "gitmek — sen formu"),
+    "yapacağım": ("I will do", "yapmak fiilinin gelecek zamanı"),
+    "edeceğim": ("I will do", "etmek fiilinin gelecek zamanı"),
+    "çok": ("very", "sıfat/fiilden önce gelir: very tired"),
+    "yorgun": ("tired", "yorgun — I'm tired = yorgunum"),
+    "mutlu": ("happy", "mutlu — I'm happy"),
+    "aç": ("hungry", "aç — I'm hungry"),
+    "içeceğim": ("I will drink", "içmek fiilinin gelecek zamanı"),
+    "yiyeceğim": ("I will eat", "yemek fiilinin gelecek zamanı"),
+    "konuşacağım": ("I will speak", "konuşmak fiilinin gelecek zamanı"),
+    "istiyorum": ("I want", "istemek — I want to ..."),
+    "seviyorum": ("I love / I like", "sevmek"),
+}
+
+
+def _vocab_breakdown_tr(phrase_tr: str) -> str:
+    words = re.findall(r"[\wçğıöşüÇĞİÖŞÜ]+", phrase_tr.lower())
+    lines: list[str] = []
+    seen: set[str] = set()
+    for w in words:
+        if w in seen:
+            continue
+        seen.add(w)
+        entry = TR_WORD_GLOSS.get(w)
+        if entry:
+            en, note = entry
+            lines.append(f"  • \"{w}\" → {en} — {note}")
+    return "\n".join(lines) if lines else "  • Kelimeleri soldan sağa oku; özne (I) + fiil + zaman sırasıyla kur."
+
+
+def _vocab_breakdown_en(phrase_tr: str, phrase_en: str) -> str:
+    words = re.findall(r"[\w']+", phrase_en)
+    tr_map = {en: tr for tr, (en, _) in TR_WORD_GLOSS.items()}
+    lines: list[str] = []
+    for w in words:
+        lw = w.lower()
+        if lw in ("i", "a", "the", "to", "in", "on", "at", "and", "is", "am", "will"):
+            gloss = {
+                "i": "I (subject)", "a": "a (indefinite article)", "the": "the (definite article)",
+                "to": "to (direction / infinitive)", "will": "will (future tense marker)",
+                "am": "am (present tense of 'be')", "is": "is (present tense of 'be')",
+            }.get(lw, lw)
+            lines.append(f"  • \"{w}\" — {gloss}")
+        elif lw in tr_map:
+            lines.append(f"  • \"{w}\" — Turkish: \"{tr_map[lw]}\"")
+    if not lines:
+        lines.append(f"  • Full sentence: \"{phrase_en}\"")
+    return "\n".join(lines[:8])
+
+
+def _recent_teacher_texts(history: list[dict], n: int = 4) -> list[str]:
+    out: list[str] = []
+    for h in history:
+        if h.get("role") == "teacher":
+            t = (h.get("text") or "").strip()
+            if t:
+                out.append(t)
+        if len(out) >= n:
+            break
+    return out
+
+
+def _recent_user_texts(history: list[dict], n: int = 4) -> list[str]:
+    out: list[str] = []
+    for h in history:
+        if h.get("role") == "user":
+            t = (h.get("text") or "").strip()
+            if t:
+                out.append(t)
+        if len(out) >= n:
+            break
+    return out
+
+
 def _is_yardim_request(text: str) -> bool:
     return bool(YARDIM_PREFIX_RE.search(text))
 
@@ -613,16 +719,67 @@ def _llm(messages: list[dict], target_lang: str, level: str, roleplay: str | Non
         return None
 
 
-def _fallback_reply(
+def _resume_after_help(
+    user_text: str, target_lang: str, profile: dict, session_delta: dict,
+    translate_fn: Callable[[str, str, str], str] | None,
+    history: list[dict], roleplay: str | None,
+) -> dict[str, Any] | None:
+    pending = profile.get("pendingPracticePhrase") or ""
+    pending_tr = profile.get("pendingPracticeTr") or ""
+    if not pending:
+        return None
+
+    lang_name = LANG_NAMES.get(target_lang, target_lang)
+    practiced = _phrase_similar(user_text, pending)
+    if not practiced and pending_tr and _phrase_similar(user_text, pending_tr):
+        practiced = True
+    if not practiced and pending_tr and translate_fn and re.search(r"[ğüşıöçĞÜŞİÖÇ]", user_text):
+        meaning = translate_fn(user_text, "tr", target_lang)
+        practiced = _phrase_similar(meaning, pending)
+
+    if not practiced:
+        return None
+
+    clear_delta = {"pendingPracticePhrase": None, "pendingPracticeTr": None}
+    teacher_en = (
+        f"Excellent! You said it well: \"{pending}\"\n\n"
+        f"That's exactly the sentence we practiced. "
+        f"Now let's keep chatting in {lang_name} — tell me, what else are you planning today?"
+    )
+    teacher_tr = (
+        f"🎉 Harika! Doğru söyledin:\n\"{pending}\"\n\n"
+        f"Tam olarak çalıştığımız cümleydi. "
+        f"Şimdi {lang_name} sohbete devam edelim — bugün başka ne planlıyorsun?"
+    )
+    if translate_fn:
+        teacher_tr = (
+            f"🎉 Harika! Doğru söyledin:\n\"{pending}\"\n\n"
+            + _to_tr(
+                f"That's exactly the sentence we practiced. "
+                f"Now let's keep chatting — what else are you planning today?",
+                translate_fn, target_lang,
+            )
+        )
+
+    merged = merge_profile(profile, {**session_delta, **clear_delta, "correctSentences": profile.get("correctSentences", 0) + 1})
+    return _pack(
+        merged, {**session_delta, **clear_delta, "correctSentences": profile.get("correctSentences", 0) + 1},
+        teacher_en, teacher_tr, None, 1, "practice_success",
+        waiting=True, user_text=user_text, teacher_en=teacher_en, speak_text=teacher_en,
+    )
+
+
+def _contextual_reply(
     user_text: str, lang: str, history: list[dict], profile: dict,
     roleplay: str | None, correction: tuple | None,
     srs_prompt: str | None = None,
     vocab_hint: dict | None = None,
 ) -> str:
+    """Bağlama uygun cevap — LLM yokken doğal sohbet için."""
     if correction and correction[0] >= 2:
         correct, ex_en = correction[1], correction[3]
         if correct:
-            parts = [f"Almost! A more natural sentence is:\n'{correct}'"]
+            parts = [f"Almost! A more natural sentence is:\n\"{correct}\""]
             if ex_en:
                 parts.append(ex_en)
             if correction[0] >= 3:
@@ -632,39 +789,118 @@ def _fallback_reply(
             return "\n\n".join(parts)
 
     ul = user_text.lower()
+    recent_teacher = _recent_teacher_texts(history)
+    recent_user = _recent_user_texts(history)
+    avoid = " ".join(recent_teacher[:2]).lower()
+
+    def fresh(template: str) -> str:
+        return template if template.lower()[:30] not in avoid else ""
+
     if re.search(r"\b(hello|hi|hey|good morning|good evening|merhaba|selam)\b", ul):
-        return "Hello! I'm glad we're chatting. How are you today?"
+        r = fresh("Hello! I'm glad we're chatting. How are you today?")
+        return r or "Hi again! What's on your mind today?"
+
     if re.search(r"\b(how are you|how're you|nasılsın|nasilsin)\b", ul):
-        return "I'm doing well, thank you! How about you? What's new?"
-    if re.search(r"\b(i'?m|i am) (fine|good|ok|well|great)\b", ul):
-        return "That's great to hear! What did you do today?"
-    if re.search(r"\b(tired|exhausted|busy|yorgun)\b", ul):
+        return "I'm doing well, thank you! How about you — how has your day been?"
+
+    if re.search(r"\b(i'?m|i am) (fine|good|ok|well|great|tired|busy|happy|sad)\b", ul):
+        mood = re.search(r"\b(fine|good|ok|well|great|tired|busy|happy|sad)\b", ul)
+        m = mood.group(1) if mood else "fine"
+        if m == "tired":
+            return "I understand — being tired is tough. Did you sleep well last night? What made you tired today?"
+        if m in ("happy", "good", "great", "fine", "well", "ok"):
+            return "That's good to hear! What did you do today that made you feel that way?"
+        if m == "busy":
+            return "Busy days can be exhausting. What kept you busy today?"
+        if m == "sad":
+            return "I'm sorry to hear that. Do you want to talk about it?"
+
+    if re.search(r"\b(park|beach|museum|cinema|restaurant|cafe|coffee)\b", ul):
+        place = re.search(r"\b(park|beach|museum|cinema|restaurant|cafe|coffee)\b", ul).group(1)
+        return f"The {place} sounds nice! What did you do there? Did you go alone or with someone?"
+
+    if re.search(r"\b(yesterday|last week|last weekend|last night)\b", ul):
+        when = re.search(r"\b(yesterday|last week|last weekend|last night)\b", ul).group(1)
+        if "park" in ul or "work" in ul or "home" in ul:
+            return f"Oh, you went there {when}? That sounds interesting. What was the best part?"
+        return f"Tell me more about what you did {when}. Where did you go and who were you with?"
+
+    if re.search(r"\b(will go|going to|gonna|i'll go|i will)\b", ul):
+        if "work" in ul:
+            return "Got it — you're heading to work. What time do you usually start? What do you do there?"
+        if "school" in ul or "class" in ul:
+            return "School days can be busy! What are you studying? Do you enjoy it?"
+        return "That sounds like a plan! When are you going, and what will you do there?"
+
+    if re.search(r"\b(start|begin|finish|end|leave)\b", ul) and re.search(
+        r"\b(at|o'clock|\d|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|morning|evening)\b", ul
+    ):
+        return "That's a clear schedule! Do you commute to work, or is it close to home? What do you usually do first when you arrive?"
+
+    if re.search(r"\b(hour|minute|time|clock|schedule|shift)\b", ul):
+        return "Time management is important. Is that a typical schedule for you, or was today different?"
+
+    if re.search(r"\b(work|office|job|colleague|boss|meeting)\b", ul):
+        if "office" in ul and re.search(r"\b(in|at)\b", ul):
+            return "Working in an office — do you enjoy it? What's a typical day like for you?"
+        if recent_user and any("work" in u.lower() for u in recent_user[:1]):
+            return "That sounds interesting! What's the most challenging part of your job?"
+        return "Work can be demanding. What do you do at work? Tell me about a typical day."
+
+    if re.search(r"\b(tired|exhausted|sleepy|yorgun)\b", ul):
         if vocab_hint and vocab_hint.get("word", "").lower() not in ul:
             w = vocab_hint["word"]
             return (
-                f"I understand — that sounds tough. Try a stronger word next time: '{w}'. "
+                f"I understand — that sounds tough. You could also say \"I'm {w}\" for a stronger word. "
                 f"Why do you feel tired today?"
             )
-        return "I understand. That sounds tough. Why do you feel tired today?"
-    if re.search(r"\b(work|office|job)\b", ul):
-        return "Work can be demanding. What do you do at work? Tell me about your day."
-    if re.search(r"\b(yesterday|last week|last weekend)\b", ul):
-        return "Interesting! Can you tell me more about that?"
-    if re.search(r"\b(antalya|istanbul|london|paris|travel|trip|vacation|holiday)\b", ul):
-        return "That sounds wonderful! What did you enjoy most there?"
+        return "I understand. Rest is important. What made you feel tired — work, travel, or something else?"
 
-    if srs_prompt:
+    if re.search(r"\b(antalya|istanbul|london|paris|travel|trip|vacation|holiday|flight|hotel)\b", ul):
+        return "That sounds wonderful! What did you enjoy most? Would you go back there?"
+
+    if re.search(r"\b(food|eat|lunch|dinner|breakfast|cook|restaurant)\b", ul):
+        return "Food is a great topic! What did you have? Do you like cooking at home?"
+
+    if re.search(r"\b(family|mother|father|brother|sister|child|children|kids)\b", ul):
+        return "Family is important. Tell me more — how big is your family? What do you like doing together?"
+
+    if re.search(r"\b(weather|rain|sun|cold|hot|snow)\b", ul):
+        return "The weather affects our mood, doesn't it? What's the weather like where you are today?"
+
+    if re.search(r"\b(yes|yeah|yep|sure|ok|okay)\b", ul) and len(ul.split()) <= 4:
+        if recent_teacher:
+            last_q = recent_teacher[0]
+            if "?" in last_q:
+                return "Great! Can you tell me a bit more in detail? I'm listening."
+        return "Okay! What would you like to talk about next?"
+
+    if srs_prompt and srs_prompt.lower() not in avoid:
         return srs_prompt
 
     weak = profile.get("weakAreas") or []
-    if "past_tense" in weak:
+    if "past_tense" in weak and "what did you" not in avoid:
         return "By the way — what did you do yesterday?"
-    if "be_verb" in weak:
+    if "be_verb" in weak and "how are you feeling" not in avoid:
         return "How are you feeling right now?"
 
     import random
-    pool = FOLLOWUPS.get(lang, FOLLOWUPS["en"])
-    return random.choice(pool)
+    pool = [p for p in FOLLOWUPS.get(lang, FOLLOWUPS["en"]) if p.lower()[:25] not in avoid]
+    if not pool:
+        pool = FOLLOWUPS.get(lang, FOLLOWUPS["en"])
+    topic = random.choice(TOPICS_BY_LEVEL.get(profile.get("currentLevel", "A1"), TOPICS_BY_LEVEL["A1"]))
+    return random.choice(pool) + f" Maybe we can talk about {topic}?"
+
+
+def _fallback_reply(
+    user_text: str, lang: str, history: list[dict], profile: dict,
+    roleplay: str | None, correction: tuple | None,
+    srs_prompt: str | None = None,
+    vocab_hint: dict | None = None,
+) -> str:
+    return _contextual_reply(
+        user_text, lang, history, profile, roleplay, correction, srs_prompt, vocab_hint,
+    )
 
 
 def _help_mode(
@@ -676,23 +912,37 @@ def _help_mode(
     lang_name = LANG_NAMES.get(target_lang, target_lang)
     struct_tr = _explain_sentence_structure_tr(phrase_tr, translated, lang_name)
     struct_en = _explain_sentence_structure_en(phrase_tr, translated)
+    vocab_tr = _vocab_breakdown_tr(phrase_tr)
+    vocab_en = _vocab_breakdown_en(phrase_tr, translated)
 
     teacher_en = (
-        f"Of course — here's how to say it in {lang_name}:\n\n"
-        f"\"{translated}\"\n\n"
-        f"How to build it:\n{struct_en}\n\n"
-        f"Now try saying it out loud in {lang_name} — I'm listening!"
+        f"Of course — let me teach you this sentence in {lang_name}.\n\n"
+        f"🎯 What you want to say:\n\"{translated}\"\n\n"
+        f"📖 Sentence structure:\n{struct_en}\n\n"
+        f"🔤 Key words:\n{vocab_en}\n\n"
+        f"💡 Tip: In {lang_name}, the order is usually Subject + Verb + Object/Time.\n"
+        f"Turkish \"-eceğim\" becomes \"will\" or \"am going to\" in {lang_name}.\n\n"
+        f"🔄 Now you try — say it out loud in {lang_name}. I'm listening!"
     )
     teacher_tr = (
-        f"Tabii, yardım edeyim.\n\n"
-        f"🎯 Demek istediğin:\n\"{phrase_tr}\"\n\n"
-        f"✅ {lang_name}:\n\"{translated}\"\n\n"
+        f"Tabii, adım adım öğretelim.\n\n"
+        f"🎯 Demek istediğin (Türkçe):\n\"{phrase_tr}\"\n\n"
+        f"✅ {lang_name} karşılığı:\n\"{translated}\"\n\n"
         f"📖 Cümle yapısı:\n{struct_tr}\n\n"
-        f"🔄 Şimdi sen dene — yüksek sesle söyle!"
+        f"🔤 Kelimeler:\n{vocab_tr}\n\n"
+        f"💡 İpucu: Türkçede \"ben ... gideceğim\" dersin; {lang_name}'de "
+        f"\"I will go ...\" veya \"I'm going to ...\" kullanılır.\n"
+        f"Zaman kelimesi (bugün/yarın) genelde cümlenin sonunda durur.\n\n"
+        f"🔄 Şimdi sen dene — yüksek sesle söyle! Doğru söylersen sohbete devam ederiz."
     )
-    delta = {**session_delta, "lastTeacherText": translated}
+    delta = {
+        **session_delta,
+        "lastTeacherText": translated,
+        "pendingPracticePhrase": translated,
+        "pendingPracticeTr": phrase_tr,
+    }
     return _pack(
-        profile, delta, teacher_en, teacher_tr, translated, 1, "help",
+        profile, delta, teacher_en, teacher_tr, None, 1, "help",
         waiting=True, user_text=user_text, teacher_en=teacher_en, speak_text=translated,
     )
 
@@ -844,6 +1094,15 @@ def process_turn(
     if BREAKDOWN_RE.search(user_text):
         breakdown = grammar_breakdown(last_teacher, profile.get("currentLevel", "A1"))
         return _pack(profile, session_delta, breakdown, breakdown, None, 1, "breakdown", waiting=True, user_text=user_text)
+
+    # Yardım sonrası pratik cümlesi — sohbete geri dön
+    if profile.get("pendingPracticePhrase") and translate_fn:
+        resumed = _resume_after_help(
+            user_text, target_lang, profile, session_delta, translate_fn, history, roleplay,
+        )
+        if resumed:
+            resumed["weekly_progress"] = weekly_progress(resumed["profile"])
+            return resumed
 
     # "yardım" ile başlayan istek → cümle kurma öğretimi
     if translate_fn and _is_yardim_request(user_text):

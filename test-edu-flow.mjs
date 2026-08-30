@@ -21,7 +21,7 @@ function setupDom(corrupt = false) {
         { role: 'teacher', teacherEn: 123, teacherTr: null, audio: 'x'.repeat(5000) },
       ]),
     };
-    const html = fs.readFileSync('education.html', 'utf8').replace('education.js?v=9', 'education.js');
+    const html = fs.readFileSync('education.html', 'utf8').replace('education.js?v=10', 'education.js');
     const dom = new JSDOM(html, {
       url: `${BASE}/education.html`,
       runScripts: 'dangerously',
@@ -45,7 +45,7 @@ function setupDom(corrupt = false) {
     return dom;
   }
 
-  const html = fs.readFileSync('education.html', 'utf8').replace('education.js?v=9', 'education.js');
+  const html = fs.readFileSync('education.html', 'utf8').replace('education.js?v=10', 'education.js');
   return new JSDOM(html, {
     url: `${BASE}/education.html`,
     runScripts: 'dangerously',
