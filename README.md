@@ -1,41 +1,31 @@
 # Sesli Çevirmen — iPhone PWA
 
-Safari için sesli çeviri + dil eğitimi. Bas-konuş, robot öğretmen, 10 dil.
+Safari için sesli çeviri + dil eğitimi.
 
-## iPhone kurulum
-
-1. **Sabit adresinizi** Safari’de açın (aşağıya bakın)
-2. **Paylaş** → **Ana Ekrana Ekle** → **Ekle**
-3. Ana ekrandan simgeye dokunun
-
-## Önemli: Sunucu adresi
-
-**`*.trycloudflare.com` geçici adresler her tünel restart’ında değişir.** Ana ekrana eklediyseniz kısayol bozulabilir.
-
-Kalıcı kullanım için: **[docs/SABIT-ADRES.md](docs/SABIT-ADRES.md)** — kendi domain + Cloudflare Named Tunnel (önerilen).
-
-## Yerel çalıştırma
+## Kendin çalıştır (Mac)
 
 ```bash
 cd sesli-cevirmen-ios
-python3 server.py
-# http://127.0.0.1:8780
+chmod +x scripts/baslat.sh
+./scripts/baslat.sh
 ```
 
-Geçici internet adresi (değişken):
+Link ekranda çıkar ve **`PUBLIC_URL.txt`** dosyasına kaydedilir.
 
-```bash
-./scripts/start-tunnel-quick.sh
-# Adres: PUBLIC_URL.txt
-```
+Tekrar görmek: `./scripts/baslat.sh url` veya `cat PUBLIC_URL.txt`
+
+Detaylı rehber: **[NASIL-CALISTIRILIR.md](NASIL-CALISTIRILIR.md)**
+
+## iPhone kurulum
+
+1. `PUBLIC_URL.txt` içindeki adresi Safari’de aç
+2. **Paylaş → Ana Ekrana Ekle**
+
+## Sabit adres (ana ekran için önerilen)
+
+[docs/SABIT-ADRES.md](docs/SABIT-ADRES.md)
 
 ## Modüller
 
-- **Çeviri** — Türkçe ↔ diğer diller, bas-konuş
-- **Eğitim** — Robot öğretmen, İngilizce konuşma + Türkçe açıklama
-
-## Gereksinimler
-
-- Python 3.10+
-- iPhone Safari (mikrofon)
-- İnternet (STT/TTS/AI)
+- **Çeviri** — `/translate.html`
+- **Eğitim** — `/education.html`
