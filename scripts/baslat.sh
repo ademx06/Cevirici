@@ -21,6 +21,18 @@ stop_old() {
   pkill -f "cloudflared tunnel --url http://127.0.0.1:$PORT" 2>/dev/null || true
 }
 
+notify_link() {
+  local url="$1"
+  if [[ -n "${TELEGRAM_BOT_TOKEN:-}" && -n "${TELEGRAM_CHAT_ID:-}" ]]; then
+    local msg="Sesli Çevirmen — güncel link:%0A%0A${url}%0A%0AEğitim: ${url}/education.html%0AÇeviri: ${url}/translate.html"
+    curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+      -d "chat_id=${TELEGRAM_CHAT_ID}" \
+      -d "text=${msg}" \
+      -d "disable_web_page_preview=false" >/dev/null 2>&1 \
+      && echo "📲 Link Telegram'a gönderildi" || echo "⚠️  Telegram gönderilemedi"
+  fi
+}
+
 start_server() {
   echo "▶ Sunucu başlatılıyor (port $PORT)..."
   nohup python3 server.py > /tmp/sesli-cevirmen-server.log 2>&1 &
@@ -57,6 +69,7 @@ start_tunnel() {
     URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "$LOG" 2>/dev/null | head -1 || true)
     if [[ -n "$URL" ]]; then
       echo "$URL" > "$URL_FILE"
+      notify_link "$URL"
       echo ""
       echo "════════════════════════════════════════════"
       echo "  📱 iPhone'dan bu adresi aç:"
@@ -71,6 +84,7 @@ start_tunnel() {
       echo "⚠️  Bilgisayarı kapatırsan veya scripti tekrar"
       echo "   çalıştırırsan adres DEĞİŞEBİLİR."
       echo "   Sabit adres: docs/SABIT-ADRES.md"
+      echo "   iPhone link panosu: YENI-LINK-NEREDEN.md"
       return 0
     fi
     sleep 1
