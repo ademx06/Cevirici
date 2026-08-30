@@ -178,6 +178,9 @@ EN_RULES: list[tuple[re.Pattern, str, str, str, str]] = [
     (re.compile(r"\bi am run\b", re.I), "I went for a run today.", "learner_grammar",
      "'I am run' is wrong — use past tense 'I ran' or 'I went for a run'.",
      "'I am run' yanlış. Geçmiş: I ran today veya I went for a run."),
+    (re.compile(r"\bi sleeping\b", re.I), "I was sleeping.", "learner_grammar",
+     "Use 'I was sleeping' (past) or 'I'm going to sleep' (plan).",
+     "'I sleeping' yanlış — 'I was sleeping' (uyuyordum) veya 'I'm going to sleep' (uyuyacağım)."),
     (re.compile(r"\bi very tired today\b", re.I), "I'm very tired today.", "be_verb",
      "Use 'I'm' before adjectives.", "'I'm very tired today' de."),
 ]
@@ -764,6 +767,8 @@ def _normalize_stt_text(text: str) -> str:
         (r"\bi will\b", "I run"),
         (r"\beye run\b", "I run"),
         (r"\b(i wool|i wall|i well|ay run|hey run)\b", "I run"),
+        (r"\b(slipping|slipin|slip)\b", "sleeping"),
+        (r"\bsleepin\b", "sleeping"),
         (r"\bayran\b", "I run"),
         (r"\biron\b", "I run"),
         (r"\bairen\b", "I run"),
@@ -809,9 +814,193 @@ def _is_daily_activity_question(q: str) -> bool:
     return bool(re.search(
         r"what did you do|what do you do|what have you done|tell me about your day|"
         r"what happened|how was your day|what were you doing|did you do anything|"
-        r"bugün ne|neler yapt",
+        r"what are you planning|what will you|what are you going to|what else are you|"
+        r"what do you want to do|plans for|bugün ne|neler yapt|ne planlıyorsun",
         ql,
     ))
+
+
+def _question_time_mode(teacher_q: str) -> str:
+    """Öğretmen sorusuna göre zaman: plan / geçmiş / şimdi."""
+    ql = teacher_q.lower()
+    if re.search(
+        r"plan|planning|going to do|will you|what will|what are you going|what else|"
+        r"want to do|plans for|tomorrow|later today",
+        ql,
+    ):
+        return "plan"
+    if re.search(
+        r"did you do|what did|yesterday|last night|were you|what have you done|"
+        r"how was your day|what happened",
+        ql,
+    ):
+        return "past"
+    if re.search(r"are you doing|right now|at the moment|\bnow\b", ql):
+        return "present"
+    return "default"
+
+
+# Tek kelime / -ing / STT hataları → kök aktivite
+ACTIVITY_ALIASES: dict[str, str] = {
+    "sleeping": "sleep", "slept": "sleep", "sleepy": "sleep", "slipping": "sleep",
+    "slip": "sleep", "slipin": "sleep", "sleepin": "sleep",
+    "running": "run", "ran": "run", "jogging": "run", "jog": "run",
+    "reading": "read", "readed": "read",
+    "working": "work", "worked": "work",
+    "studying": "study", "studied": "study",
+    "eating": "eat", "ate": "eat", "eaten": "eat",
+    "watching": "watch", "watched": "watch", "tv": "watch",
+    "walking": "walk", "walked": "walk",
+    "playing": "play", "played": "play",
+    "resting": "rest", "rested": "rest", "relaxing": "relax", "relaxed": "relax",
+    "shopping": "shop", "shopped": "shop",
+    "cooking": "cook", "cooked": "cook",
+    "cleaning": "clean", "cleaned": "clean",
+    "swimming": "swim", "swam": "swim",
+    "nothing": "nothing",
+    "home": "home", "house": "home",
+    "book": "read", "books": "read",
+    "park": "park", "gym": "exercise", "exercising": "exercise", "exercise": "exercise",
+    "tired": "tired", "exhausted": "tired",
+}
+
+ACTIVITY_INFERENCES: dict[str, dict[str, tuple[str, str]]] = {
+    "sleep": {
+        "plan": ("I'm going to sleep.", "Uyumayı planlıyorsun demek istemiş olabilirsin."),
+        "past": ("I was sleeping.", "Uyuyordum demek istemiş olabilirsin."),
+        "present": ("I'm sleeping.", "Uyuyorum demek istemiş olabilirsin."),
+        "default": ("I slept.", "Uyudum demek istemiş olabilirsin."),
+    },
+    "run": {
+        "plan": ("I'm going for a run.", "Koşuya çıkmayı planlıyorsun demek istemiş olabilirsin."),
+        "past": ("I went for a run today.", "Bugün koştum demek istemiş olabilirsin."),
+        "present": ("I'm running.", "Koşuyorum demek istemiş olabilirsin."),
+        "default": ("I ran today.", "Bugün koştum demek istemiş olabilirsin."),
+    },
+    "read": {
+        "plan": ("I'm going to read a book.", "Kitap okumayı planlıyorsun demek istemiş olabilirsin."),
+        "past": ("I read a book today.", "Bugün kitap okudum demek istemiş olabilirsin."),
+        "present": ("I'm reading a book.", "Kitap okuyorum demek istemiş olabilirsin."),
+        "default": ("I read a book today.", "Kitap okudum demek istemiş olabilirsin."),
+    },
+    "work": {
+        "plan": ("I'm going to work.", "İşe gideceğim demek istemiş olabilirsin."),
+        "past": ("I went to work today.", "Bugün işe gittim demek istemiş olabilirsin."),
+        "present": ("I'm working.", "Çalışıyorum demek istemiş olabilirsin."),
+        "default": ("I worked today.", "Bugün çalıştım demek istemiş olabilirsin."),
+    },
+    "study": {
+        "plan": ("I'm going to study.", "Ders çalışmayı planlıyorsun demek istemiş olabilirsin."),
+        "past": ("I studied today.", "Bugün ders çalıştım demek istemiş olabilirsin."),
+        "present": ("I'm studying.", "Ders çalışıyorum demek istemiş olabilirsin."),
+        "default": ("I studied today.", "Ders çalıştım demek istemiş olabilirsin."),
+    },
+    "eat": {
+        "plan": ("I'm going to eat.", "Yemek yemeyi planlıyorsun demek istemiş olabilirsin."),
+        "past": ("I ate at home today.", "Bugün evde yemek yedim demek istemiş olabilirsin."),
+        "present": ("I'm eating.", "Yemek yiyorum demek istemiş olabilirsin."),
+        "default": ("I ate today.", "Yemek yedim demek istemiş olabilirsin."),
+    },
+    "watch": {
+        "plan": ("I'm going to watch TV.", "Televizyon izlemeyi planlıyorsun demek istemiş olabilirsin."),
+        "past": ("I watched TV today.", "Bugün televizyon izledim demek istemiş olabilirsin."),
+        "present": ("I'm watching TV.", "Televizyon izliyorum demek istemiş olabilirsin."),
+        "default": ("I watched TV today.", "Televizyon izledim demek istemiş olabilirsin."),
+    },
+    "walk": {
+        "plan": ("I'm going for a walk.", "Yürüyüş yapmayı planlıyorsun demek istemiş olabilirsin."),
+        "past": ("I walked today.", "Bugün yürüdüm demek istemiş olabilirsin."),
+        "present": ("I'm walking.", "Yürüyorum demek istemiş olabilirsin."),
+        "default": ("I walked today.", "Yürüdüm demek istemiş olabilirsin."),
+    },
+    "play": {
+        "plan": ("I'm going to play.", "Oynamayı planlıyorsun demek istemiş olabilirsin."),
+        "past": ("I played today.", "Bugün oynadım demek istemiş olabilirsin."),
+        "present": ("I'm playing.", "Oynuyorum demek istemiş olabilirsin."),
+        "default": ("I played today.", "Oynadım demek istemiş olabilirsin."),
+    },
+    "rest": {
+        "plan": ("I'm going to rest.", "Dinlenmeyi planlıyorsun demek istemiş olabilirsin."),
+        "past": ("I rested today.", "Bugün dinlendim demek istemiş olabilirsin."),
+        "present": ("I'm resting.", "Dinleniyorum demek istemiş olabilirsin."),
+        "default": ("I rested today.", "Dinlendim demek istemiş olabilirsin."),
+    },
+    "relax": {
+        "plan": ("I'm going to relax.", "Rahatlamayı planlıyorsun demek istemiş olabilirsin."),
+        "past": ("I relaxed today.", "Bugün dinlendim demek istemiş olabilirsin."),
+        "present": ("I'm relaxing.", "Rahatlıyorum demek istemiş olabilirsin."),
+        "default": ("I relaxed today.", "Dinlendim demek istemiş olabilirsin."),
+    },
+    "shop": {
+        "plan": ("I'm going shopping.", "Alışveriş yapmayı planlıyorsun demek istemiş olabilirsin."),
+        "past": ("I went shopping today.", "Bugün alışveriş yaptım demek istemiş olabilirsin."),
+        "present": ("I'm shopping.", "Alışveriş yapıyorum demek istemiş olabilirsin."),
+        "default": ("I went shopping today.", "Alışveriş yaptım demek istemiş olabilirsin."),
+    },
+    "home": {
+        "plan": ("I'm going to stay home.", "Evde kalmayı planlıyorsun demek istemiş olabilirsin."),
+        "past": ("I stayed at home today.", "Bugün evde kaldım demek istemiş olabilirsin."),
+        "present": ("I'm at home.", "Evdeyim demek istemiş olabilirsin."),
+        "default": ("I stayed at home today.", "Evde kaldım demek istemiş olabilirsin."),
+    },
+    "park": {
+        "plan": ("I'm going to the park.", "Parka gitmeyi planlıyorsun demek istemiş olabilirsin."),
+        "past": ("I went to the park today.", "Bugün parka gittim demek istemiş olabilirsin."),
+        "present": ("I'm at the park.", "Parktayım demek istemiş olabilirsin."),
+        "default": ("I went to the park today.", "Parka gittim demek istemiş olabilirsin."),
+    },
+    "exercise": {
+        "plan": ("I'm going to exercise.", "Spor yapmayı planlıyorsun demek istemiş olabilirsin."),
+        "past": ("I exercised today.", "Bugün spor yaptım demek istemiş olabilirsin."),
+        "present": ("I'm exercising.", "Spor yapıyorum demek istemiş olabilirsin."),
+        "default": ("I exercised today.", "Spor yaptım demek istemiş olabilirsin."),
+    },
+    "tired": {
+        "plan": ("I'm going to rest because I'm tired.", "Yorgunum, dinleneceğim demek istemiş olabilirsin."),
+        "past": ("I was very tired today.", "Bugün çok yorgundum demek istemiş olabilirsin."),
+        "present": ("I'm tired.", "Yorgunum demek istemiş olabilirsin."),
+        "default": ("I was very tired today.", "Çok yorgundum demek istemiş olabilirsin."),
+    },
+    "nothing": {
+        "plan": ("I'm not planning anything special.", "Özel bir planım yok demek istemiş olabilirsin."),
+        "past": ("I didn't do much today.", "Bugün pek bir şey yapmadım demek istemiş olabilirsin."),
+        "present": ("I'm not doing anything.", "Hiçbir şey yapmıyorum demek istemiş olabilirsin."),
+        "default": ("I didn't do much today.", "Pek bir şey yapmadım demek istemiş olabilirsin."),
+    },
+}
+
+
+def _extract_activity_token(text: str) -> str | None:
+    """Tek kelime veya 'I sleeping' gibi kısa parçadan aktivite kökü çıkar."""
+    ul = re.sub(r"[^\w\s']", "", text.lower().strip())
+    words = ul.split()
+    if not words:
+        return None
+    candidates: list[str] = []
+    if len(words) == 1:
+        candidates = [words[0]]
+    elif len(words) == 2 and words[0] in ("i", "im", "i'm", "a", "the"):
+        candidates = [words[1]]
+    elif len(words) <= 3:
+        candidates = [w for w in words if w not in ("i", "im", "i'm", "a", "an", "the", "am", "was")]
+    else:
+        return None
+    for token in candidates:
+        root = ACTIVITY_ALIASES.get(token, token)
+        if root in ACTIVITY_INFERENCES:
+            return root
+    return None
+
+
+def _infer_from_activity_token(user_text: str, teacher_q: str) -> tuple[str | None, str | None]:
+    root = _extract_activity_token(user_text)
+    if not root:
+        return None, None
+    mode = _question_time_mode(teacher_q)
+    entries = ACTIVITY_INFERENCES[root]
+    if mode in entries:
+        return entries[mode]
+    return entries.get("default", next(iter(entries.values())))
 
 
 def _is_fragment_attempt(text: str) -> bool:
@@ -860,10 +1049,15 @@ def _infer_meant_sentence(user_text: str, teacher_q: str) -> tuple[str | None, s
     Kırık/eksik cümleden niyeti tahmin et.
     Returns (inferred_en, reason_tr) or (None, None).
     """
+    activity = _infer_from_activity_token(user_text, teacher_q)
+    if activity[0]:
+        return activity
+
     ul = user_text.lower().strip()
     tq = teacher_q.lower()
     daily = _is_daily_activity_question(tq)
     time_word = "yesterday" if "yesterday" in tq else "today"
+    mode = _question_time_mode(teacher_q)
 
     patterns: list[tuple[re.Pattern, str, str]] = [
         (re.compile(r"\b(book|books|a book|read)\b", re.I),
@@ -884,7 +1078,10 @@ def _infer_meant_sentence(user_text: str, teacher_q: str) -> tuple[str | None, s
         (re.compile(r"\b(work|office|job)\b", re.I),
          f"I went to work {time_word}.",
          "İşe gittim demeye çalışmış olabilirsin."),
-        (re.compile(r"\b(home|house|rest|sleep|slept)\b", re.I),
+        (re.compile(r"\b(sleep|sleeping|slept|slipping|slip)\b", re.I),
+         "I'm going to sleep." if mode == "plan" else f"I was sleeping." if mode == "past" else "I slept.",
+         "Uyumak / uyuyordum demeye çalışmış olabilirsin — 'sleep' = uyumak."),
+        (re.compile(r"\b(home|house|rest)\b", re.I),
          f"I stayed at home {time_word}.",
          "Evde kaldım / dinlendim demeye çalışmış olabilirsin."),
         (re.compile(r"\b(tv|television|movie|film|netflix|series)\b", re.I),
@@ -893,7 +1090,7 @@ def _infer_meant_sentence(user_text: str, teacher_q: str) -> tuple[str | None, s
         (re.compile(r"\b(food|eat|ate|lunch|dinner|breakfast|cook|cooked)\b", re.I),
          f"I ate at home {time_word}.",
          "Yemek yedim demeye çalışmış olabilirsin."),
-        (re.compile(r"\b(gym|sport|run|ran|walk|walked|exercise|football|soccer)\b", re.I),
+        (re.compile(r"\b(gym|sport|walk|walked|exercise|football|soccer)\b", re.I),
          f"I exercised {time_word}.",
          "Spor yaptım demeye çalışmış olabilirsin."),
         (re.compile(r"\b(friend|friends|visit|visited)\b", re.I),
@@ -921,9 +1118,14 @@ def _infer_meant_sentence(user_text: str, teacher_q: str) -> tuple[str | None, s
             "book": (f"I read a book {time_word}.", "Kitap okudum demeye çalıştın."),
             "park": (f"I went to the park {time_word}.", "Parka gittim demeye çalıştın."),
             "work": (f"I went to work {time_word}.", "İşe gittim demeye çalıştın."),
+            "sleep": ("I'm going to sleep." if mode == "plan" else "I was sleeping.",
+                      "Uyumak demeye çalıştın — sleep = uyumak."),
+            "sleeping": ("I'm going to sleep." if mode == "plan" else "I was sleeping.",
+                         "Uyumak demeye çalıştın."),
         }
-        if word in noun_map:
-            return noun_map[word]
+        mapped = noun_map.get(word) or noun_map.get(ACTIVITY_ALIASES.get(word, ""))
+        if mapped:
+            return mapped
 
     return None, None
 
@@ -941,6 +1143,11 @@ def _build_intent_word_help(inferred: str, trigger_word: str) -> str:
         lines.append("  • I went for a run = Koşuya çıktım")
         lines.append("  • I ran today = Bugün koştum")
         lines.append("  • ❌ 'I am run' YANLIŞ — 'am' + run olmaz")
+    if re.search(r"\bsleep", ul):
+        lines.append("  • sleep = uyumak (sleeping = uyuyor, slept = uyudu)")
+        lines.append("  • I'm going to sleep = Uyuyacağım")
+        lines.append("  • I was sleeping = Uyuyordum")
+        lines.append("  • ❌ Sadece 'Sleeping' deme — tam cümle kur")
     if "went" in ul:
         lines.append("  • went = gitmek fiilinin geçmiş hali (go → went)")
     if "today" in ul:
@@ -975,20 +1182,21 @@ def _intent_clarify_mode(
     meaning_tr = _to_tr(inferred, translate_fn, target_lang) if translate_fn else ""
 
     teacher_en = (
-        f"I think I understand what you're trying to say!\n\n"
+        f"Good try! I think I understand what you mean.\n\n"
         f"You said: \"{shown}\"\n\n"
         f"📌 Did you mean:\n\"{inferred}\"?\n\n"
     )
     if word_help:
         teacher_en += f"🔤 Key words:\n{word_help}\n\n"
+    activity_root = _extract_activity_token(user_text) or trigger_word
     teacher_en += (
-        f"💡 Tip: Don't just say \"book\" — use a full sentence: "
-        f"\"I read a book today.\"\n\n"
-        f"🔄 Try saying the full sentence out loud!"
+        f"💡 Tip: In English, use a full sentence — not just \"{trigger_word or activity_root}\".\n"
+        f"Example: \"{inferred}\"\n\n"
+        f"🔄 Say the full sentence out loud, then we'll keep chatting!"
     )
 
     teacher_tr = (
-        f"🤔 Sanırım ne demek istediğini anladım!\n\n"
+        f"🤔 Güzel deneme! Ne demek istediğini anladım sanırım.\n\n"
         f"Sen dedin: \"{shown}\"\n\n"
         f"📌 Bunu mu demeye çalıştın?\n\"{inferred}\"\n\n"
     )
@@ -999,9 +1207,9 @@ def _intent_clarify_mode(
     if word_help:
         teacher_tr += f"🔤 Kelimeler:\n{word_help}\n\n"
     teacher_tr += (
-        f"💡 İpucu: Sadece \"book\" deme — tam cümle kur:\n"
-        f"\"I read a book today.\" = Bugün bir kitap okudum.\n\n"
-        f"🔄 Şimdi tam cümleyi yüksek sesle söyle!"
+        f"💡 İpucu: Sadece \"{trigger_word or activity_root}\" deme — tam cümle kur:\n"
+        f"\"{inferred}\"\n\n"
+        f"🔄 Tam cümleyi söyle, sonra sohbete devam edelim!"
     )
 
     delta = {
@@ -1066,7 +1274,7 @@ def _try_intent_clarify(
     if target_lang != "en" or not translate_fn:
         return None
     teacher_q = _last_teacher_question(history, profile)
-    if not _is_fragment_attempt(user_text) and not _is_daily_activity_question(teacher_q):
+    if not _is_fragment_attempt(user_text):
         return None
     if _is_daily_activity_question(teacher_q) and _is_clear_activity_answer(user_text):
         return None
@@ -1478,6 +1686,9 @@ def _contextual_reply(
     if re.search(r"\b(read|book|books)\b", ul):
         return "Nice! What kind of book was it? Do you enjoy reading in English?"
 
+    if re.search(r"\b(sleep|sleeping|slept|slipping)\b", ul):
+        return "Rest is important! Did you sleep well? Or are you planning to sleep soon?"
+
     if re.search(r"\b(park|beach|museum|cinema|restaurant|cafe|coffee)\b", ul):
         place = re.search(r"\b(park|beach|museum|cinema|restaurant|cafe|coffee)\b", ul).group(1)
         return f"The {place} sounds nice! What did you do there? Did you go alone or with someone?"
@@ -1548,6 +1759,12 @@ def _contextual_reply(
         return "How are you feeling right now?"
 
     import random
+    if len(ul.split()) <= 2 and not re.search(r"\b(yes|yeah|no|ok|okay|hello|hi|hey)\b", ul):
+        return (
+            "I'd love to understand you better. Can you try a full sentence? "
+            "For example, tell me what you did today or what you're planning."
+        )
+
     pool = [p for p in FOLLOWUPS.get(lang, FOLLOWUPS["en"]) if p.lower()[:25] not in avoid]
     if not pool:
         pool = FOLLOWUPS.get(lang, FOLLOWUPS["en"])

@@ -486,6 +486,10 @@ def fix_education_stt(text: str, history: list[dict] | None = None) -> str:
         "arm run": "I am run",
         "im run": "I am run",
         "am run": "I am run",
+        "slipping": "sleeping",
+        "slip": "sleeping",
+        "slipin": "sleeping",
+        "sleepin": "sleeping",
         "will": "I run",
         "run": "I run",
     }
