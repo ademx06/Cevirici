@@ -226,14 +226,26 @@ def default_profile(lang: str = "en") -> dict[str, Any]:
 
 def merge_profile(profile: dict | None, delta: dict | None) -> dict:
     base = default_profile()
-    if profile:
-        base.update({k: v for k, v in profile.items() if v is not None})
-    if not delta:
-        return base
     list_keys = (
         "grammarErrors", "repeatedMistakes", "weakAreas", "strongAreas", "newWords",
         "sessions", "srsItems", "vocabularyBank", "dailyStats", "sessionLog",
+        "vocabularyWeaknesses", "masteredTopics",
     )
+    if profile:
+        for k, v in profile.items():
+            if v is None:
+                continue
+            if k in list_keys:
+                if isinstance(v, list):
+                    base[k] = v
+                elif isinstance(v, str) and v.strip():
+                    base[k] = [v.strip()]
+                else:
+                    base[k] = []
+            else:
+                base[k] = v
+    if not delta:
+        return base
     for key in list_keys:
         if key in delta and isinstance(delta[key], list):
             base[key] = delta[key]

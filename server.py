@@ -14,7 +14,7 @@ import tempfile
 from tutor import get_lesson, tutor_reply
 from education_engine import (
     process_turn, greeting, session_report, daily_lesson, default_profile,
-    finalize_session, weekly_progress,
+    finalize_session, weekly_progress, merge_profile,
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -748,8 +748,16 @@ class Handler(SimpleHTTPRequestHandler):
             state = json.loads(state_raw) if state_raw else {}
         except Exception:
             state = {}
-        profile = state.get("profile") or default_profile(lang)
+        profile = merge_profile(state.get("profile"), None)
+        if profile.get("targetLang") != lang:
+            profile["targetLang"] = lang
         history = state.get("history") or []
+        if not isinstance(history, list):
+            history = []
+        history = [
+            {"role": h.get("role", "user"), "text": str(h.get("text", ""))[:500]}
+            for h in history if isinstance(h, dict) and h.get("text")
+        ][:24]
         roleplay = state.get("roleplay")
         speak_slow = bool(state.get("speak_slow"))
         last_lang = state.get("last_lang") or lang

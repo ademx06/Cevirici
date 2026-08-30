@@ -77,6 +77,55 @@ function safeClass(id, method, ...args) {
   const el = $(id);
   if (el?.classList) el.classList[method](...args);
 }
+
+function ensureArray(val, fallback = []) {
+  if (Array.isArray(val)) return val;
+  if (val == null || val === '') return fallback.slice();
+  if (typeof val === 'string') return val.split(',').map((s) => s.trim()).filter(Boolean);
+  return fallback.slice();
+}
+
+function safeStr(val) {
+  if (val == null) return '';
+  return typeof val === 'string' ? val : String(val);
+}
+
+function normalizeProfile(p) {
+  if (!p || typeof p !== 'object' || Array.isArray(p)) {
+    return loadProfile();
+  }
+  return {
+    ...p,
+    grammarErrors: ensureArray(p.grammarErrors),
+    vocabularyWeaknesses: ensureArray(p.vocabularyWeaknesses),
+    repeatedMistakes: ensureArray(p.repeatedMistakes),
+    masteredTopics: ensureArray(p.masteredTopics),
+    weakAreas: ensureArray(p.weakAreas),
+    strongAreas: ensureArray(p.strongAreas),
+    srsItems: ensureArray(p.srsItems),
+    vocabularyBank: ensureArray(p.vocabularyBank),
+    dailyStats: ensureArray(p.dailyStats),
+    sessionLog: ensureArray(p.sessionLog),
+    sessions: ensureArray(p.sessions),
+    newWords: ensureArray(p.newWords),
+  };
+}
+
+function sanitizeHistory(raw) {
+  return ensureArray(raw).map((h) => {
+    if (!h || typeof h !== 'object') return null;
+    const role = h.role === 'teacher' ? 'teacher' : 'user';
+    const text = safeStr(h.text).slice(0, 500);
+    return text ? { role, text } : null;
+  }).filter(Boolean).slice(0, 24);
+}
+
+function chatMsgForStorage(m) {
+  if (!m || typeof m !== 'object') return null;
+  const { audio, ...rest } = m;
+  return rest;
+}
+
 const getLang = (c) => LANGUAGES.find((l) => l.code === c) || LANGUAGES[0];
 
 function safeErrMsg(e) {
@@ -90,17 +139,19 @@ const MIC_OPTS = {
 };
 
 function loadProfile() {
+  const defaults = {
+    targetLang: 'en', currentLevel: 'A1', dailyGoalMinutes: 10,
+    todayMinutes: 0, dailyStats: [], sessionLog: [], srsItems: [], vocabularyBank: [],
+    weakAreas: [], strongAreas: [], newWords: [], grammarErrors: [],
+  };
   try {
     const raw = localStorage.getItem(PROFILE_KEY);
     if (raw) {
       const p = JSON.parse(raw);
-      if (p && typeof p === 'object' && !Array.isArray(p)) return p;
+      if (p && typeof p === 'object' && !Array.isArray(p)) return normalizeProfile({ ...defaults, ...p });
     }
   } catch { /* ignore */ }
-  return {
-    targetLang: 'en', currentLevel: 'A1', dailyGoalMinutes: 10,
-    todayMinutes: 0, dailyStats: [], sessionLog: [], srsItems: [], vocabularyBank: [],
-  };
+  return normalizeProfile(defaults);
 }
 
 function saveProfile() {
@@ -113,17 +164,15 @@ function saveProfile() {
 function loadHistory() {
   try {
     const raw = localStorage.getItem(HISTORY_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed : [];
-    }
+    if (raw) return sanitizeHistory(JSON.parse(raw));
   } catch { /* ignore */ }
   return [];
 }
 
 function saveChat() {
   try {
-    localStorage.setItem(CHAT_KEY, JSON.stringify(S.msgs.slice(-80)));
+    const slim = ensureArray(S.msgs).slice(-80).map(chatMsgForStorage).filter(Boolean);
+    localStorage.setItem(CHAT_KEY, JSON.stringify(slim));
   } catch { /* ignore */ }
 }
 
@@ -131,15 +180,14 @@ function loadChat() {
   try {
     const raw = localStorage.getItem(CHAT_KEY);
     if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    return ensureArray(JSON.parse(raw)).filter((m) => m && typeof m === 'object');
   } catch { /* ignore */ }
   return [];
 }
 
 function saveHistory() {
   try {
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(S.history.slice(0, 24)));
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(sanitizeHistory(S.history)));
   } catch { /* ignore */ }
 }
 
@@ -295,13 +343,14 @@ function renderWeekProgress(data) {
     ${renderProgressBar('Kelime', wp.vocabulary || 0, '#34D399')}
     ${renderProgressBar('Akıcılık', wp.fluency || 0, '#FBBF24')}
   `;
-  if (wp.days?.length) {
+  const days = ensureArray(wp.days);
+  if (days.length) {
     html += '<div class="week-days"><span class="week-days-title">Günlük dakika</span><div class="week-chart">';
-    const maxMin = Math.max(...wp.days.map((d) => d.minutes || 0), 1);
-    wp.days.forEach((d) => {
+    const maxMin = Math.max(...days.map((d) => d.minutes || 0), 1);
+    days.forEach((d) => {
       if (!d?.date) return;
       const h = Math.max(4, Math.round(((d.minutes || 0) / maxMin) * 48));
-      const dayLabel = d.date.slice(5);
+      const dayLabel = safeStr(d.date).slice(5);
       html += `<div class="week-bar-col" title="${d.date}: ${d.minutes || 0} dk">
         <div class="week-bar" style="height:${h}px"></div>
         <span>${dayLabel}</span>
@@ -313,21 +362,24 @@ function renderWeekProgress(data) {
 }
 
 function renderSessionLog(log) {
-  const items = log || S.profile?.sessionLog || [];
+  const items = ensureArray(log || S.profile?.sessionLog);
   if (!items.length) return '<p class="empty-hint">Henüz kayıtlı konuşma yok.</p>';
-  return items.slice(0, 15).map((s) => `
+  return items.slice(0, 15).map((s) => {
+    if (!s || typeof s !== 'object') return '';
+    return `
     <article class="history-item">
       <div class="history-item-top">
         <strong>${formatDate(s.date)}</strong>
-        <span class="history-level">${esc(s.level || 'A1')}</span>
+        <span class="history-level">${esc(safeStr(s.level || 'A1'))}</span>
       </div>
       <div class="history-item-meta">
         <span>⏱ ${s.minutes || 0} dk</span>
-        <span>💬 ${s.sentences || '—'} cümle</span>
+        <span>💬 ${esc(safeStr(s.sentences || '—'))} cümle</span>
         ${s.corrections != null ? `<span>✏️ ${s.corrections} düzeltme</span>` : ''}
       </div>
-      <div class="history-item-topic">${esc(s.topic || s.weakArea || 'Konuşma')}</div>
-    </article>`).join('');
+      <div class="history-item-topic">${esc(safeStr(s.topic || s.weakArea || 'Konuşma'))}</div>
+    </article>`;
+  }).join('');
 }
 
 function renderCorrectionCard(detail) {
@@ -368,21 +420,22 @@ function render() {
       return `<div class="chat-row chat-row-user">
         <div class="chat-bubble chat-bubble-user">
           <div class="chat-meta">Sen · ${time}</div>
-          <div class="chat-text">${esc(m.text)}</div>
+          <div class="chat-text">${esc(safeStr(m.text))}</div>
         </div></div>`;
     }
-    const teacherEn = m.teacherEn || m.teacher || '';
-    const teacherTr = m.teacherTr || m.explain || '';
+    const teacherEn = safeStr(m.teacherEn || m.teacher || '');
+    const teacherTr = safeStr(m.teacherTr || m.explain || '');
     let corr = m.correctionDetail ? renderCorrectionCard(m.correctionDetail) : '';
-    if (!corr && m.correction && m.correctionLevel >= 2) {
+    const corrLevel = Number(m.correctionLevel) || 1;
+    if (!corr && m.correction && corrLevel >= 2) {
       corr = renderCorrectionCard({
         userSaid: m.userSaid,
         correctEn: m.correction,
         explainTr: m.explain,
       });
     }
-    const vocab = m.newWord
-      ? `<div class="chat-vocab">📚 <strong>${esc(m.newWord.word)}</strong> = ${esc(m.newWord.meaningTr)}</div>` : '';
+    const vocab = m.newWord && typeof m.newWord === 'object' && m.newWord.word
+      ? `<div class="chat-vocab">📚 <strong>${esc(safeStr(m.newWord.word))}</strong> = ${esc(safeStr(m.newWord.meaningTr))}</div>` : '';
     return `<div class="chat-row chat-row-teacher">
         <div class="chat-avatar">🤖</div>
         <div class="chat-bubble chat-bubble-teacher">
@@ -428,7 +481,7 @@ function stopTts() {
 }
 
 async function playB64(b64) {
-  if (!b64) return;
+  if (!b64 || typeof b64 !== 'string') return;
   try {
     stopTts();
     S.lastAudio = b64;
@@ -453,8 +506,8 @@ async function playB64(b64) {
 }
 
 function pushHistory(role, text) {
-  if (!Array.isArray(S.history)) S.history = [];
-  S.history.unshift({ role, text });
+  S.history = sanitizeHistory(S.history);
+  S.history.unshift({ role, text: safeStr(text).slice(0, 500) });
   S.history = S.history.slice(0, 24);
   saveHistory();
 }
@@ -470,24 +523,26 @@ function appendUserMsg(text, lang) {
 }
 
 function appendTeacherMsg(d) {
-  const teacherEn = d.teacher_en || d.robot_target || d.teacher_text || '';
-  const teacherTr = d.teacher_tr || d.explain_tr || '';
+  const teacherEn = safeStr(d.teacher_en || d.robot_target || d.teacher_text || '');
+  const teacherTr = safeStr(d.teacher_tr || d.explain_tr || '');
+  const audio = typeof d.audio === 'string' && d.audio ? d.audio : null;
   S.msgs.push({
     role: 'teacher',
-    teacher: d.teacher_text || teacherEn,
+    teacher: safeStr(d.teacher_text || teacherEn),
     teacherEn,
     teacherTr,
     explain: teacherTr,
-    correction: d.correction || '',
-    correctionLevel: d.correction_level || 1,
-    correctionDetail: d.correction_detail || null,
-    userSaid: d.user_text || '',
+    correction: safeStr(d.correction || ''),
+    correctionLevel: Number(d.correction_level) || 1,
+    correctionDetail: d.correction_detail && typeof d.correction_detail === 'object' ? d.correction_detail : null,
+    userSaid: safeStr(d.user_text || ''),
     targetLang: d.target_lang || S.learnLang,
-    audio: d.audio || null,
+    audio,
     type: d.type,
-    newWord: d.new_word || null,
+    newWord: d.new_word && typeof d.new_word === 'object' ? d.new_word : null,
     time: chatTime(),
   });
+  if (audio) S.lastAudio = audio;
   saveChat();
   pushHistory('teacher', teacherEn);
 }
@@ -496,7 +551,7 @@ function handleEducationResult(d) {
   if (!d || typeof d !== 'object') return;
   try {
     if (d.profile) {
-      S.profile = d.profile;
+      S.profile = normalizeProfile(d.profile);
       saveProfile();
       updateLevelBadge();
       updateDailyGoal();
@@ -507,11 +562,11 @@ function handleEducationResult(d) {
     if (d.daily_lesson) updatePersonalLesson(d.daily_lesson);
     if (d.motivation) showMotivation(d.motivation);
 
-    if (d.user_text) appendUserMsg(d.user_text, d.user_lang);
+    if (d.user_text) appendUserMsg(safeStr(d.user_text), d.user_lang);
     appendTeacherMsg(d);
     hideTyping();
     render();
-    if (d.audio) playB64(d.audio);
+    if (typeof d.audio === 'string' && d.audio) playB64(d.audio);
   } catch (e) {
     hideTyping();
     showErr(safeErrMsg(e) || 'Mesaj gösterilemedi');
@@ -532,7 +587,7 @@ async function processEducationChat(text) {
     body: JSON.stringify({
       text,
       profile: S.profile,
-      history: S.history,
+      history: sanitizeHistory(S.history),
       roleplay: S.roleplay || null,
       speak_slow: S.speakSlow,
       user_lang: detectInputLang(text),
@@ -568,7 +623,7 @@ async function sendTextMessage() {
 async function processEducationVoice(blob) {
   const state = JSON.stringify({
     profile: S.profile,
-    history: S.history,
+    history: sanitizeHistory(S.history),
     roleplay: S.roleplay || null,
     speak_slow: S.speakSlow,
     last_lang: S.learnLang,
@@ -581,7 +636,12 @@ async function processEducationVoice(blob) {
       'X-Education-State': state,
     },
   });
-  const d = await r.json().catch(() => ({}));
+  let d = {};
+  try {
+    d = await r.json();
+  } catch {
+    throw new Error('Sunucu yanıtı okunamadı — tekrar dene.');
+  }
   if (!r.ok) throw new Error(d.error || 'Bağlantı sorunu. Tekrar dene.');
   return d;
 }
@@ -660,19 +720,20 @@ async function endSession() {
   if (mins < 0.3 || S.sessionSaved) return;
   S.sessionSaved = true;
   try {
-    const weak = (S.profile?.weakAreas || ['conversation'])[0];
+    const areas = ensureArray(S.profile?.weakAreas, ['conversation']);
+    const weak = areas[0] || 'conversation';
     const r = await fetch('/api/education/session-end', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         profile: S.profile,
         minutes: mins,
-        topic: weak.replace(/_/g, ' '),
+        topic: safeStr(weak).replace(/_/g, ' '),
       }),
     });
     const d = await r.json().catch(() => ({}));
     if (r.ok && d.profile) {
-      S.profile = d.profile;
+      S.profile = normalizeProfile(d.profile);
       saveProfile();
       updateDailyGoal();
       S.weeklyProgress = d.weeklyProgress;
@@ -696,10 +757,10 @@ async function showReport() {
   const correct = S.profile?.correctSentences || 0;
   const corrections = S.profile?.sessionCorrections ?? S.profile?.totalCorrections ?? 0;
   const grammar = Math.min(100, Math.round((correct / total) * 100));
-  const vocab = Math.min(100, 50 + (S.profile?.newWords?.length || 0) * 5);
+  const vocab = Math.min(100, 50 + ensureArray(S.profile?.newWords).length * 5);
   const fluency = Math.min(100, Math.round(40 + mins * 3));
-  const weak = (S.profile?.weakAreas || []).slice(0, 3).map((w) => w.replace(/_/g, ' ')).join(', ') || '—';
-  const strong = (S.profile?.strongAreas || ['Konuşma isteği']).slice(0, 2).join(', ');
+  const weak = ensureArray(S.profile?.weakAreas).slice(0, 3).map((w) => safeStr(w).replace(/_/g, ' ')).join(', ') || '—';
+  const strong = ensureArray(S.profile?.strongAreas, ['Konuşma isteği']).slice(0, 2).map(safeStr).join(', ');
 
   const reportEl = $('reportContent');
   if (reportEl) {
@@ -708,7 +769,7 @@ async function showReport() {
     <div class="report-row"><span>Cümleler</span><strong>${total}</strong></div>
     <div class="report-row"><span>Doğru cümleler</span><strong>${correct}</strong></div>
     <div class="report-row"><span>Düzeltmeler</span><strong>${corrections}</strong></div>
-    <div class="report-row"><span>Yeni kelimeler</span><strong>${S.profile?.newWords?.length || 0}</strong></div>
+    <div class="report-row"><span>Yeni kelimeler</span><strong>${ensureArray(S.profile?.newWords).length}</strong></div>
     <div class="report-row"><span>Gramer</span><strong>${grammar}%</strong></div>
     <div class="report-row"><span>Kelime</span><strong>${vocab}%</strong></div>
     <div class="report-row"><span>Akıcılık</span><strong>${fluency}%</strong></div>
@@ -978,6 +1039,34 @@ if (lessonChips) {
   });
 }
 
+function resetStoredData() {
+  try {
+    localStorage.removeItem(PROFILE_KEY);
+    localStorage.removeItem(HISTORY_KEY);
+    localStorage.removeItem(CHAT_KEY);
+  } catch { /* ignore */ }
+  S.profile = loadProfile();
+  S.history = [];
+  S.msgs = [];
+  S.lastAudio = null;
+  S.greetingLoaded = false;
+  S.sessionStart = null;
+  S.sessionSaved = false;
+  S.weeklyProgress = null;
+  syncLearnLang();
+  updateLevelBadge();
+  updateDailyGoal();
+  hideErr();
+  render();
+  fetchGreeting();
+  fetchLessonPlan();
+}
+
+on('resetDataBtn', 'click', () => {
+  if (isRecording() || S.busyCount > 0) return;
+  if (window.confirm('Kayıtlı sohbet ve profil silinsin mi?')) resetStoredData();
+});
+
 on('clearBtn', 'click', () => {
   if (!isRecording() && S.busyCount === 0) {
     endSession();
@@ -1024,8 +1113,6 @@ window.addEventListener('pagehide', () => endSession());
 S.profile = loadProfile();
 S.history = loadHistory();
 S.msgs = loadChat();
-if (!Array.isArray(S.history)) S.history = [];
-if (!Array.isArray(S.msgs)) S.msgs = [];
 S.learnLang = S.profile?.targetLang || 'en';
 syncLearnLang();
 updateLevelBadge();
