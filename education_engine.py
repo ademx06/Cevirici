@@ -540,28 +540,28 @@ def _fallback_reply(
             if ex_en:
                 parts.append(ex_en)
             if correction[0] >= 3:
-                parts.append("Now you try, then we'll continue.")
+                parts.append("Now you try saying it correctly, then we'll keep chatting.")
             else:
-                parts.append("So, what else happened?")
+                parts.append("So, tell me more — what happened?")
             return "\n\n".join(parts)
 
     ul = user_text.lower()
-    if re.search(r"\b(hello|hi|hey|good morning|good evening)\b", ul):
-        return "Hello! I'm good, thank you. How are you today?"
-    if re.search(r"\b(how are you|how're you)\b", ul):
-        return "I'm doing well, thank you! How about you?"
+    if re.search(r"\b(hello|hi|hey|good morning|good evening|merhaba|selam)\b", ul):
+        return "Hello! I'm glad we're chatting. How are you today?"
+    if re.search(r"\b(how are you|how're you|nasılsın|nasilsin)\b", ul):
+        return "I'm doing well, thank you! How about you? What's new?"
     if re.search(r"\b(i'?m|i am) (fine|good|ok|well|great)\b", ul):
         return "That's great to hear! What did you do today?"
-    if re.search(r"\b(tired|exhausted|busy)\b", ul):
+    if re.search(r"\b(tired|exhausted|busy|yorgun)\b", ul):
         if vocab_hint and vocab_hint.get("word", "").lower() not in ul:
             w = vocab_hint["word"]
             return (
-                f"I understand. By the way, try a stronger word next time: '{w}' "
-                f"— it means {vocab_hint.get('meaningTr', 'very tired')}."
+                f"I understand — that sounds tough. Try a stronger word next time: '{w}'. "
+                f"Why do you feel tired today?"
             )
-        return "I understand. Why do you feel tired today?"
+        return "I understand. That sounds tough. Why do you feel tired today?"
     if re.search(r"\b(work|office|job)\b", ul):
-        return "Work can be demanding. What do you do at work?"
+        return "Work can be demanding. What do you do at work? Tell me about your day."
     if re.search(r"\b(yesterday|last week|last weekend)\b", ul):
         return "Interesting! Can you tell me more about that?"
     if re.search(r"\b(antalya|istanbul|london|paris|travel|trip|vacation|holiday)\b", ul):
@@ -589,7 +589,7 @@ def _help_mode(
     phrase_tr = _extract_turkish_phrase(user_text)
     translated = translate_fn(phrase_tr, "tr", target_lang)
     lang_name = LANG_NAMES.get(target_lang, target_lang)
-    teacher = f"Try saying: \"{translated}\""
+    teacher_en = f"Try saying: \"{translated}\""
     explain = f"🇹🇷 \"{phrase_tr}\"\n\n🇬🇧 {lang_name}: \"{translated}\"\n\nTekrar et ve birlikte çalışalım."
     return {
         "type": "help",
@@ -603,6 +603,31 @@ def _help_mode(
         "speak_text": translated,
         "waiting_for_user": True,
     }
+
+
+def _turkish_to_practice(
+    user_text: str, target_lang: str, profile: dict, session_delta: dict,
+    translate_fn: Callable[[str, str, str], str],
+) -> dict[str, Any]:
+    """Türkçe konuşuldu — çeviri uygulaması gibi davranma, İngilizce pratik yaptır."""
+    lang_name = LANG_NAMES.get(target_lang, target_lang)
+    en_phrase = translate_fn(user_text, "tr", target_lang)
+    teacher_tr = (
+        f"Anladım! 🇹🇷 \"{user_text}\"\n\n"
+        f"Bunu {lang_name} denemek için:\n\"{en_phrase}\"\n\n"
+        f"Şimdi sen {lang_name} söyle — dinliyorum!"
+    )
+    teacher_en = (
+        f"I understand what you mean!\n"
+        f"In English, try saying:\n\"{en_phrase}\"\n\n"
+        f"Now you say it in English — I'm listening!"
+    )
+    display = f"{teacher_tr}\n\n———\n{teacher_en}"
+    delta = {**session_delta, "lastTeacherText": en_phrase}
+    return _pack(
+        profile, delta, display, teacher_tr, en_phrase, 1, "coach_tr",
+        waiting=True, user_text=user_text, teacher_en=teacher_en, speak_text=en_phrase,
+    )
 
 
 def _build_correction_tr(
@@ -700,7 +725,8 @@ def process_turn(
         breakdown = grammar_breakdown(last_teacher, profile.get("currentLevel", "A1"))
         return _pack(profile, session_delta, breakdown, breakdown, None, 1, "breakdown", waiting=True, user_text=user_text)
 
-    if translate_fn and (user_lang == "tr" or HELP_RE.search(user_text)):
+    # Yalnızca açık yardım isteğinde çeviri modu (Türkçe konuşmak ≠ çeviri)
+    if translate_fn and HELP_RE.search(user_text):
         help_result = _help_mode(user_text, target_lang, translate_fn)
         p = merge_profile(profile, session_delta)
         p["lastTeacherText"] = help_result["speak_text"]
@@ -709,6 +735,10 @@ def process_turn(
         help_result["target_lang"] = target_lang
         help_result["user_lang"] = user_lang
         return help_result
+
+    # Kullanıcı Türkçe konuştu — çevirme, öğret ve İngilizceye yönlendir
+    if user_lang == "tr" and translate_fn:
+        return _turkish_to_practice(user_text, target_lang, profile, session_delta, translate_fn)
 
     correction_level = 1
     correct_phrase = None
@@ -790,7 +820,7 @@ def process_turn(
     teacher_en = teacher
     teacher_tr = correction_tr_block or _conversation_tr_hint()
     if correction_level == 1 and not correction_tr_block:
-        teacher_tr = f"{_conversation_tr_hint()}\n\n🇬🇧 Öğretmen: {teacher_en[:200]}"
+        teacher_tr = f"{_conversation_tr_hint()}\n(Hedef dilde sohbet ediyoruz — devam et!)"
 
     display_teacher = teacher_en
     if correction_tr_block:

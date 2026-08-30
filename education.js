@@ -63,6 +63,12 @@ const S = {
 const $ = (id) => document.getElementById(id);
 const getLang = (c) => LANGUAGES.find((l) => l.code === c) || LANGUAGES[0];
 
+function safeErrMsg(e) {
+  if (e instanceof Error) return e.message;
+  if (typeof e === 'string') return e;
+  return 'Bir hata oluştu — tekrar dene';
+}
+
 const MIC_OPTS = {
   audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
 };
@@ -122,11 +128,13 @@ function setUiState(name) {
 }
 
 function showTyping() {
-  $('typingIndicator').classList.remove('hidden');
+  const el = $('typingIndicator');
+  if (el) el.classList.remove('hidden');
 }
 
 function hideTyping() {
-  $('typingIndicator').classList.add('hidden');
+  const el = $('typingIndicator');
+  if (el) el.classList.add('hidden');
 }
 
 function showErr(t) {
@@ -141,8 +149,10 @@ function hideErr() {
 }
 
 function clearInterim() {
-  $('interimBox').classList.add('hidden');
-  $('interimText').textContent = '';
+  const box = $('interimBox');
+  const text = $('interimText');
+  if (box) box.classList.add('hidden');
+  if (text) text.textContent = '';
 }
 
 function isRecording() {
@@ -466,6 +476,13 @@ function handleEducationResult(d) {
   if (d.audio) playB64(d.audio);
 }
 
+function detectInputLang(text) {
+  if (/[ğüşıöçĞÜŞİÖÇ]|\b(merhaba|nasılsın|nasilsin|ben |çok |yorgun|bugün|teşekkür|evet|hayır)\b/i.test(text)) {
+    return 'tr';
+  }
+  return S.learnLang;
+}
+
 async function processEducationChat(text) {
   const r = await fetch(`/api/education/chat?${new URLSearchParams({ lang: S.learnLang })}`, {
     method: 'POST',
@@ -476,7 +493,7 @@ async function processEducationChat(text) {
       history: S.history,
       roleplay: S.roleplay || null,
       speak_slow: S.speakSlow,
-      user_lang: 'tr',
+      user_lang: detectInputLang(text),
     }),
   });
   const d = await r.json().catch(() => ({}));
@@ -498,7 +515,7 @@ async function sendTextMessage() {
     handleEducationResult(d);
   } catch (e) {
     hideTyping();
-    showErr(e.message || 'Gönderilemedi');
+    showErr(safeErrMsg(e) || 'Gönderilemedi');
   } finally {
     S.busyCount -= 1;
     resetIdle();
@@ -511,6 +528,7 @@ async function processEducationVoice(blob) {
     history: S.history,
     roleplay: S.roleplay || null,
     speak_slow: S.speakSlow,
+    last_lang: S.learnLang,
   });
   const r = await fetch(`/api/education/voice?${new URLSearchParams({ lang: S.learnLang })}`, {
     method: 'POST',
@@ -553,7 +571,7 @@ async function fetchGreeting() {
     S.sessionSaved = false;
   } catch (e) {
     hideTyping();
-    showErr(e.message || 'Bağlantı sorunu. Tekrar dene.');
+    showErr(safeErrMsg(e) || 'Karşılama yüklenemedi');
   } finally {
     S.busyCount -= 1;
     resetIdle();
@@ -726,7 +744,7 @@ function startRecorder(gen) {
 
     processEducationVoice(blob)
       .then(handleEducationResult)
-      .catch((e) => showErr(e.message || 'Duyamadım — tekrar dene'))
+      .catch((e) => showErr(safeErrMsg(e) || 'Duyamadım — tekrar dene'))
       .finally(() => {
         S.busyCount -= 1;
         if (!S.holdActive && !isRecording() && S.busyCount === 0) resetIdle();
