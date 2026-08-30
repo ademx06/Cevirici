@@ -175,6 +175,9 @@ EN_RULES: list[tuple[re.Pattern, str, str, str, str]] = [
     (re.compile(r"\b(read book|a book)\b", re.I), "I read a book today.", "intent_fragment",
      "Use a full sentence: I read a book today.",
      "Tam cümle kur: I read a book today = Bugün bir kitap okudum."),
+    (re.compile(r"\bi am run\b", re.I), "I went for a run today.", "learner_grammar",
+     "'I am run' is wrong — use past tense 'I ran' or 'I went for a run'.",
+     "'I am run' yanlış. Geçmiş: I ran today veya I went for a run."),
     (re.compile(r"\bi very tired today\b", re.I), "I'm very tired today.", "be_verb",
      "Use 'I'm' before adjectives.", "'I'm very tired today' de."),
 ]
@@ -482,6 +485,36 @@ def check_english(text: str) -> tuple[int, str | None, str | None, str | None, s
     if re.search(r"\bdon't want go\b|\bwant not\b|\bi want not\b", ul):
         return 3, "I don't want to go.", "negative",
         "Use: I don't want to + verb.", "Olumsuz: I don't want to + fiil."
+    am_m = re.search(r"\bi am (\w+)\b", ul)
+    if am_m:
+        v = am_m.group(1).lower()
+        am_fixes: dict[str, tuple[str, str, str]] = {
+            "run": ("I went for a run today.", "'I am run' is wrong — say 'I ran' or 'I went for a run'.",
+                    "'I am run' yanlış. Koştum demek için: I ran today."),
+            "ran": ("I ran today.", "Don't say 'I am ran' — just 'I ran today'.", "'I am ran' yanlış — I ran today de."),
+            "go": ("I went to work today.", "'I am go' is wrong — past tense: I went.", "'I am go' yanlış — I went de."),
+            "read": ("I read a book today.", "'I am read' is wrong — say 'I read a book'.", "'I am read' yanlış — I read a book de."),
+            "walk": ("I walked today.", "Use past tense: I walked.", "Geçmiş: I walked today."),
+            "play": ("I played today.", "Use past tense: I played.", "Geçmiş: I played today."),
+            "eat": ("I ate today.", "Use past tense: I ate.", "Geçmiş: I ate today."),
+            "work": ("I worked today.", "Use past tense: I worked.", "Geçmiş: I worked today."),
+            "swim": ("I swam today.", "Use past tense: I swam.", "Geçmiş: I swam today — swim→swam."),
+            "watch": ("I watched TV today.", "Use past tense: I watched.", "Geçmiş: I watched TV today."),
+        }
+        if v in am_fixes and not v.endswith("ing"):
+            c, en, tr = am_fixes[v]
+            return 3, c, "learner_grammar", en, tr
+    if re.search(r"\bi (run|walk|play|eat|swim)\b", ul) and "went" not in ul and "am" not in ul:
+        short_fixes = {
+            "run": ("I ran today.", "Use past tense 'ran' for completed actions.", "Geçmiş: I ran today."),
+            "walk": ("I walked today.", "Use past tense 'walked'.", "Geçmiş: I walked today."),
+            "play": ("I played today.", "Use past tense 'played'.", "Geçmiş: I played today."),
+            "eat": ("I ate today.", "Use past tense 'ate'.", "Geçmiş: I ate today."),
+            "swim": ("I swam today.", "Use past tense 'swam'.", "Geçmiş: I swam today."),
+        }
+        for kw, (c, en, tr) in short_fixes.items():
+            if re.search(rf"\bi {kw}\b", ul):
+                return 3, c, "learner_grammar", en, tr
     if re.search(r"\bi (very|so|really) (tired|happy|sad|busy)\b", ul) and not re.search(r"\bi'?m\b|\bi am\b", ul):
         mood = re.search(r"\b(tired|happy|sad|busy)\b", ul)
         m = mood.group(1) if mood else "tired"
@@ -531,6 +564,7 @@ def _build_conversation_teach(
         "word_order": ("Kelime sırası hatası", "Word order error"),
         "missing_verb": ("Fiil eksik", "Missing verb"),
         "intent_fragment": ("Eksik cümle — tam cümle kur", "Incomplete sentence"),
+        "learner_grammar": ("Tipik öğrenici hatası", "Typical learner mistake"),
         "grammar": ("Gramer hatası", "Grammar error"),
     }
     cat_tr, cat_en = cat_labels.get(category or "grammar", ("Dil hatası", "Language error"))
@@ -542,6 +576,8 @@ def _build_conversation_teach(
     ]
     if category == "intent_fragment":
         teach_tr_parts[0] = "🤔 Sanırım ne demek istediğini anlıyorum:"
+    if category == "learner_grammar":
+        teach_tr_parts[0] = "🤔 Bunu mu demeye çalıştın? Küçük bir gramer düzeltmesi:"
     if explain_tr:
         teach_tr_parts.append(f"💡 Neden: {explain_tr}")
     elif explain_en:
@@ -720,7 +756,14 @@ def _normalize_stt_text(text: str) -> str:
         (r"\bi read book\b", "I read a book"),
         (r"\bi went park\b", "I went to the park"),
         (r"\bi go work\b", "I go to work"),
-        (r"\btoday i\b", "today I"),
+        (r"\bi am run\b", "I am run"),  # keep for learner detection, don't auto-fix
+        (r"\bi run\b", "I ran"),
+        (r"\bi am walk\b", "I walked"),
+        (r"\bi am read\b", "I read a book"),
+        (r"\bi am go\b", "I went"),
+        (r"\barm run\b", "I am run"),
+        (r"\bim run\b", "I am run"),
+        (r"\bam run\b", "I am run"),
     )
     for pat, rep in fixes:
         t = re.sub(pat, rep, t, flags=re.I)
@@ -741,7 +784,7 @@ def _is_real_turkish(text: str) -> bool:
     ):
         return True
     # Tek İngilizce kelime / kırık parça → Türkçe değil
-    if re.search(r"\b(book|read|park|work|home|tired|hello|yes|no|today|yesterday)\b", text, re.I):
+    if re.search(r"\b(book|read|park|work|home|tired|hello|yes|no|today|yesterday|run|ran)\b", text, re.I):
         if not re.search(r"[ğüşıöçĞÜŞİÖÇ]", text):
             return False
     return bool(re.search(r"\b(ben|sen|biz|siz|onlar|için|ile|de|da|ki|mi|mı|mu|mü)\b", text, re.I))
@@ -788,6 +831,11 @@ def _is_fragment_attempt(text: str) -> bool:
         return True
     if re.search(r"^(i|a|an|the)\s+\w+$", ul) and len(words) <= 3:
         return True
+    # Öğrenici hatası: I am run / I am go (yanlış yapı ama fiil var sanılıyor)
+    if re.search(r"\bi am (run|ran|go|read|walk|play|eat|work|swim|watch|book)\b", ul):
+        return True
+    if re.search(r"\bi (run|ran|walk|read|play|eat|swim)\b", ul) and len(words) <= 4:
+        return True
     return False
 
 
@@ -805,6 +853,15 @@ def _infer_meant_sentence(user_text: str, teacher_q: str) -> tuple[str | None, s
         (re.compile(r"\b(book|books|a book|read)\b", re.I),
          f"I read a book {time_word}.",
          "Kitap okudum / bir kitap okudum demeye çalışmış olabilirsin."),
+        (re.compile(r"\b(run|ran|running|jog|jogging|sport)\b", re.I),
+         f"I went for a run {time_word}.",
+         "Koşuya çıktım / koşmak demeye çalışmış olabilirsin."),
+        (re.compile(r"\bi am run\b", re.I),
+         f"I went for a run {time_word}.",
+         "'I am run' demek istedin galiba — doğrusu 'I ran' veya 'I went for a run'."),
+        (re.compile(r"\bi run\b", re.I),
+         f"I went for a run {time_word}.",
+         "Koştum demeye çalışmış olabilirsin — 'I ran today' de."),
         (re.compile(r"\bpark\b", re.I),
          f"I went to the park {time_word}.",
          "Parka gittim demeye çalışmış olabilirsin."),
@@ -863,6 +920,11 @@ def _build_intent_word_help(inferred: str, trigger_word: str) -> str:
         lines.append("  • read = okumak (geçmiş: read — düzensiz fiil, yazılışı aynı)")
         lines.append("  • a book = bir kitap")
         lines.append("  • I read a book = Bir kitap okudum")
+    if "run" in ul or "ran" in inferred.lower():
+        lines.append("  • run = koşmak (geçmiş: ran — düzensiz fiil)")
+        lines.append("  • I went for a run = Koşuya çıktım")
+        lines.append("  • I ran today = Bugün koştum")
+        lines.append("  • ❌ 'I am run' YANLIŞ — 'am' + run olmaz")
     if "went" in ul:
         lines.append("  • went = gitmek fiilinin geçmiş hali (go → went)")
     if "today" in ul:
@@ -936,6 +998,44 @@ def _intent_clarify_mode(
         profile, delta, teacher_en, teacher_tr, None, 1, "intent_guess",
         waiting=True, user_text=shown, teacher_en=teacher_en, speak_text=inferred,
     )
+
+
+def _try_learner_clarify(
+    original_text: str,
+    history: list[dict],
+    profile: dict,
+    session_delta: dict,
+    target_lang: str,
+    translate_fn: Callable[[str, str, str], str] | None,
+) -> dict[str, Any] | None:
+    """I am run gibi tipik öğrenici hataları — intent_guess modunda düzelt."""
+    if target_lang != "en":
+        return None
+    ul = original_text.lower().strip()
+    teacher_q = _last_teacher_question(history, profile)
+    time_word = "yesterday" if "yesterday" in teacher_q.lower() else "today"
+
+    am_m = re.search(r"\bi am (\w+)\b", ul)
+    if am_m:
+        v = am_m.group(1).lower()
+        if v.endswith("ing") or v in ("a", "an", "the", "very", "so", "not", "going", "happy", "tired", "busy", "fine"):
+            return None
+        fixes: dict[str, tuple[str, str]] = {
+            "run": (f"I went for a run {time_word}.",
+                    "'I am run' yanlış. Koştum demek için: I ran today veya I went for a run."),
+            "go": (f"I went to work {time_word}.", "'I am go' yanlış — geçmiş: I went."),
+            "read": (f"I read a book {time_word}.", "'I am read' yanlış — I read a book de."),
+            "walk": (f"I walked {time_word}.", "'I am walk' yanlış — geçmiş: I walked."),
+            "play": (f"I played {time_word}.", "'I am play' yanlış — geçmiş: I played."),
+            "work": (f"I worked {time_word}.", "'I am work' yanlış — geçmiş: I worked."),
+        }
+        if v in fixes:
+            inferred, reason = fixes[v]
+            return _intent_clarify_mode(
+                original_text, inferred, reason, target_lang, profile, session_delta, translate_fn,
+                display_text=original_text,
+            )
+    return None
 
 
 def _try_intent_clarify(
@@ -1593,12 +1693,21 @@ def process_turn(
     profile = merge_profile(profile, None)
     profile = reset_daily_if_needed(profile)
     original_text = user_text.strip()
+    session_delta: dict[str, Any] = {
+        "totalSentences": profile.get("totalSentences", 0) + (1 if original_text else 0),
+    }
+
+    if translate_fn and target_lang == "en":
+        learner = _try_learner_clarify(
+            original_text, history, profile, session_delta, target_lang, translate_fn,
+        )
+        if learner:
+            learner["weekly_progress"] = weekly_progress(learner["profile"])
+            return learner
+
     user_text = _normalize_stt_text(original_text)
     if user_lang == "tr" and target_lang == "en" and not _is_real_turkish(user_text):
         user_lang = "en"
-    session_delta: dict[str, Any] = {
-        "totalSentences": profile.get("totalSentences", 0) + (1 if user_text else 0),
-    }
 
     last_teacher = profile.get("lastTeacherText") or ""
     if not user_text:

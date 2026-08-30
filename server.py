@@ -136,7 +136,13 @@ def translate_text(text: str, from_lang: str, to_lang: str) -> str:
 
 _whisper_model = None
 
-WHISPER_PROMPTS: dict[str, str] = {}
+WHISPER_PROMPTS: dict[str, str] = {
+    "en": (
+        "English lesson. The student speaks simple English: "
+        "I read a book, I ran today, I went to work, I am tired, "
+        "what did you do today, I went for a run, I watched TV."
+    ),
+}
 
 
 def get_whisper():
@@ -277,7 +283,8 @@ def looks_like_lang(text: str, lang: str) -> bool:
             r"\b(what|how|are|you|doing|hello|thanks|thank|yes|no|good|please|fine|"
             r"where|when|who|why|the|this|that|is|are|was|were|your|holiday|i'm|im|"
             r"i|a|an|book|read|went|work|tired|today|yesterday|park|home|ate|had|"
-            r"played|watched|walked|studied|spoke|said|like|want|need|have|did|don't)\b",
+            r"played|watched|walked|studied|spoke|said|like|want|need|have|did|don't|"
+            r"run|ran|running|very|so|just|only|also|then|well|now)\b",
             t,
             re.I,
         ))
@@ -393,6 +400,76 @@ def resolve_lang_from_text(text: str, my: str, other: str, stt_lang: str) -> str
         return "ru"
 
     return stt_lang if stt_lang in (my, other) else my
+
+
+def _stt_has_turkish_markers(text: str) -> bool:
+    if re.search(r"[ğüşıöçĞÜŞİÖÇ]", text):
+        return True
+    return bool(re.search(
+        r"\b(merhaba|nasılsın|nasilsin|teşekkür|evet|hayır|tamam|iyiyim|günaydın|"
+        r"neler|yapıyorum|yaptım|gittim|yorgunum|kitap|okudum|bugün|yarın)\b",
+        text,
+        re.I,
+    ))
+
+
+def transcribe_education(data: bytes, target_lang: str = "en", last_from: str | None = None) -> tuple[str, str]:
+    """Eğitim modu — hedef dili (İngilizce) önceliklendir, yanlış Türkçe algılamayı azalt."""
+    wav = prepare_wav(data)
+    try:
+        if not audio_has_speech(wav):
+            raise ValueError("no speech detected")
+
+        candidates: list[tuple[str, str, float]] = []
+        primary = target_lang if target_lang in STT_LANG else "en"
+        en_first = stt_for_lang(wav, primary)
+        if en_first:
+            candidates.append(en_first)
+
+        if primary == "en":
+            tr_try = stt_for_lang(wav, "tr")
+            if tr_try and tr_try[0].strip().lower() != (en_first[0].strip().lower() if en_first else ""):
+                candidates.append(tr_try)
+
+        if not candidates:
+            raise ValueError("speech not recognized")
+
+        def rank_edu(item: tuple[str, str, float]) -> float:
+            text, lang, score = item
+            s = score
+            if lang == primary:
+                s += 50
+            if primary == "en" and re.search(
+                r"\b(i|i'm|im|a|an|the|book|run|ran|read|work|today|yesterday|went|am|is|are|"
+                r"did|do|have|had|tired|park|home|yes|no|hello|you|what|very)\b",
+                text,
+                re.I,
+            ):
+                s += 30
+            if lang == "tr" and not _stt_has_turkish_markers(text):
+                s -= 50
+            if lang == "tr" and primary == "en":
+                s -= 20
+            if last_from == lang:
+                s += 8
+            return s
+
+        best = max(candidates, key=rank_edu)
+        text = best[0].strip()
+        if primary == "en":
+            if re.search(
+                r"\b(i|i'm|im|you|we|book|run|ran|read|work|today|went|did|am|is|are|the|a)\b",
+                text,
+                re.I,
+            ) and not _stt_has_turkish_markers(text):
+                return text, "en"
+        from_lang = resolve_lang_from_text(text, primary, "tr", best[1])
+        if primary == "en" and from_lang == "tr" and not _stt_has_turkish_markers(text):
+            from_lang = "en"
+        return text, from_lang
+    finally:
+        if os.path.exists(wav):
+            os.unlink(wav)
 
 
 def transcribe_dual(data: bytes, my: str, other: str, last_from: str | None = None) -> tuple[str, str]:
@@ -774,7 +851,7 @@ class Handler(SimpleHTTPRequestHandler):
         speak_slow = bool(state.get("speak_slow"))
         last_lang = state.get("last_lang") or lang
         try:
-            original, detected = transcribe_dual(data, lang, "tr", last_lang)
+            original, detected = transcribe_education(data, lang, last_lang)
             result = process_turn(
                 original, detected, lang, history, profile,
                 roleplay=roleplay, speak_slow=speak_slow, translate_fn=translate_text,
