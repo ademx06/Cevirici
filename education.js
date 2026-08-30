@@ -61,6 +61,21 @@ const S = {
 };
 
 const $ = (id) => document.getElementById(id);
+
+function on(id, event, handler) {
+  const el = $(id);
+  if (el) el.addEventListener(event, handler);
+}
+
+function safeText(id, value) {
+  const el = $(id);
+  if (el) el.textContent = value;
+}
+
+function safeClass(id, method, ...args) {
+  const el = $(id);
+  if (el?.classList) el.classList[method](...args);
+}
 const getLang = (c) => LANGUAGES.find((l) => l.code === c) || LANGUAGES[0];
 
 function safeErrMsg(e) {
@@ -108,7 +123,9 @@ function saveChat() {
 function loadChat() {
   try {
     const raw = localStorage.getItem(CHAT_KEY);
-    if (raw) return JSON.parse(raw);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
   } catch { /* ignore */ }
   return [];
 }
@@ -122,30 +139,32 @@ function saveHistory() {
 function setUiState(name) {
   S.uiState = name;
   const st = STATES[name] || STATES.IDLE;
-  $('statusText').textContent = st.text;
-  $('statusDot').classList.toggle('active', st.live);
-  $('micTitle').textContent = st.mic;
-}
-
-function showTyping() {
-  const el = $('typingIndicator');
-  if (el) el.classList.remove('hidden');
-}
-
-function hideTyping() {
-  const el = $('typingIndicator');
-  if (el) el.classList.add('hidden');
+  safeText('statusText', st.text);
+  safeClass('statusDot', 'toggle', 'active', st.live);
+  safeText('micTitle', st.mic);
 }
 
 function showErr(t) {
-  $('errorBox').textContent = t;
-  $('errorBox').className = 'error-box';
-  $('errorBox').classList.remove('hidden');
+  const msg = t || 'Bir hata oluştu — tekrar dene';
+  safeText('errorBox', msg);
+  const box = $('errorBox');
+  if (box) {
+    box.className = 'error-box';
+    box.classList.remove('hidden');
+  }
   setUiState('ERROR');
 }
 
 function hideErr() {
-  $('errorBox').classList.add('hidden');
+  safeClass('errorBox', 'add', 'hidden');
+}
+
+function showTyping() {
+  safeClass('typingIndicator', 'remove', 'hidden');
+}
+
+function hideTyping() {
+  safeClass('typingIndicator', 'add', 'hidden');
 }
 
 function clearInterim() {
@@ -160,13 +179,13 @@ function isRecording() {
 }
 
 function showThinking() {
-  $('micBtn').classList.remove('recording');
+  safeClass('micBtn', 'remove', 'recording');
   showTyping();
   setUiState('PROCESSING');
 }
 
 function showSpeaking() {
-  $('micBtn').classList.add('recording');
+  safeClass('micBtn', 'add', 'recording');
   hideTyping();
   setUiState('LISTENING');
 }
@@ -177,7 +196,7 @@ function resetIdle() {
   S.stopTimer = null;
   S.safetyTimer = null;
   S.holdActive = false;
-  $('micBtn').classList.remove('recording');
+  safeClass('micBtn', 'remove', 'recording');
   hideTyping();
   if (S.busyCount === 0 && S.uiState !== 'SPEAKING') setUiState('IDLE');
 }
@@ -214,35 +233,37 @@ function formatDate(dateStr) {
 }
 
 function updateLevelBadge() {
-  $('levelBadge').textContent = S.profile?.currentLevel || 'A1';
+  safeText('levelBadge', S.profile?.currentLevel || 'A1');
 }
 
 function updateDailyGoal() {
   const goal = S.profile?.dailyGoalMinutes || 10;
   const mins = S.profile?.todayMinutes || 0;
   const pct = Math.min(100, Math.round((mins / goal) * 100));
-  $('goalText').textContent = `${goal} dk konuşma`;
-  $('goalMeta').textContent = `${Number(mins).toFixed(1)} / ${goal} dk`;
-  $('goalProgress').style.width = `${pct}%`;
+  safeText('goalText', `${goal} dk konuşma`);
+  safeText('goalMeta', `${Number(mins).toFixed(1)} / ${goal} dk`);
+  const bar = $('goalProgress');
+  if (bar) bar.style.width = `${pct}%`;
 }
 
 function updatePersonalLesson(lesson) {
   if (!lesson) return;
-  $('lessonWeak').textContent = lesson.mainWeakness || '—';
-  $('lessonVocab').textContent = lesson.vocabulary || '—';
-  $('lessonTopic').textContent = lesson.conversation || '—';
-  $('lessonPractice').textContent = `${lesson.practiceMinutes || 10} dk`;
+  safeText('lessonWeak', lesson.mainWeakness || '—');
+  safeText('lessonVocab', lesson.vocabulary || '—');
+  safeText('lessonTopic', lesson.conversation || '—');
+  safeText('lessonPractice', `${lesson.practiceMinutes || 10} dk`);
   const srs = lesson.srsReviewsDue || 0;
   const vocab = lesson.vocabReviewsDue || 0;
   if (srs + vocab > 0) {
-    $('lessonSrsMeta').textContent = `🔄 Tekrar bekleyen: ${srs} gramer · ${vocab} kelime`;
+    safeText('lessonSrsMeta', `🔄 Tekrar bekleyen: ${srs} gramer · ${vocab} kelime`);
   } else {
-    $('lessonSrsMeta').textContent = '✓ Tekrar konuları güncel';
+    safeText('lessonSrsMeta', '✓ Tekrar konuları güncel');
   }
 }
 
 function showMotivation(text) {
   const el = $('motivationBanner');
+  if (!el) return;
   if (!text) {
     el.classList.add('hidden');
     return;
@@ -271,6 +292,7 @@ function renderWeekProgress(data) {
     html += '<div class="week-days"><span class="week-days-title">Günlük dakika</span><div class="week-chart">';
     const maxMin = Math.max(...wp.days.map((d) => d.minutes || 0), 1);
     wp.days.forEach((d) => {
+      if (!d?.date) return;
       const h = Math.max(4, Math.round(((d.minutes || 0) / maxMin) * 48));
       const dayLabel = d.date.slice(5);
       html += `<div class="week-bar-col" title="${d.date}: ${d.minutes || 0} dk">
@@ -320,16 +342,18 @@ function renderCorrectionCard(detail) {
 
 function render() {
   const el = $('messages');
+  if (!el) return;
+  if (!Array.isArray(S.msgs)) S.msgs = [];
   if (!S.msgs.length) {
     el.innerHTML = `<div class="chat-welcome">
       <div class="chat-welcome-avatar">🤖</div>
       <p>Merhaba! Ben senin öğretmeninim.<br>
       <strong>İngilizce konuş</strong> — hatalarını düzeltirim, cevabımın <strong>Türkçe çevirisini</strong> görürsün.<br>
       Takılırsan: <strong>yardım ben bugün işe gideceğim…</strong> de — cümleyi adım adım öğretirim.</p></div>`;
-    $('clearBtn').classList.add('hidden');
+    safeClass('clearBtn', 'add', 'hidden');
     return;
   }
-  $('clearBtn').classList.remove('hidden');
+  safeClass('clearBtn', 'remove', 'hidden');
   const lg = getLang(S.learnLang);
   el.innerHTML = S.msgs.map((m, i) => {
     const time = m.time ? `<span class="chat-time">${m.time}</span>` : '';
@@ -398,23 +422,27 @@ function stopTts() {
 
 async function playB64(b64) {
   if (!b64) return;
-  stopTts();
-  S.lastAudio = b64;
-  setUiState('SPEAKING');
-  const bin = atob(b64);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  const blob = new Blob([bytes], { type: 'audio/mpeg' });
-  const u = URL.createObjectURL(blob);
-  audio.volume = 1;
-  audio.src = u;
-  const done = () => {
-    URL.revokeObjectURL(u);
-    if (!S.holdActive && !isRecording() && S.busyCount === 0) setUiState('IDLE');
-  };
-  audio.onended = done;
-  audio.onerror = done;
-  try { await audio.play(); } catch { done(); }
+  try {
+    stopTts();
+    S.lastAudio = b64;
+    setUiState('SPEAKING');
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const blob = new Blob([bytes], { type: 'audio/mpeg' });
+    const u = URL.createObjectURL(blob);
+    audio.volume = 1;
+    audio.src = u;
+    const done = () => {
+      URL.revokeObjectURL(u);
+      if (!S.holdActive && !isRecording() && S.busyCount === 0) setUiState('IDLE');
+    };
+    audio.onended = done;
+    audio.onerror = done;
+    try { await audio.play(); } catch { done(); }
+  } catch {
+    resetIdle();
+  }
 }
 
 function pushHistory(role, text) {
@@ -457,23 +485,29 @@ function appendTeacherMsg(d) {
 }
 
 function handleEducationResult(d) {
-  if (d.profile) {
-    S.profile = d.profile;
-    saveProfile();
-    updateLevelBadge();
-    updateDailyGoal();
-  }
-  if (d.weekly_progress || d.weeklyProgress) {
-    S.weeklyProgress = d.weekly_progress || d.weeklyProgress;
-  }
-  if (d.daily_lesson) updatePersonalLesson(d.daily_lesson);
-  if (d.motivation) showMotivation(d.motivation);
+  if (!d || typeof d !== 'object') return;
+  try {
+    if (d.profile) {
+      S.profile = d.profile;
+      saveProfile();
+      updateLevelBadge();
+      updateDailyGoal();
+    }
+    if (d.weekly_progress || d.weeklyProgress) {
+      S.weeklyProgress = d.weekly_progress || d.weeklyProgress;
+    }
+    if (d.daily_lesson) updatePersonalLesson(d.daily_lesson);
+    if (d.motivation) showMotivation(d.motivation);
 
-  if (d.user_text) appendUserMsg(d.user_text, d.user_lang);
-  appendTeacherMsg(d);
-  hideTyping();
-  render();
-  if (d.audio) playB64(d.audio);
+    if (d.user_text) appendUserMsg(d.user_text, d.user_lang);
+    appendTeacherMsg(d);
+    hideTyping();
+    render();
+    if (d.audio) playB64(d.audio);
+  } catch (e) {
+    hideTyping();
+    showErr(safeErrMsg(e) || 'Mesaj gösterilemedi');
+  }
 }
 
 function detectInputLang(text) {
@@ -503,6 +537,7 @@ async function processEducationChat(text) {
 
 async function sendTextMessage() {
   const input = $('textInput');
+  if (!input) return;
   const text = input.value.trim();
   if (!text || S.busyCount > 0 || isRecording()) return;
   input.value = '';
@@ -601,7 +636,7 @@ async function loadLesson(id) {
     render();
     if (d.audio) playB64(d.audio);
   } catch (e) {
-    showErr(e.message);
+    showErr(safeErrMsg(e) || 'Ders yüklenemedi');
   } finally {
     S.busyCount -= 1;
     resetIdle();
@@ -641,9 +676,9 @@ function switchReportTab(tab) {
   document.querySelectorAll('.modal-tab').forEach((t) => {
     t.classList.toggle('active', t.dataset.tab === tab);
   });
-  $('tabToday').classList.toggle('hidden', tab !== 'today');
-  $('tabWeek').classList.toggle('hidden', tab !== 'week');
-  $('tabHistory').classList.toggle('hidden', tab !== 'history');
+  safeClass('tabToday', 'toggle', 'hidden', tab !== 'today');
+  safeClass('tabWeek', 'toggle', 'hidden', tab !== 'week');
+  safeClass('tabHistory', 'toggle', 'hidden', tab !== 'history');
 }
 
 async function showReport() {
@@ -658,7 +693,9 @@ async function showReport() {
   const weak = (S.profile?.weakAreas || []).slice(0, 3).map((w) => w.replace(/_/g, ' ')).join(', ') || '—';
   const strong = (S.profile?.strongAreas || ['Konuşma isteği']).slice(0, 2).join(', ');
 
-  $('reportContent').innerHTML = `
+  const reportEl = $('reportContent');
+  if (reportEl) {
+    reportEl.innerHTML = `
     <div class="report-row"><span>Konuşma süresi</span><strong>${mins.toFixed(1)} dk</strong></div>
     <div class="report-row"><span>Cümleler</span><strong>${total}</strong></div>
     <div class="report-row"><span>Doğru cümleler</span><strong>${correct}</strong></div>
@@ -670,21 +707,25 @@ async function showReport() {
     <div class="report-row"><span>Tahmini seviye</span><strong>${S.profile?.currentLevel || 'A1'}</strong></div>
     <div class="report-row"><span>Zayıf alanlar</span><strong>${esc(weak)}</strong></div>
     <div class="report-row"><span>Güçlü alanlar</span><strong>${esc(strong)}</strong></div>`;
+  }
 
-  $('weekProgress').innerHTML = renderWeekProgress(S.weeklyProgress || { weeklyProgress: S.weeklyProgress });
-  $('historyContent').innerHTML = renderSessionLog();
-  $('reportModal').classList.remove('hidden');
+  const weekEl = $('weekProgress');
+  if (weekEl) weekEl.innerHTML = renderWeekProgress(S.weeklyProgress || { weeklyProgress: S.weeklyProgress });
+  const histEl = $('historyContent');
+  if (histEl) histEl.innerHTML = renderSessionLog();
+  safeClass('reportModal', 'remove', 'hidden');
 
   await endSession();
-  if (S.weeklyProgress) {
-    $('weekProgress').innerHTML = renderWeekProgress({ weeklyProgress: S.weeklyProgress });
+  if (S.weeklyProgress && weekEl) {
+    weekEl.innerHTML = renderWeekProgress({ weeklyProgress: S.weeklyProgress });
   }
-  $('historyContent').innerHTML = renderSessionLog();
+  if (histEl) histEl.innerHTML = renderSessionLog();
 }
 
 function showHistoryModal() {
-  $('historyModalContent').innerHTML = renderSessionLog();
-  $('historyModal').classList.remove('hidden');
+  const el = $('historyModalContent');
+  if (el) el.innerHTML = renderSessionLog();
+  safeClass('historyModal', 'remove', 'hidden');
 }
 
 function pickMime() {
@@ -851,51 +892,54 @@ function bindHold(el) {
 
 function syncLearnLang() {
   const lg = getLang(S.learnLang);
-  $('learnLang').value = S.learnLang;
-  $('robotName').textContent = `${lg.flag} ${lg.name} Öğretmeni`;
-  $('conversationSubtitle').textContent = `${lg.name} konuş veya yaz`;
+  const sel = $('learnLang');
+  if (sel) sel.value = S.learnLang;
+  safeText('robotName', `${lg.flag} ${lg.name} Öğretmeni`);
+  safeText('conversationSubtitle', `${lg.name} konuş veya yaz`);
   if (S.profile) {
     S.profile.targetLang = S.learnLang;
     saveProfile();
   }
 }
 
-LEARN_LANGS.forEach((l) => {
-  const o = document.createElement('option');
-  o.value = l.code;
-  o.textContent = `${l.flag} ${l.name}`;
-  $('learnLang').appendChild(o);
+const learnLangSelect = $('learnLang');
+if (learnLangSelect) {
+  LEARN_LANGS.forEach((l) => {
+    const o = document.createElement('option');
+    o.value = l.code;
+    o.textContent = `${l.flag} ${l.name}`;
+    learnLangSelect.appendChild(o);
+  });
+  learnLangSelect.addEventListener('change', (e) => {
+    if (!isRecording()) {
+      S.learnLang = e.target.value;
+      S.greetingLoaded = false;
+      syncLearnLang();
+      fetchGreeting();
+      fetchLessonPlan();
+    } else {
+      e.target.value = S.learnLang;
+    }
+  });
+}
+
+on('roleplaySelect', 'change', (e) => {
+  S.roleplay = e.target.value;
 });
 
-$('learnLang').onchange = (e) => {
-  if (!isRecording()) {
-    S.learnLang = e.target.value;
-    S.greetingLoaded = false;
-    syncLearnLang();
-    fetchGreeting();
-    fetchLessonPlan();
-  } else {
-    e.target.value = S.learnLang;
-  }
-};
-
-$('roleplaySelect').onchange = (e) => {
-  S.roleplay = e.target.value;
-};
-
-$('speedNormal').onclick = () => {
+on('speedNormal', 'click', () => {
   S.speakSlow = false;
-  $('speedNormal').classList.add('active');
-  $('speedSlow').classList.remove('active');
-};
+  safeClass('speedNormal', 'add', 'active');
+  safeClass('speedSlow', 'remove', 'active');
+});
 
-$('speedSlow').onclick = () => {
+on('speedSlow', 'click', () => {
   S.speakSlow = true;
-  $('speedSlow').classList.add('active');
-  $('speedNormal').classList.remove('active');
-};
+  safeClass('speedSlow', 'add', 'active');
+  safeClass('speedNormal', 'remove', 'active');
+});
 
-$('repeatBtn').onclick = async () => {
+on('repeatBtn', 'click', async () => {
   unlockAudioSync();
   if (S.lastAudio) {
     playB64(S.lastAudio);
@@ -903,11 +947,10 @@ $('repeatBtn').onclick = async () => {
   }
   const last = S.msgs.find((m) => m.role === 'teacher');
   if (!last) return;
+  const phrase = (last.teacherEn || last.teacher || '').slice(0, 400);
+  if (!phrase) return;
   try {
-    const r = await fetch(`/api/tts?${new URLSearchParams({
-      q: last.teacher.slice(0, 400),
-      tl: S.learnLang,
-    })}`);
+    const r = await fetch(`/api/tts?${new URLSearchParams({ q: phrase, tl: S.learnLang })}`);
     if (!r.ok) return;
     const buf = await r.arrayBuffer();
     const bytes = new Uint8Array(buf);
@@ -918,13 +961,16 @@ $('repeatBtn').onclick = async () => {
     }
     playB64(btoa(b64));
   } catch { /* ignore */ }
-};
-
-$('lessonChips').querySelectorAll('.chip').forEach((chip) => {
-  chip.onclick = () => loadLesson(chip.dataset.lesson);
 });
 
-$('clearBtn').onclick = () => {
+const lessonChips = $('lessonChips');
+if (lessonChips) {
+  lessonChips.querySelectorAll('.chip').forEach((chip) => {
+    chip.addEventListener('click', () => loadLesson(chip.dataset.lesson));
+  });
+}
+
+on('clearBtn', 'click', () => {
   if (!isRecording() && S.busyCount === 0) {
     endSession();
     S.msgs = [];
@@ -936,10 +982,10 @@ $('clearBtn').onclick = () => {
     render();
     fetchGreeting();
   }
-};
+});
 
-$('sendBtn').onclick = () => sendTextMessage();
-$('textInput').addEventListener('keydown', (e) => {
+on('sendBtn', 'click', () => sendTextMessage());
+on('textInput', 'keydown', (e) => {
   if (e.key === 'Enter') {
     e.preventDefault();
     sendTextMessage();
@@ -947,17 +993,20 @@ $('textInput').addEventListener('keydown', (e) => {
 });
 
 document.querySelectorAll('.modal-tab').forEach((tab) => {
-  tab.onclick = () => switchReportTab(tab.dataset.tab);
+  tab.addEventListener('click', () => switchReportTab(tab.dataset.tab));
 });
 
-$('reportBtn').onclick = () => showReport();
-$('historyBtn').onclick = () => showHistoryModal();
-$('closeReport').onclick = () => $('reportModal').classList.add('hidden');
-$('closeHistory').onclick = () => $('historyModal').classList.add('hidden');
-$('reportModal').querySelector('.edu-modal-backdrop').onclick = () => $('reportModal').classList.add('hidden');
-$('historyModal').querySelector('.edu-modal-backdrop').onclick = () => $('historyModal').classList.add('hidden');
+on('reportBtn', 'click', () => showReport());
+on('historyBtn', 'click', () => showHistoryModal());
+on('closeReport', 'click', () => safeClass('reportModal', 'add', 'hidden'));
+on('closeHistory', 'click', () => safeClass('historyModal', 'add', 'hidden'));
+const reportBackdrop = $('reportModal')?.querySelector('.edu-modal-backdrop');
+const historyBackdrop = $('historyModal')?.querySelector('.edu-modal-backdrop');
+if (reportBackdrop) reportBackdrop.addEventListener('click', () => safeClass('reportModal', 'add', 'hidden'));
+if (historyBackdrop) historyBackdrop.addEventListener('click', () => safeClass('historyModal', 'add', 'hidden'));
 
-bindHold($('micBtn'));
+const micBtn = $('micBtn');
+if (micBtn) bindHold(micBtn);
 
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') endSession();
@@ -967,7 +1016,7 @@ window.addEventListener('pagehide', () => endSession());
 S.profile = loadProfile();
 S.history = loadHistory();
 S.msgs = loadChat();
-S.learnLang = S.profile.targetLang || 'en';
+S.learnLang = S.profile?.targetLang || 'en';
 syncLearnLang();
 updateLevelBadge();
 updateDailyGoal();
@@ -983,5 +1032,6 @@ if (S.msgs.length > 0) {
 
 if (!navigator.mediaDevices?.getUserMedia) {
   showErr('Mikrofon için Safari gerekli');
-  $('micBtn').disabled = true;
+  const mic = $('micBtn');
+  if (mic) mic.disabled = true;
 }
