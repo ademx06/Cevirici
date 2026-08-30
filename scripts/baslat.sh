@@ -7,6 +7,18 @@ PORT="${PORT:-8780}"
 LOG="/tmp/sesli-cevirmen-tunnel.log"
 URL_FILE="$ROOT/PUBLIC_URL.txt"
 PID_FILE="$ROOT/.server.pid"
+ENV_FILE="$ROOT/.env"
+
+load_env() {
+  if [[ -f "$ENV_FILE" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    source "$ENV_FILE"
+    set +a
+  fi
+}
+
+load_env
 
 stop_old() {
   if [[ -f "$PID_FILE" ]]; then
@@ -24,12 +36,15 @@ stop_old() {
 notify_link() {
   local url="$1"
   if [[ -n "${TELEGRAM_BOT_TOKEN:-}" && -n "${TELEGRAM_CHAT_ID:-}" ]]; then
-    local msg="Sesli Çevirmen — güncel link:%0A%0A${url}%0A%0AEğitim: ${url}/education.html%0AÇeviri: ${url}/translate.html"
+    local msg
+    msg="📱 Sesli Çevirmen — güncel link:%0A%0A${url}%0A%0A🎓 Eğitim:%0A${url}/education.html?v=17%0A%0A🌍 Çeviri:%0A${url}/translate.html"
     curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
       -d "chat_id=${TELEGRAM_CHAT_ID}" \
       -d "text=${msg}" \
       -d "disable_web_page_preview=false" >/dev/null 2>&1 \
-      && echo "📲 Link Telegram'a gönderildi" || echo "⚠️  Telegram gönderilemedi"
+      && echo "📲 Link Telegram'a gönderildi (@translate_cevirici_bot)" || echo "⚠️  Telegram gönderilemedi — ./scripts/telegram-kur.sh"
+  else
+    echo "ℹ️  Telegram yok — bir kez: ./scripts/telegram-kur.sh"
   fi
 }
 
@@ -121,7 +136,20 @@ case "${1:-start}" in
       echo "Son adres: $(cat "$URL_FILE")"
     fi
     ;;
+  telegram)
+    load_env
+    if [[ -z "${TELEGRAM_BOT_TOKEN:-}" || -z "${TELEGRAM_CHAT_ID:-}" ]]; then
+      echo "Önce: ./scripts/telegram-kur.sh"
+      exit 1
+    fi
+    if [[ -f "$URL_FILE" ]]; then
+      notify_link "$(cat "$URL_FILE")"
+    else
+      echo "Henüz link yok. Önce: ./scripts/baslat.sh start"
+      exit 1
+    fi
+    ;;
   *)
-    echo "Kullanım: $0 [start|stop|url|status]"
+    echo "Kullanım: $0 [start|stop|url|status|telegram]"
     ;;
 esac

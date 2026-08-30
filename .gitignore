@@ -1,0 +1,5 @@
+.env
+.server.pid
+__pycache__/
+node_modules/
+PUBLIC_URL.txt
