@@ -761,9 +761,13 @@ def _normalize_stt_text(text: str) -> str:
         (r"\bi am walk\b", "I walked"),
         (r"\bi am read\b", "I read a book"),
         (r"\bi am go\b", "I went"),
-        (r"\barm run\b", "I am run"),
-        (r"\bim run\b", "I am run"),
-        (r"\bam run\b", "I am run"),
+        (r"\bi will\b", "I run"),
+        (r"\beye run\b", "I run"),
+        (r"\b(i wool|i wall|i well|ay run|hey run)\b", "I run"),
+        (r"\bayran\b", "I run"),
+        (r"\biron\b", "I run"),
+        (r"\bairen\b", "I run"),
+        (r"\btoday i\b", "today I"),
     )
     for pat, rep in fixes:
         t = re.sub(pat, rep, t, flags=re.I)
@@ -778,7 +782,8 @@ def _is_real_turkish(text: str) -> bool:
         r"\b(merhaba|nasılsın|nasilsin|teşekkür|teşekkürler|evet|hayır|tamam|iyiyim|"
         r"günaydın|neler|yapıyorum|yapıyorsun|yaptım|gittim|yorgunum|istiyorum|"
         r"istemiyorum|bugün|yarın|dün|çünkü|için|lütfen|anlamadım|kitap|okudum|"
-        r"geldim|konuştum|dedim|sandım|galiba|belki|çok|biraz)\b",
+        r"geldim|konuştum|dedim|sandım|galiba|belki|çok|biraz|koştum|kosdum|"
+        r"koşuyorum|yürüdüm|izledim|çalıştım|evde kaldım|parka gittim)\b",
         text,
         re.I,
     ):
@@ -837,6 +842,17 @@ def _is_fragment_attempt(text: str) -> bool:
     if re.search(r"\bi (run|ran|walk|read|play|eat|swim)\b", ul) and len(words) <= 4:
         return True
     return False
+
+
+def _is_clear_activity_answer(text: str) -> bool:
+    """Günlük aktivite sorusuna net cevap — tekrar tahmin sorma."""
+    ul = text.lower().strip()
+    return bool(re.search(
+        r"^(i (ran|run|running|walked|walk|read|played|worked|studied|watched|ate|"
+        r"went|stayed|exercised|swam|slept|cooked|visited|shopped|cleaned|drank)|"
+        r"i went for a run|i read a book|i went to (the )?(park|work|home|school|gym))",
+        ul,
+    ))
 
 
 def _infer_meant_sentence(user_text: str, teacher_q: str) -> tuple[str | None, str | None]:
@@ -1051,6 +1067,8 @@ def _try_intent_clarify(
         return None
     teacher_q = _last_teacher_question(history, profile)
     if not _is_fragment_attempt(user_text) and not _is_daily_activity_question(teacher_q):
+        return None
+    if _is_daily_activity_question(teacher_q) and _is_clear_activity_answer(user_text):
         return None
     inferred, reason = _infer_meant_sentence(user_text, teacher_q)
     if not inferred:
@@ -1453,6 +1471,12 @@ def _contextual_reply(
             return "Busy days can be exhausting. What kept you busy today?"
         if m == "sad":
             return "I'm sorry to hear that. Do you want to talk about it?"
+
+    if re.search(r"\b(run|ran|running|jog|jogging)\b", ul):
+        return "Running is great exercise! How far did you run? Do you run often?"
+
+    if re.search(r"\b(read|book|books)\b", ul):
+        return "Nice! What kind of book was it? Do you enjoy reading in English?"
 
     if re.search(r"\b(park|beach|museum|cinema|restaurant|cafe|coffee)\b", ul):
         place = re.search(r"\b(park|beach|museum|cinema|restaurant|cafe|coffee)\b", ul).group(1)

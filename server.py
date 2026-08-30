@@ -138,11 +138,38 @@ _whisper_model = None
 
 WHISPER_PROMPTS: dict[str, str] = {
     "en": (
-        "English lesson. The student speaks simple English: "
-        "I read a book, I ran today, I went to work, I am tired, "
-        "what did you do today, I went for a run, I watched TV."
+        "English lesson conversation. Student answers in simple English only. "
+        "Common phrases: I run, I ran today, I read a book, I went to work, "
+        "I am tired, what did you do today, I went for a run, I watched TV, "
+        "I walked, I played, I stayed home."
+    ),
+    "tr": (
+        "Türkçe konuşma. Öğrenci Türkçe cevap veriyor: bugün koştum, kitap okudum, "
+        "işe gittim, yorgunum, evde kaldım, parka gittim, televizyon izledim."
     ),
 }
+
+
+def decode_education_state(raw: str) -> dict:
+    """JSON veya base64/base64url ile gelen eğitim oturum durumu."""
+    if not raw or not raw.strip():
+        return {}
+    raw = raw.strip()
+    try:
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, dict) else {}
+    except Exception:
+        pass
+    import base64
+
+    for decoder in (base64.urlsafe_b64decode, base64.b64decode):
+        try:
+            pad = "=" * (-len(raw) % 4)
+            parsed = json.loads(decoder(raw + pad).decode("utf-8"))
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            continue
+    return {}
 
 
 def get_whisper():
@@ -407,66 +434,175 @@ def _stt_has_turkish_markers(text: str) -> bool:
         return True
     return bool(re.search(
         r"\b(merhaba|nasılsın|nasilsin|teşekkür|evet|hayır|tamam|iyiyim|günaydın|"
-        r"neler|yapıyorum|yaptım|gittim|yorgunum|kitap|okudum|bugün|yarın)\b",
+        r"neler|yapıyorum|yaptım|gittim|yorgunum|kitap|okudum|bugün|yarın|"
+        r"koştum|kosdum|koşuyorum|yürüdüm|izledim|çalıştım|evde|parka|işe)\b",
         text,
         re.I,
     ))
 
 
-def transcribe_education(data: bytes, target_lang: str = "en", last_from: str | None = None) -> tuple[str, str]:
-    """Eğitim modu — hedef dili (İngilizce) önceliklendir, yanlış Türkçe algılamayı azalt."""
+def _education_context(history: list[dict] | None) -> str:
+    if not history:
+        return ""
+    parts: list[str] = []
+    for h in history[:6]:
+        if isinstance(h, dict) and h.get("text"):
+            parts.append(str(h["text"]))
+    return " ".join(parts).lower()
+
+
+def fix_education_stt(text: str, history: list[dict] | None = None) -> str:
+    """Eğitim modunda sık STT hatalarını düzelt (I will→I run, ayran vb.)."""
+    t = text.strip()
+    if not t:
+        return t
+    tl = t.lower()
+    ctx = _education_context(history)
+    daily = bool(re.search(
+        r"what did you do|what do you do|tell me about your day|what happened|"
+        r"how was your day|bugün ne|neler yapt",
+        ctx,
+    ))
+
+    exact_fixes = {
+        "ayran": "I run",
+        "i will": "I run",
+        "i'll": "I run",
+        "iron": "I run",
+        "i iron": "I run",
+        "i wool": "I run",
+        "i wall": "I run",
+        "i well": "I run",
+        "i wheal": "I run",
+        "ay run": "I run",
+        "hey run": "I run",
+        "i ren": "I run",
+        "airen": "I run",
+        "ay book": "a book",
+        "i book": "I read a book",
+        "read book": "I read a book",
+        "eye run": "I run",
+        "i ran": "I ran",
+        "arm run": "I am run",
+        "im run": "I am run",
+        "am run": "I am run",
+        "will": "I run",
+        "run": "I run",
+    }
+    if tl in exact_fixes:
+        fixed = exact_fixes[tl]
+        if tl == "will" and not daily:
+            return t
+        if tl == "run" and not daily and ctx:
+            return t
+        return fixed
+
+    if daily or not ctx:
+        if re.fullmatch(r"i will", tl):
+            return "I run"
+        if re.fullmatch(r"(ayran|iron|run|will)", tl):
+            return "I run"
+        if re.fullmatch(r"i run", tl):
+            return "I run"
+        if re.fullmatch(r"book|a book", tl):
+            return "I read a book"
+
+    t = re.sub(r"\bay book\b", "a book", t, flags=re.I)
+    t = re.sub(r"\bi book\b", "I read a book", t, flags=re.I)
+    if daily or re.search(r"\b(run|ran|jog|exercise)\b", ctx):
+        t = re.sub(r"\bi will\b", "I run", t, flags=re.I)
+        t = re.sub(r"\beye run\b", "I run", t, flags=re.I)
+        t = re.sub(r"\b(i wool|i wall|i well|ay run|hey run)\b", "I run", t, flags=re.I)
+        t = re.sub(r"\b(ayran|iron|airen)\b", "I run", t, flags=re.I)
+    return t.strip()
+
+
+def _rank_education_stt(
+    text: str,
+    raw: str,
+    stt_lang: str,
+    base_score: float,
+    history: list[dict] | None,
+) -> tuple[str, str, float]:
+    """EN/TR adaylarını eğitim bağlamında puanla."""
+    fixed = fix_education_stt(text, history)
+    score = base_score
+    raw_l = raw.lower().strip()
+    ctx = _education_context(history)
+    daily = bool(re.search(
+        r"what did you do|what do you do|tell me about your day|what happened|"
+        r"how was your day|bugün ne|neler yapt",
+        ctx,
+    ))
+
+    if stt_lang == "tr" and _stt_has_turkish_markers(raw):
+        return raw.strip(), "tr", score + 45
+
+    if looks_like_lang(fixed, "en"):
+        score += 32
+        if stt_lang == "en":
+            score += 8
+        if daily and raw_l in ("i will", "i'll", "ayran", "iron", "will", "run"):
+            score += 28
+        return fixed, "en", score
+
+    if stt_lang == "tr" and raw_l in ("ayran", "iron", "i will", "will", "run"):
+        return fix_education_stt(raw, history), "en", score + 35
+
+    if looks_like_lang(raw, "tr"):
+        return raw.strip(), "tr", score + 20
+
+    return fixed or raw.strip(), stt_lang if stt_lang in ("en", "tr") else "en", score
+
+
+def transcribe_education(
+    data: bytes,
+    target_lang: str = "en",
+    last_from: str | None = None,
+    history: list[dict] | None = None,
+) -> tuple[str, str]:
+    """Eğitim modu — EN ve TR STT adaylarını bağlamla birleştir."""
+    if len(data) < 200:
+        raise ValueError("audio too short")
     wav = prepare_wav(data)
     try:
         if not audio_has_speech(wav):
             raise ValueError("no speech detected")
 
-        candidates: list[tuple[str, str, float]] = []
         primary = target_lang if target_lang in STT_LANG else "en"
-        en_first = stt_for_lang(wav, primary)
-        if en_first:
-            candidates.append(en_first)
+        langs: list[str] = [primary]
+        if "tr" not in langs:
+            langs.append("tr")
 
-        if primary == "en":
-            tr_try = stt_for_lang(wav, "tr")
-            if tr_try and tr_try[0].strip().lower() != (en_first[0].strip().lower() if en_first else ""):
-                candidates.append(tr_try)
+        candidates: list[tuple[str, str, float]] = []
+        for lang in langs:
+            result = stt_for_lang(wav, lang)
+            if not result or not result[0].strip():
+                continue
+            raw = result[0].strip()
+            text, detected, score = _rank_education_stt(
+                raw, raw, lang, result[2], history,
+            )
+            if text:
+                candidates.append((text, detected, score))
+            if lang == primary and detected == "en" and score >= 55:
+                break
 
         if not candidates:
             raise ValueError("speech not recognized")
 
-        def rank_edu(item: tuple[str, str, float]) -> float:
-            text, lang, score = item
-            s = score
-            if lang == primary:
-                s += 50
-            if primary == "en" and re.search(
-                r"\b(i|i'm|im|a|an|the|book|run|ran|read|work|today|yesterday|went|am|is|are|"
-                r"did|do|have|had|tired|park|home|yes|no|hello|you|what|very)\b",
-                text,
-                re.I,
-            ):
-                s += 30
-            if lang == "tr" and not _stt_has_turkish_markers(text):
-                s -= 50
-            if lang == "tr" and primary == "en":
-                s -= 20
-            if last_from == lang:
-                s += 8
-            return s
+        candidates.sort(key=lambda x: x[2], reverse=True)
+        text, detected, _ = candidates[0]
 
-        best = max(candidates, key=rank_edu)
-        text = best[0].strip()
-        if primary == "en":
-            if re.search(
-                r"\b(i|i'm|im|you|we|book|run|ran|read|work|today|went|did|am|is|are|the|a)\b",
-                text,
-                re.I,
-            ) and not _stt_has_turkish_markers(text):
-                return text, "en"
-        from_lang = resolve_lang_from_text(text, primary, "tr", best[1])
-        if primary == "en" and from_lang == "tr" and not _stt_has_turkish_markers(text):
-            from_lang = "en"
-        return text, from_lang
+        if detected == "en" and text:
+            text = fix_education_stt(text, history)
+
+        if last_from == "tr" and detected == "en" and not looks_like_lang(text, "en"):
+            for alt_text, alt_lang, alt_score in candidates[1:]:
+                if alt_lang == "tr" and alt_score >= candidates[0][2] - 12:
+                    return alt_text, "tr"
+
+        return text, detected
     finally:
         if os.path.exists(wav):
             os.unlink(wav)
@@ -822,21 +958,31 @@ class Handler(SimpleHTTPRequestHandler):
         lang = (params.get("lang") or ["en"])[0]
         length = int(self.headers.get("Content-Length", 0))
         if length <= 0:
-            self.send_error(400, "empty body")
-            return
+            return self.send_json_error(400, "Ses kaydı boş — tekrar dene")
         data = self.rfile.read(length)
-        state_raw = self.headers.get("X-Education-State", "")
-        if self.headers.get("X-Education-Combined") == "1" and EDU_STATE_MARKER in data:
+
+        state: dict = {}
+        state_raw = self.headers.get("X-Education-State", "").strip()
+        if state_raw:
+            state = decode_education_state(state_raw)
+
+        if not state:
+            state_b64 = (params.get("state") or [""])[0].strip()
+            if state_b64:
+                state = decode_education_state(state_b64)
+
+        if EDU_STATE_MARKER in data:
             idx = data.index(EDU_STATE_MARKER)
-            try:
-                state_raw = data[:idx].decode("utf-8")
-            except Exception:
-                state_raw = ""
+            if not state and idx > 0:
+                try:
+                    state = json.loads(data[:idx].decode("utf-8"))
+                except Exception:
+                    pass
             data = data[idx + len(EDU_STATE_MARKER):]
-        try:
-            state = json.loads(state_raw) if state_raw else {}
-        except Exception:
-            state = {}
+
+        if len(data) < 200:
+            return self.send_json_error(400, "Kayıt çok kısa — butona basılı tutup konuşun")
+
         profile = merge_profile(state.get("profile"), None)
         if profile.get("targetLang") != lang:
             profile["targetLang"] = lang
@@ -851,11 +997,12 @@ class Handler(SimpleHTTPRequestHandler):
         speak_slow = bool(state.get("speak_slow"))
         last_lang = state.get("last_lang") or lang
         try:
-            original, detected = transcribe_education(data, lang, last_lang)
+            original, detected = transcribe_education(data, lang, last_lang, history)
             result = process_turn(
                 original, detected, lang, history, profile,
                 roleplay=roleplay, speak_slow=speak_slow, translate_fn=translate_text,
             )
+            result["user_text"] = original
             result["user_lang"] = detected
             result = self._education_tts(result, lang)
             body = json.dumps(result, ensure_ascii=False).encode()

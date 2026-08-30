@@ -17,7 +17,7 @@ const HISTORY_KEY = 'edu_history_v2';
 const CHAT_KEY = 'edu_chat_v3';
 
 const STATES = {
-  IDLE: { text: 'Konuşmak için basılı tut', mic: 'Basılı Tut ve Konuş', live: false },
+  IDLE: { text: 'Türkçe veya İngilizce konuş', mic: 'Basılı Tut ve Konuş', live: false },
   LISTENING: { text: 'Dinleniyor...', mic: 'Konuşun...', live: true },
   PROCESSING: { text: 'Düşünüyor...', mic: 'Düşünüyor...', live: true },
   SPEAKING: { text: 'Öğretmen konuşuyor...', mic: 'Dinleyin...', live: true },
@@ -620,34 +620,69 @@ async function sendTextMessage() {
   }
 }
 
-async function processEducationVoice(blob) {
-  const stateObj = {
-    profile: S.profile,
-    history: sanitizeHistory(S.history),
+function compactStateForVoice() {
+  const p = S.profile || {};
+  return {
+    profile: {
+      targetLang: p.targetLang || S.learnLang,
+      currentLevel: p.currentLevel,
+      pendingPracticePhrase: p.pendingPracticePhrase || null,
+      pendingPracticeTr: p.pendingPracticeTr || null,
+      lastTeacherText: safeStr(p.lastTeacherText).slice(0, 400),
+      totalSentences: p.totalSentences,
+      correctSentences: p.correctSentences,
+      weakAreas: ensureArray(p.weakAreas).slice(0, 6),
+      pendingSrsId: p.pendingSrsId || null,
+      pendingVocabWord: p.pendingVocabWord || null,
+    },
+    history: sanitizeHistory(S.history).slice(0, 12),
     roleplay: S.roleplay || null,
     speak_slow: S.speakSlow,
     last_lang: S.learnLang,
   };
-  const state = JSON.stringify(stateObj);
-  const enc = new TextEncoder();
-  const marker = enc.encode('\n--EDU_STATE_END--\n');
-  const body = new Blob([enc.encode(state), marker, blob], { type: blob.type || 'audio/mp4' });
-  const r = await fetch(`/api/education/voice?${new URLSearchParams({ lang: S.learnLang })}`, {
-    method: 'POST',
-    body,
-    headers: {
-      'Content-Type': blob.type || 'audio/mp4',
-      'X-Education-Combined': '1',
-    },
-  });
+}
+
+async function parseVoiceResponse(r) {
+  const raw = await r.text();
   let d = {};
   try {
-    d = await r.json();
+    d = raw ? JSON.parse(raw) : {};
   } catch {
-    throw new Error('Sunucu yanıtı okunamadı — tekrar dene.');
+    const snippet = raw ? raw.slice(0, 80).replace(/\s+/g, ' ') : '';
+    throw new Error(
+      snippet.startsWith('<')
+        ? 'Sunucu geçici olarak yanıt veremedi — birkaç saniye sonra tekrar dene'
+        : raw
+          ? `Sunucu yanıtı okunamadı — tekrar dene (${r.status || '?'})`
+          : 'Sunucu yanıtı boş — bağlantı koptu, tekrar dene',
+    );
   }
   if (!r.ok) throw new Error(d.error || 'Bağlantı sorunu. Tekrar dene.');
   return d;
+}
+
+async function processEducationVoice(blob) {
+  const stateJson = JSON.stringify(compactStateForVoice());
+  const qs = new URLSearchParams({ lang: S.learnLang });
+  const headers = {
+    'Content-Type': blob.type || 'audio/mp4',
+    'X-Education-State': stateJson,
+  };
+  const url = `/api/education/voice?${qs}`;
+  const opts = { method: 'POST', body: blob, headers };
+
+  try {
+    const r = await fetch(url, opts);
+    return await parseVoiceResponse(r);
+  } catch (firstErr) {
+    // Ağ kopması veya bozuk yanıt — bir kez daha dene
+    if (firstErr?.message?.includes('okunamadı') || firstErr?.message?.includes('boş')) {
+      await new Promise((res) => setTimeout(res, 600));
+      const r2 = await fetch(url, opts);
+      return await parseVoiceResponse(r2);
+    }
+    throw firstErr;
+  }
 }
 
 async function fetchLessonPlan() {
