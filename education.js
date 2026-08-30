@@ -214,6 +214,27 @@ function hideErr() {
   safeClass('errorBox', 'add', 'hidden');
 }
 
+async function fetchAiStatus() {
+  try {
+    const r = await fetch('/api/status');
+    const d = await r.json().catch(() => ({}));
+    const banner = $('aiBanner');
+    if (!banner) return;
+    if (d.ai_enabled) {
+      banner.classList.add('hidden');
+      safeText('statusText', 'AI öğretmen aktif');
+      return;
+    }
+    banner.textContent =
+      '⚠️ AI öğretmen kapalı — sunucuda OPENAI_API_KEY gerekli. '
+      + 'Şu an basit kural modu çalışıyor; gerçek düşünen eğitmen için .env dosyasına anahtar ekleyin.';
+    banner.classList.remove('hidden');
+    safeText('statusText', 'Kural modu (AI kapalı)');
+  } catch {
+    /* ignore */
+  }
+}
+
 function showTyping() {
   safeClass('typingIndicator', 'remove', 'hidden');
 }
@@ -1164,6 +1185,7 @@ syncLearnLang();
 updateLevelBadge();
 updateDailyGoal();
 fetchLessonPlan();
+fetchAiStatus();
 render();
 if (S.msgs.length > 0) {
   S.greetingLoaded = true;

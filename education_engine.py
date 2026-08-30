@@ -5,10 +5,34 @@ import json
 import os
 import re
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Callable
 from urllib.request import Request, urlopen
 
 from tutor import _extract_turkish_phrase
+
+_ENGINE_DIR = Path(__file__).resolve().parent
+
+
+def _load_dotenv() -> None:
+    """OPENAI_API_KEY vb. — .env dosyasından yükle (ortamda yoksa)."""
+    for path in (_ENGINE_DIR / ".env", Path.home() / ".sesli-cevirmen.env"):
+        if not path.is_file():
+            continue
+        try:
+            for line in path.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, val = line.split("=", 1)
+                key, val = key.strip(), val.strip().strip('"').strip("'")
+                if key and key not in os.environ:
+                    os.environ[key] = val
+        except OSError:
+            continue
+
+
+_load_dotenv()
 
 LANG_NAMES = {
     "en": "English", "de": "German", "fr": "French", "es": "Spanish",
@@ -28,6 +52,40 @@ When correcting: show wrong sentence, correct sentence, brief Turkish explanatio
 Behave like a patient human teacher sitting across from the student.
 Keep target-language responses concise (2-4 sentences). Always end with a question when appropriate.
 Wait for the user to respond — do not answer your own questions."""
+
+AI_TUTOR_JSON_PROMPT = """You are an expert personal language tutor. The student is Turkish; target language is {lang_name} ({target_lang}). Level: {level}.
+Weak areas (focus gently): {weak_areas}
+Roleplay: {roleplay}
+
+CONVERSATION HISTORY (teacher = you, user = student):
+{history_text}
+
+LAST THING YOU (teacher) SAID:
+"{last_teacher}"
+
+STUDENT JUST SAID ({input_lang}):
+"{user_text}"
+
+YOUR JOB — think like a real human tutor, NOT a dictionary:
+1. Infer what the student MEANT from context, even if they said one word ("Sleeping"), wrong grammar ("I sleeping"), STT errors ("Slipping"), or Turkish.
+2. Never reply with random unrelated topics. Always respond to what they meant.
+3. teacher_en: natural {lang_name} reply (2-4 sentences). Continue the conversation. End with a relevant question.
+4. teacher_tr: Turkish explanation for the student — what you understood, any correction, key vocabulary. Be warm and clear.
+5. If input was incomplete or wrong but you understood intent: gently offer the full sentence ("Did you mean: ...?") inside teacher_en AND teacher_tr, set suggested_practice to that sentence.
+6. If student spoke Turkish: acknowledge meaning in teacher_tr, encourage answering in {lang_name}, continue in {lang_name} in teacher_en.
+7. correction_level: 1 = acceptable/good try, 2 = minor fix worth noting, 3 = student should repeat corrected sentence.
+8. Do NOT invent facts about the student. Stay on topic from the conversation.
+
+Return ONLY valid JSON with these keys:
+{{
+  "teacher_en": "string",
+  "teacher_tr": "string",
+  "correction_level": 1,
+  "correct_phrase": "string or null",
+  "suggested_practice": "string or null",
+  "category": "string or null",
+  "inferred_meaning": "brief English summary of what student meant"
+}}"""
 
 GREETINGS_TR = [
     "Merhaba! Ben senin robot öğretmeninim. Hadi birlikte konuşalım — sen konuş, ben dinlerim ve hatalarını Türkçe açıklarım.",
@@ -1552,10 +1610,13 @@ def motivation_message(profile: dict) -> str | None:
     return None
 
 
+def llm_available() -> bool:
+    return bool(os.environ.get("OPENAI_API_KEY", "").strip())
+
+
 def _llm(messages: list[dict], target_lang: str, level: str, roleplay: str | None = None,
            extra: str = "") -> str | None:
-    key = os.environ.get("OPENAI_API_KEY", "").strip()
-    if not key:
+    if not llm_available():
         return None
     sys = SYSTEM_PROMPT + f"\nTarget language: {LANG_NAMES.get(target_lang, target_lang)}. User level: {level}."
     if roleplay and roleplay in ROLEPLAYS:
@@ -1574,7 +1635,7 @@ def _llm(messages: list[dict], target_lang: str, level: str, roleplay: str | Non
         req = Request(
             "https://api.openai.com/v1/chat/completions",
             data=body,
-            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+            headers={"Authorization": f"Bearer {os.environ.get('OPENAI_API_KEY', '').strip()}", "Content-Type": "application/json"},
             method="POST",
         )
         with urlopen(req, timeout=25) as resp:
@@ -1582,6 +1643,152 @@ def _llm(messages: list[dict], target_lang: str, level: str, roleplay: str | Non
         return data["choices"][0]["message"]["content"].strip()
     except Exception:
         return None
+
+
+def _llm_json(system: str, user: str, max_tokens: int = 520) -> dict[str, Any] | None:
+    """Yapılandırılmış JSON yanıt — AI öğretmen motoru."""
+    if not llm_available():
+        return None
+    body = json.dumps({
+        "model": os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        "response_format": {"type": "json_object"},
+        "temperature": 0.72,
+        "max_tokens": max_tokens,
+    }).encode()
+    try:
+        req = Request(
+            "https://api.openai.com/v1/chat/completions",
+            data=body,
+            headers={
+                "Authorization": f"Bearer {os.environ.get('OPENAI_API_KEY', '').strip()}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        with urlopen(req, timeout=35) as resp:
+            data = json.loads(resp.read().decode())
+        raw = data["choices"][0]["message"]["content"].strip()
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, dict) else None
+    except Exception:
+        return None
+
+
+def _format_history_for_ai(history: list[dict], limit: int = 10) -> str:
+    lines: list[str] = []
+    for h in history[-limit:]:
+        if not isinstance(h, dict):
+            continue
+        text = (h.get("text") or "").strip()
+        if not text:
+            continue
+        role = "Teacher" if h.get("role") == "teacher" else "Student"
+        lines.append(f"{role}: {text[:400]}")
+    return "\n".join(lines) if lines else "(start of conversation)"
+
+
+def _try_ai_tutor_turn(
+    user_text: str,
+    user_lang: str,
+    target_lang: str,
+    history: list[dict],
+    profile: dict,
+    session_delta: dict,
+    roleplay: str | None,
+    speak_slow: bool,
+    translate_fn: Callable[[str, str, str], str] | None,
+) -> dict[str, Any] | None:
+    """OpenAI ile düşünen öğretmen — kural listesi yerine bağlamdan anlar."""
+    if not llm_available():
+        return None
+
+    lang_name = LANG_NAMES.get(target_lang, target_lang)
+    level = profile.get("currentLevel", "A1")
+    weak_areas = profile.get("weakAreas") or []
+    if not isinstance(weak_areas, list):
+        weak_areas = [str(weak_areas)] if weak_areas else []
+    weak = ", ".join(str(w) for w in weak_areas[:5]) or "general conversation"
+    last_teacher = profile.get("lastTeacherText") or _last_teacher_question(history, profile) or ""
+    input_lang = "Turkish" if user_lang == "tr" else f"{lang_name} (learner, may be incomplete or wrong)"
+    rp = (ROLEPLAYS.get(roleplay or "") or {}).get(target_lang) or "casual tutoring"
+
+    system = AI_TUTOR_JSON_PROMPT.format(
+        lang_name=lang_name,
+        target_lang=target_lang,
+        level=level,
+        weak_areas=weak,
+        roleplay=rp,
+        history_text=_format_history_for_ai(history),
+        last_teacher=last_teacher[:500],
+        input_lang=input_lang,
+        user_text=user_text[:500],
+    )
+    parsed = _llm_json(system, "Respond with the JSON object only.")
+    if not parsed:
+        return None
+
+    teacher_en = safe_str(parsed.get("teacher_en")).strip()
+    teacher_tr = safe_str(parsed.get("teacher_tr")).strip()
+    if not teacher_en:
+        return None
+
+    corr_level = int(parsed.get("correction_level") or 1)
+    corr_level = max(1, min(3, corr_level))
+    correct_phrase = safe_str(parsed.get("correct_phrase")).strip() or None
+    suggested = safe_str(parsed.get("suggested_practice")).strip() or correct_phrase
+    category = safe_str(parsed.get("category")).strip() or None
+
+    profile_patch: dict[str, Any] = {}
+    if corr_level >= 2 and correct_phrase:
+        profile_patch.update(_record_mistake(profile, user_text, correct_phrase, category or "grammar"))
+        session_delta["totalCorrections"] = profile.get("totalCorrections", 0) + 1
+        session_delta["sessionCorrections"] = profile.get("sessionCorrections", 0) + 1
+    elif corr_level == 1:
+        session_delta["correctSentences"] = profile.get("correctSentences", 0) + 1
+
+    delta: dict[str, Any] = {
+        **session_delta,
+        "lastTeacherText": teacher_en,
+    }
+    if suggested and corr_level >= 2:
+        delta["pendingPracticePhrase"] = suggested
+        meaning = _to_tr(suggested, translate_fn, target_lang) if translate_fn else ""
+        delta["pendingPracticeTr"] = meaning or safe_str(parsed.get("inferred_meaning"))
+
+    merged = merge_profile(profile, {**session_delta, **profile_patch})
+    merged["currentLevel"] = estimate_level(merged)
+
+    msg_type = "ai_tutor"
+    if suggested and corr_level >= 2:
+        msg_type = "ai_intent"
+    elif corr_level >= 2:
+        msg_type = "ai_correction"
+
+    result = _pack(
+        merged, delta, teacher_en, teacher_tr, correct_phrase, corr_level, msg_type,
+        waiting=True, user_text=user_text, speak_slow=speak_slow,
+        teacher_en=teacher_en, speak_text=suggested or teacher_en,
+        correction_detail={
+            "userSaid": user_text,
+            "correctEn": correct_phrase,
+            "explainTr": teacher_tr,
+            "category": category,
+            "level": corr_level,
+            "inferredMeaning": parsed.get("inferred_meaning"),
+        },
+    )
+    result["ai_powered"] = True
+    return result
+
+
+def safe_str(val: Any) -> str:
+    if val is None:
+        return ""
+    return val if isinstance(val, str) else str(val)
 
 
 def _resume_after_help(
@@ -1995,7 +2202,16 @@ def process_turn(
     if translate_fn and HELP_RE.search(user_text):
         return _help_mode(user_text, target_lang, translate_fn, profile, session_delta)
 
-    # Kırık/eksik cümle — niyet tahmini ("bunu mu demek istedin?")
+    # AI öğretmen — ana beyin (OpenAI; kelime listesi değil, bağlamdan düşünür)
+    ai_result = _try_ai_tutor_turn(
+        original_text, user_lang, target_lang, history, profile,
+        session_delta, roleplay, speak_slow, translate_fn,
+    )
+    if ai_result:
+        ai_result["weekly_progress"] = weekly_progress(ai_result["profile"])
+        return ai_result
+
+    # AI yoksa veya hata — kural tabanlı yedek
     if translate_fn:
         intent_result = _try_intent_clarify(
             user_text, history, profile, session_delta, target_lang, translate_fn,
