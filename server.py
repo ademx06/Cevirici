@@ -511,7 +511,29 @@ class Handler(SimpleHTTPRequestHandler):
             return self.handle_education_lesson_plan(parse_qs(parsed.query))
         if parsed.path == "/api/education/progress":
             return self.handle_education_progress(parse_qs(parsed.query))
+        if parsed.path == "/api/status":
+            return self.handle_status()
         return super().do_GET()
+
+    def handle_status(self):
+        host = self.headers.get("Host", "")
+        forwarded = self.headers.get("X-Forwarded-Proto", "")
+        if forwarded:
+            proto = forwarded.split(",")[0].strip()
+        elif host.endswith(".trycloudflare.com"):
+            proto = "https"
+        else:
+            proto = "http"
+        origin = f"{proto}://{host}" if host else ""
+        body = json.dumps(
+            {"ok": True, "origin": origin, "port": PORT},
+            ensure_ascii=False,
+        ).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def handle_stt(self, params):
         lang = (params.get("lang") or ["tr"])[0]

@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Sesli Çevirmen">
+  <meta name="theme-color" content="#060B18">
+  <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%23060B18' width='100' height='100' rx='20'/><text x='50' y='62' font-size='48' text-anchor='middle' fill='%2338BDF8'>🌍</text></svg>">
+  <link rel="manifest" href="manifest.json">
+  <title>iPhone — Adres & Yardım</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app mobil-app">
+    <header class="mobil-header">
+      <a href="/" class="back-btn" aria-label="Ana menü">←</a>
+      <div>
+        <h1>📱 iPhone Kullanımı</h1>
+        <p class="mobil-sub">Adres burada · uygulamayı buradan aç</p>
+      </div>
+    </header>
+
+    <section class="mobil-status-card" id="statusCard">
+      <div class="mobil-status-row">
+        <span class="mobil-status-dot" id="statusDot"></span>
+        <span id="statusText">Sunucu kontrol ediliyor…</span>
+      </div>
+    </section>
+
+    <section class="mobil-url-card">
+      <p class="mobil-label">Şu anki adres (telefonunda çalışan link)</p>
+      <div class="mobil-url-box" id="currentUrl">—</div>
+      <button type="button" class="mobil-copy-btn" id="copyBtn">📋 Adresi kopyala</button>
+      <p class="mobil-copy-hint hidden" id="copyHint">Kopyalandı! Safari adres çubuğuna yapıştırabilirsin.</p>
+    </section>
+
+    <nav class="mobil-quick-links">
+      <a href="/" class="mobil-link-btn">🏠 Ana menü</a>
+      <a href="education.html" class="mobil-link-btn">🤖 Eğitim</a>
+      <a href="translate.html" class="mobil-link-btn">🎤 Çeviri</a>
+    </nav>
+
+    <section class="mobil-guide">
+      <h2>Uygulamayı tekrar açmak</h2>
+      <ol>
+        <li><strong>Ana ekrandan:</strong> “Sesli Çevirmen” simgesine dokun — en kolay yol budur.</li>
+        <li><strong>Safari’den:</strong> Safari’yi aç → yukarıdaki adresi yapıştır veya yer imlerinden seç.</li>
+        <li><strong>Çalışmıyorsa:</strong> Sunucu kapanmış olabilir; yeni adres gerekir (aşağıya bak).</li>
+      </ol>
+
+      <h2>Ana ekrana ekle (ilk kez)</h2>
+      <ol>
+        <li>Safari’de bu sayfayı aç.</li>
+        <li>Alttaki <strong>Paylaş</strong> düğmesine dokun (kare + ok).</li>
+        <li><strong>Ana Ekrana Ekle</strong> → Ekle.</li>
+        <li>Artık simgeye basarak uygulama gibi açarsın.</li>
+      </ol>
+
+      <h2>Adres neden değişir?</h2>
+      <p>Sunucu yeniden başlatılınca geçici Cloudflare linki değişebilir. Ana ekrandaki eski simge o zaman açılmaz.</p>
+      <p><strong>Ne yapmalısın?</strong> Yeni adresi Safari’de aç → tekrar Ana Ekrana Ekle (eski simgeyi silebilirsin).</p>
+      <p>Kalıcı çözüm: sabit domain (docs/SABIT-ADRES.md).</p>
+    </section>
+
+    <p class="mobil-footer-note">iPhone sunucuyu çalıştıramaz — sadece tarayıcıdan bağlanırsın.</p>
+  </div>
+
+  <script>
+    (function () {
+      var origin = window.location.origin;
+      var urlEl = document.getElementById('currentUrl');
+      var copyBtn = document.getElementById('copyBtn');
+      var copyHint = document.getElementById('copyHint');
+      var statusDot = document.getElementById('statusDot');
+      var statusText = document.getElementById('statusText');
+      var statusCard = document.getElementById('statusCard');
+
+      urlEl.textContent = origin;
+
+      function setStatus(ok, msg) {
+        statusDot.className = 'mobil-status-dot ' + (ok ? 'ok' : 'fail');
+        statusText.textContent = msg;
+        statusCard.classList.toggle('mobil-status-ok', ok);
+        statusCard.classList.toggle('mobil-status-fail', !ok);
+      }
+
+      fetch('/api/status')
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (d.ok) {
+            setStatus(true, 'Sunucu çalışıyor · bağlantı tamam');
+          } else {
+            setStatus(false, 'Sunucu yanıt vermiyor');
+          }
+        })
+        .catch(function () {
+          setStatus(false, 'Sunucuya ulaşılamıyor — adres eski olabilir');
+        });
+
+      copyBtn.addEventListener('click', function () {
+        var text = origin;
+        function showOk() {
+          copyHint.classList.remove('hidden');
+          copyBtn.textContent = '✓ Kopyalandı';
+          setTimeout(function () {
+            copyHint.classList.add('hidden');
+            copyBtn.textContent = '📋 Adresi kopyala';
+          }, 2500);
+        }
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(showOk).catch(fallbackCopy);
+        } else {
+          fallbackCopy();
+        }
+        function fallbackCopy() {
+          var ta = document.createElement('textarea');
+          ta.value = text;
+          ta.setAttribute('readonly', '');
+          ta.style.position = 'fixed';
+          ta.style.left = '-9999px';
+          document.body.appendChild(ta);
+          ta.select();
+          try {
+            document.execCommand('copy');
+            showOk();
+          } catch (e) {
+            copyHint.textContent = 'Kopyalanamadı — adresi elle seçip kopyala.';
+            copyHint.classList.remove('hidden');
+          }
+          document.body.removeChild(ta);
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

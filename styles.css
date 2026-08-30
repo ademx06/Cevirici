@@ -655,6 +655,217 @@ body {
   color: #475569;
 }
 
+.phone-footer {
+  text-align: center;
+  margin-top: 20px;
+  padding-bottom: env(safe-area-inset-bottom, 12px);
+}
+
+.phone-footer a {
+  display: inline-block;
+  font-size: 13px;
+  font-weight: 600;
+  color: #38BDF8;
+  text-decoration: none;
+  padding: 10px 16px;
+  border-radius: 14px;
+  background: rgba(56,189,248,0.08);
+  border: 1px solid rgba(56,189,248,0.2);
+}
+
+.phone-footer a:active {
+  background: rgba(56,189,248,0.16);
+}
+
+.phone-footer-compact {
+  margin-top: 0;
+  padding: 8px 0 env(safe-area-inset-bottom, 8px);
+  flex-shrink: 0;
+}
+
+/* ——— iPhone yardım (mobil.html) ——— */
+.mobil-app {
+  padding-bottom: 24px;
+}
+
+.mobil-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.mobil-header h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 800;
+}
+
+.mobil-sub {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: #64748B;
+}
+
+.mobil-status-card {
+  border-radius: 16px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  border: 1px solid rgba(148,163,184,0.2);
+  background: rgba(15,23,42,0.5);
+}
+
+.mobil-status-ok {
+  border-color: rgba(52,211,153,0.35);
+  background: rgba(52,211,153,0.08);
+}
+
+.mobil-status-fail {
+  border-color: rgba(239,68,68,0.35);
+  background: rgba(239,68,68,0.08);
+}
+
+.mobil-status-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #E2E8F0;
+}
+
+.mobil-status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #64748B;
+  flex-shrink: 0;
+}
+
+.mobil-status-dot.ok {
+  background: #34D399;
+  box-shadow: 0 0 8px rgba(52,211,153,0.6);
+}
+
+.mobil-status-dot.fail {
+  background: #F87171;
+  box-shadow: 0 0 8px rgba(239,68,68,0.5);
+}
+
+.mobil-url-card {
+  background: rgba(56,189,248,0.06);
+  border: 1px solid rgba(56,189,248,0.25);
+  border-radius: 18px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.mobil-label {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #94A3B8;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.mobil-url-box {
+  word-break: break-all;
+  font-size: 15px;
+  font-weight: 700;
+  color: #38BDF8;
+  line-height: 1.45;
+  margin-bottom: 14px;
+  padding: 12px;
+  background: rgba(0,0,0,0.25);
+  border-radius: 12px;
+}
+
+.mobil-copy-btn {
+  width: 100%;
+  border: none;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #2563EB, #38BDF8);
+  color: white;
+  font-weight: 700;
+  font-size: 16px;
+  padding: 14px;
+}
+
+.mobil-copy-hint {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: #86EFAC;
+  text-align: center;
+}
+
+.mobil-quick-links {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  margin-bottom: 24px;
+}
+
+.mobil-link-btn {
+  display: block;
+  text-align: center;
+  text-decoration: none;
+  color: #E2E8F0;
+  font-weight: 600;
+  font-size: 15px;
+  padding: 14px;
+  border-radius: 14px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+}
+
+.mobil-link-btn:active {
+  background: rgba(255,255,255,0.1);
+}
+
+.mobil-guide {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 18px;
+  padding: 16px 18px;
+}
+
+.mobil-guide h2 {
+  margin: 18px 0 10px;
+  font-size: 16px;
+  color: #E2E8F0;
+}
+
+.mobil-guide h2:first-child {
+  margin-top: 0;
+}
+
+.mobil-guide ol {
+  margin: 0;
+  padding-left: 20px;
+  color: #94A3B8;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.mobil-guide li {
+  margin-bottom: 8px;
+}
+
+.mobil-guide p {
+  margin: 0 0 10px;
+  font-size: 14px;
+  color: #94A3B8;
+  line-height: 1.55;
+}
+
+.mobil-footer-note {
+  text-align: center;
+  margin-top: 20px;
+  font-size: 11px;
+  color: #475569;
+}
+
 .header-left {
   display: flex;
   align-items: flex-start;
