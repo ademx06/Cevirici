@@ -38,6 +38,7 @@ const S = {
   msgs: [],
   history: [],
   profile: null,
+  weeklyProgress: null,
   sessionStart: null,
   uiState: 'IDLE',
   holdActive: false,
@@ -55,6 +56,7 @@ const S = {
   busyCount: 0,
   lastAudio: null,
   greetingLoaded: false,
+  sessionSaved: false,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -69,7 +71,10 @@ function loadProfile() {
     const raw = localStorage.getItem(PROFILE_KEY);
     if (raw) return JSON.parse(raw);
   } catch { /* ignore */ }
-  return { targetLang: S.learnLang, currentLevel: 'A1', dailyGoalMinutes: 10, todayMinutes: 0 };
+  return {
+    targetLang: 'en', currentLevel: 'A1', dailyGoalMinutes: 10,
+    todayMinutes: 0, dailyStats: [], sessionLog: [], srsItems: [], vocabularyBank: [],
+  };
 }
 
 function saveProfile() {
@@ -167,13 +172,18 @@ function releaseMic() {
 
 function esc(s) {
   const d = document.createElement('div');
-  d.textContent = s;
+  d.textContent = s ?? '';
   return d.innerHTML;
 }
 
+function formatDate(dateStr) {
+  if (!dateStr) return '—';
+  const d = new Date(`${dateStr}T12:00:00`);
+  return d.toLocaleDateString('tr-TR', { day: 'numeric', month: 'long' });
+}
+
 function updateLevelBadge() {
-  const lvl = S.profile?.currentLevel || 'A1';
-  $('levelBadge').textContent = lvl;
+  $('levelBadge').textContent = S.profile?.currentLevel || 'A1';
 }
 
 function updateDailyGoal() {
@@ -181,8 +191,83 @@ function updateDailyGoal() {
   const mins = S.profile?.todayMinutes || 0;
   const pct = Math.min(100, Math.round((mins / goal) * 100));
   $('goalText').textContent = `${goal} dk konuşma`;
-  $('goalMeta').textContent = `${mins.toFixed ? mins.toFixed(1) : mins} / ${goal} dk`;
+  $('goalMeta').textContent = `${Number(mins).toFixed(1)} / ${goal} dk`;
   $('goalProgress').style.width = `${pct}%`;
+}
+
+function updatePersonalLesson(lesson) {
+  if (!lesson) return;
+  $('lessonWeak').textContent = lesson.mainWeakness || '—';
+  $('lessonVocab').textContent = lesson.vocabulary || '—';
+  $('lessonTopic').textContent = lesson.conversation || '—';
+  $('lessonPractice').textContent = `${lesson.practiceMinutes || 10} dk`;
+  const srs = lesson.srsReviewsDue || 0;
+  const vocab = lesson.vocabReviewsDue || 0;
+  if (srs + vocab > 0) {
+    $('lessonSrsMeta').textContent = `🔄 Tekrar bekleyen: ${srs} gramer · ${vocab} kelime`;
+  } else {
+    $('lessonSrsMeta').textContent = '✓ Tekrar konuları güncel';
+  }
+}
+
+function showMotivation(text) {
+  const el = $('motivationBanner');
+  if (!text) {
+    el.classList.add('hidden');
+    return;
+  }
+  el.textContent = text;
+  el.classList.remove('hidden');
+}
+
+function renderProgressBar(label, pct, color) {
+  return `<div class="prog-row">
+    <div class="prog-label"><span>${label}</span><span>${pct}%</span></div>
+    <div class="prog-bar"><div class="prog-fill" style="width:${pct}%;background:${color}"></div></div>
+  </div>`;
+}
+
+function renderWeekProgress(data) {
+  if (!data) return '<p class="empty-hint">Henüz yeterli veri yok.</p>';
+  const wp = data.weeklyProgress || data;
+  let html = `
+    ${renderProgressBar('Konuşma', wp.speaking || 0, 'linear-gradient(90deg,#38BDF8,#6366F1)')}
+    ${renderProgressBar('Gramer', wp.grammar || 0, '#A78BFA')}
+    ${renderProgressBar('Kelime', wp.vocabulary || 0, '#34D399')}
+    ${renderProgressBar('Akıcılık', wp.fluency || 0, '#FBBF24')}
+  `;
+  if (wp.days?.length) {
+    html += '<div class="week-days"><span class="week-days-title">Günlük dakika</span><div class="week-chart">';
+    const maxMin = Math.max(...wp.days.map((d) => d.minutes || 0), 1);
+    wp.days.forEach((d) => {
+      const h = Math.max(4, Math.round(((d.minutes || 0) / maxMin) * 48));
+      const dayLabel = d.date.slice(5);
+      html += `<div class="week-bar-col" title="${d.date}: ${d.minutes || 0} dk">
+        <div class="week-bar" style="height:${h}px"></div>
+        <span>${dayLabel}</span>
+      </div>`;
+    });
+    html += '</div></div>';
+  }
+  return html;
+}
+
+function renderSessionLog(log) {
+  const items = log || S.profile?.sessionLog || [];
+  if (!items.length) return '<p class="empty-hint">Henüz kayıtlı konuşma yok.</p>';
+  return items.slice(0, 15).map((s) => `
+    <article class="history-item">
+      <div class="history-item-top">
+        <strong>${formatDate(s.date)}</strong>
+        <span class="history-level">${esc(s.level || 'A1')}</span>
+      </div>
+      <div class="history-item-meta">
+        <span>⏱ ${s.minutes || 0} dk</span>
+        <span>💬 ${s.sentences || '—'} cümle</span>
+        ${s.corrections != null ? `<span>✏️ ${s.corrections} düzeltme</span>` : ''}
+      </div>
+      <div class="history-item-topic">${esc(s.topic || s.weakArea || 'Konuşma')}</div>
+    </article>`).join('');
 }
 
 function render() {
@@ -209,10 +294,11 @@ function render() {
       <div class="bubble-translated edu-explain">${esc(m.explain).replace(/\n/g, '<br>')}</div>` : '';
     const corr = m.correction && m.correctionLevel >= 2
       ? `<div class="edu-correction">✏️ ${esc(m.correction)}</div>` : '';
+    const vocab = m.newWord ? `<div class="edu-vocab-card">📚 <strong>${esc(m.newWord.word)}</strong> = ${esc(m.newWord.meaningTr)}</div>` : '';
     return `<article class="bubble other edu-robot">
       <div class="bubble-label">🤖 Öğretmen · ${lg.flag} ${lg.name}</div>
       <div class="bubble-original edu-teacher-text">${esc(m.teacher).replace(/\n/g, '<br>')}</div>
-      ${corr}${explain}
+      ${corr}${vocab}${explain}
       ${m.audio ? `<button type="button" class="replay-btn" data-idx="${i}">🔊 Tekrar dinle</button>` : ''}</article>`;
   }).join('');
   el.querySelectorAll('.replay-btn').forEach((btn) => {
@@ -281,6 +367,12 @@ function handleEducationResult(d) {
     updateLevelBadge();
     updateDailyGoal();
   }
+  if (d.weekly_progress || d.weeklyProgress) {
+    S.weeklyProgress = d.weekly_progress || d.weeklyProgress;
+  }
+  if (d.daily_lesson) updatePersonalLesson(d.daily_lesson);
+  if (d.motivation) showMotivation(d.motivation);
+
   if (d.user_text) {
     S.msgs.unshift({
       role: 'user',
@@ -299,6 +391,7 @@ function handleEducationResult(d) {
     targetLang: d.target_lang || S.learnLang,
     audio: d.audio || null,
     type: d.type,
+    newWord: d.new_word || null,
   });
   pushHistory('teacher', teacher);
   render();
@@ -325,8 +418,17 @@ async function processEducationVoice(blob) {
   return d;
 }
 
+async function fetchLessonPlan() {
+  try {
+    const params = new URLSearchParams({ profile: JSON.stringify(S.profile || {}) });
+    const r = await fetch(`/api/education/lesson-plan?${params}`);
+    const d = await r.json().catch(() => ({}));
+    if (r.ok) updatePersonalLesson(d);
+  } catch { /* ignore */ }
+}
+
 async function fetchGreeting() {
-  if (S.greetingLoaded || S.msgs.length > 0) return;
+  if (S.greetingLoaded && S.msgs.length > 0) return;
   S.busyCount += 1;
   showThinking();
   try {
@@ -340,6 +442,7 @@ async function fetchGreeting() {
     handleEducationResult(d);
     S.greetingLoaded = true;
     S.sessionStart = Date.now();
+    S.sessionSaved = false;
   } catch (e) {
     showErr(e.message || 'Bağlantı sorunu. Tekrar dene.');
   } finally {
@@ -374,27 +477,83 @@ async function loadLesson(id) {
   }
 }
 
-function showReport() {
-  const mins = S.sessionStart ? (Date.now() - S.sessionStart) / 60000 : (S.profile?.todayMinutes || 0);
+function getSessionMinutes() {
+  return S.sessionStart ? (Date.now() - S.sessionStart) / 60000 : 0;
+}
+
+async function endSession() {
+  const mins = getSessionMinutes();
+  if (mins < 0.3 || S.sessionSaved) return;
+  S.sessionSaved = true;
+  try {
+    const weak = (S.profile?.weakAreas || ['conversation'])[0];
+    const r = await fetch('/api/education/session-end', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        profile: S.profile,
+        minutes: mins,
+        topic: weak.replace(/_/g, ' '),
+      }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (r.ok && d.profile) {
+      S.profile = d.profile;
+      saveProfile();
+      updateDailyGoal();
+      S.weeklyProgress = d.weeklyProgress;
+    }
+  } catch { /* ignore */ }
+}
+
+function switchReportTab(tab) {
+  document.querySelectorAll('.modal-tab').forEach((t) => {
+    t.classList.toggle('active', t.dataset.tab === tab);
+  });
+  $('tabToday').classList.toggle('hidden', tab !== 'today');
+  $('tabWeek').classList.toggle('hidden', tab !== 'week');
+  $('tabHistory').classList.toggle('hidden', tab !== 'history');
+}
+
+async function showReport() {
+  switchReportTab('today');
+  const mins = getSessionMinutes();
   const total = Math.max(S.profile?.totalSentences || 0, 1);
   const correct = S.profile?.correctSentences || 0;
-  const corrections = S.profile?.totalCorrections || 0;
+  const corrections = S.profile?.sessionCorrections ?? S.profile?.totalCorrections ?? 0;
   const grammar = Math.min(100, Math.round((correct / total) * 100));
+  const vocab = Math.min(100, 50 + (S.profile?.newWords?.length || 0) * 5);
+  const fluency = Math.min(100, Math.round(40 + mins * 3));
   const weak = (S.profile?.weakAreas || []).slice(0, 3).map((w) => w.replace(/_/g, ' ')).join(', ') || '—';
+  const strong = (S.profile?.strongAreas || ['Konuşma isteği']).slice(0, 2).join(', ');
+
   $('reportContent').innerHTML = `
     <div class="report-row"><span>Konuşma süresi</span><strong>${mins.toFixed(1)} dk</strong></div>
     <div class="report-row"><span>Cümleler</span><strong>${total}</strong></div>
     <div class="report-row"><span>Doğru cümleler</span><strong>${correct}</strong></div>
     <div class="report-row"><span>Düzeltmeler</span><strong>${corrections}</strong></div>
+    <div class="report-row"><span>Yeni kelimeler</span><strong>${S.profile?.newWords?.length || 0}</strong></div>
     <div class="report-row"><span>Gramer</span><strong>${grammar}%</strong></div>
+    <div class="report-row"><span>Kelime</span><strong>${vocab}%</strong></div>
+    <div class="report-row"><span>Akıcılık</span><strong>${fluency}%</strong></div>
     <div class="report-row"><span>Tahmini seviye</span><strong>${S.profile?.currentLevel || 'A1'}</strong></div>
-    <div class="report-row"><span>Zayıf alanlar</span><strong>${esc(weak)}</strong></div>`;
+    <div class="report-row"><span>Zayıf alanlar</span><strong>${esc(weak)}</strong></div>
+    <div class="report-row"><span>Güçlü alanlar</span><strong>${esc(strong)}</strong></div>`;
+
+  $('weekProgress').innerHTML = renderWeekProgress(S.weeklyProgress || { weeklyProgress: S.weeklyProgress });
+  $('historyContent').innerHTML = renderSessionLog();
   $('reportModal').classList.remove('hidden');
-  if (S.profile) {
-    S.profile.todayMinutes = (S.profile.todayMinutes || 0) + mins;
-    saveProfile();
-    updateDailyGoal();
+
+  await endSession();
+  if (S.weeklyProgress) {
+    $('weekProgress').innerHTML = renderWeekProgress({ weeklyProgress: S.weeklyProgress });
   }
+  $('historyContent').innerHTML = renderSessionLog();
+}
+
+function showHistoryModal() {
+  $('historyModalContent').innerHTML = renderSessionLog();
+  $('historyModal').classList.remove('hidden');
 }
 
 function pickMime() {
@@ -583,6 +742,7 @@ $('learnLang').onchange = (e) => {
     S.greetingLoaded = false;
     syncLearnLang();
     fetchGreeting();
+    fetchLessonPlan();
   } else {
     e.target.value = S.learnLang;
   }
@@ -619,8 +779,13 @@ $('repeatBtn').onclick = async () => {
     })}`);
     if (!r.ok) return;
     const buf = await r.arrayBuffer();
-    const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
-    playB64(b64);
+    const bytes = new Uint8Array(buf);
+    let b64 = '';
+    const chunk = 8192;
+    for (let i = 0; i < bytes.length; i += chunk) {
+      b64 += String.fromCharCode(...bytes.subarray(i, i + chunk));
+    }
+    playB64(btoa(b64));
   } catch { /* ignore */ }
 };
 
@@ -630,20 +795,34 @@ $('lessonChips').querySelectorAll('.chip').forEach((chip) => {
 
 $('clearBtn').onclick = () => {
   if (!isRecording() && S.busyCount === 0) {
+    endSession();
     S.msgs = [];
     S.history = [];
     saveHistory();
     S.greetingLoaded = false;
+    S.sessionStart = null;
     render();
     fetchGreeting();
   }
 };
 
+document.querySelectorAll('.modal-tab').forEach((tab) => {
+  tab.onclick = () => switchReportTab(tab.dataset.tab);
+});
+
 $('reportBtn').onclick = () => showReport();
+$('historyBtn').onclick = () => showHistoryModal();
 $('closeReport').onclick = () => $('reportModal').classList.add('hidden');
+$('closeHistory').onclick = () => $('historyModal').classList.add('hidden');
 $('reportModal').querySelector('.edu-modal-backdrop').onclick = () => $('reportModal').classList.add('hidden');
+$('historyModal').querySelector('.edu-modal-backdrop').onclick = () => $('historyModal').classList.add('hidden');
 
 bindHold($('micBtn'));
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') endSession();
+});
+window.addEventListener('pagehide', () => endSession());
 
 S.profile = loadProfile();
 S.history = loadHistory();
@@ -651,6 +830,7 @@ S.learnLang = S.profile.targetLang || 'en';
 syncLearnLang();
 updateLevelBadge();
 updateDailyGoal();
+fetchLessonPlan();
 render();
 resetIdle();
 fetchGreeting();

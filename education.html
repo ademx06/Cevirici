@@ -24,10 +24,13 @@
       </div>
       <div class="edu-header-actions">
         <span id="levelBadge" class="level-badge">A1</span>
+        <button id="historyBtn" class="ghost-btn" type="button">Geçmiş</button>
         <button id="reportBtn" class="ghost-btn" type="button">Rapor</button>
         <button id="clearBtn" class="ghost-btn hidden" type="button">Temizle</button>
       </div>
     </header>
+
+    <div id="motivationBanner" class="motivation-banner hidden"></div>
 
     <section class="robot-card">
       <div class="robot-avatar" id="robotAvatar">🤖</div>
@@ -35,6 +38,19 @@
         <strong id="robotName">Öğretmen</strong>
         <p id="robotHint">Hedef dilde konuş · robot seni dinler ve düzeltir</p>
       </div>
+    </section>
+
+    <section class="personal-lesson" id="personalLesson">
+      <div class="personal-lesson-header">
+        <span>📋 Bugünkü Kişisel Dersin</span>
+      </div>
+      <div class="personal-lesson-grid">
+        <div class="lesson-stat"><span>Zayıf alan</span><strong id="lessonWeak">—</strong></div>
+        <div class="lesson-stat"><span>Kelime</span><strong id="lessonVocab">—</strong></div>
+        <div class="lesson-stat"><span>Konuşma</span><strong id="lessonTopic">—</strong></div>
+        <div class="lesson-stat"><span>Pratik</span><strong id="lessonPractice">10 dk</strong></div>
+      </div>
+      <div class="lesson-srs-meta" id="lessonSrsMeta"></div>
     </section>
 
     <section class="daily-goal" id="dailyGoal">
@@ -108,13 +124,37 @@
 
   <div id="reportModal" class="edu-modal hidden">
     <div class="edu-modal-backdrop"></div>
-    <div class="edu-modal-card">
-      <h2>Bugünkü İngilizce</h2>
-      <div id="reportContent" class="report-content"></div>
+    <div class="edu-modal-card edu-modal-wide">
+      <div class="modal-tabs">
+        <button type="button" class="modal-tab active" data-tab="today">Bugün</button>
+        <button type="button" class="modal-tab" data-tab="week">7 Gün</button>
+        <button type="button" class="modal-tab" data-tab="history">Geçmiş</button>
+      </div>
+      <div id="tabToday" class="modal-tab-panel">
+        <h2>Bugünkü İngilizce</h2>
+        <div id="reportContent" class="report-content"></div>
+      </div>
+      <div id="tabWeek" class="modal-tab-panel hidden">
+        <h2>7 Günlük Gelişim</h2>
+        <div id="weekProgress" class="week-progress"></div>
+      </div>
+      <div id="tabHistory" class="modal-tab-panel hidden">
+        <h2>Konuşma Geçmişi</h2>
+        <div id="historyContent" class="history-list"></div>
+      </div>
       <button type="button" id="closeReport" class="primary-btn">Tamam</button>
     </div>
   </div>
 
-  <script src="education.js?v=2"></script>
+  <div id="historyModal" class="edu-modal hidden">
+    <div class="edu-modal-backdrop"></div>
+    <div class="edu-modal-card">
+      <h2>Son Konuşmalar</h2>
+      <div id="historyModalContent" class="history-list"></div>
+      <button type="button" id="closeHistory" class="primary-btn">Kapat</button>
+    </div>
+  </div>
+
+  <script src="education.js?v=3"></script>
 </body>
 </html>

@@ -1,10 +1,10 @@
-"""Profesyonel dil eğitimi motoru — doğal konuşma, düzeltme, profil."""
+"""Profesyonel dil eğitimi motoru — doğal konuşma, SRS, profil, kelime."""
 from __future__ import annotations
 
 import json
 import os
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 from urllib.request import Request, urlopen
 
@@ -14,6 +14,7 @@ LANG_NAMES = {
 }
 
 LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"]
+SRS_INTERVALS_DAYS = [1, 3, 7, 14, 30]
 
 SYSTEM_PROMPT = """You are a professional personal language tutor.
 Speak primarily in the target language. Do not behave like a translation app.
@@ -58,13 +59,66 @@ TOPICS_BY_LEVEL = {
     "C1": ["global issues", "abstract ideas", "professional debates"],
 }
 
+# category -> review prompts for spaced repetition
+SRS_PROMPTS: dict[str, list[str]] = {
+    "past_tense": [
+        "What did you do yesterday?",
+        "What did you eat last night?",
+        "Where did you go last weekend?",
+        "Tell me about something you did last week.",
+    ],
+    "be_verb": [
+        "How are you feeling right now?",
+        "How was your day today?",
+        "Are you busy this week?",
+    ],
+    "present_continuous": [
+        "What are you doing now?",
+        "What are you working on these days?",
+    ],
+    "question": [
+        "Can you ask me about my hobbies?",
+        "Ask me where I'm from.",
+    ],
+    "possessive": [
+        "Tell me about your family.",
+        "Describe your job.",
+    ],
+}
+
+VOCAB_LIBRARY: dict[str, list[dict[str, str]]] = {
+    "A1": [
+        {"word": "tired", "meaningTr": "yorgun", "example": "I am tired today."},
+        {"word": "happy", "meaningTr": "mutlu", "example": "I feel happy."},
+    ],
+    "A2": [
+        {"word": "exhausted", "meaningTr": "çok yorgun, bitkin", "example": "I was exhausted after work."},
+        {"word": "delicious", "meaningTr": "lezzetli", "example": "The food was delicious."},
+        {"word": "comfortable", "meaningTr": "rahat", "example": "This chair is comfortable."},
+    ],
+    "B1": [
+        {"word": "overwhelmed", "meaningTr": "bunalmış", "example": "I felt overwhelmed at work."},
+        {"word": "remarkable", "meaningTr": "dikkat çekici", "example": "That was a remarkable trip."},
+        {"word": "negotiate", "meaningTr": "müzakere etmek", "example": "We need to negotiate the price."},
+    ],
+    "B2": [
+        {"word": "sustainable", "meaningTr": "sürdürülebilir", "example": "We need sustainable solutions."},
+        {"word": "ambiguous", "meaningTr": "belirsiz", "example": "The answer was ambiguous."},
+    ],
+}
+
 HELP_RE = re.compile(
     r"(nasıl\s+(?:söylerim|derim|denir)|ingilizcede|ne\s+demek|çevirir\s+misin|"
     r"how\s+do\s+i\s+say|what\s+is\s+.+\s+in\s+english)",
     re.I,
 )
 
-# (pattern, correct, category, explanation_en, explain_tr)
+BREAKDOWN_RE = re.compile(
+    r"(cümle\s+yapısı|break\s+down|gramer\s+açıkla|explain\s+(?:the\s+)?grammar|"
+    r"neden\s+böyle|why\s+this\s+way|yapısını\s+açıkla)",
+    re.I,
+)
+
 EN_RULES: list[tuple[re.Pattern, str, str, str, str]] = [
     (re.compile(r"\bi very tired\b", re.I), "I'm very tired today.",
      "be_verb", "We need 'I'm' before adjectives.", "'Tired' sıfatından önce 'I'm' gerekir."),
@@ -107,8 +161,17 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _today() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+def _date_add(days: int) -> str:
+    d = datetime.now(timezone.utc).date() + timedelta(days=days)
+    return d.strftime("%Y-%m-%d")
+
+
 def default_profile(lang: str = "en") -> dict[str, Any]:
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    today = _today()
     return {
         "targetLang": lang,
         "currentLevel": "A1",
@@ -119,6 +182,10 @@ def default_profile(lang: str = "en") -> dict[str, Any]:
         "masteredTopics": [],
         "weakAreas": [],
         "strongAreas": [],
+        "srsItems": [],
+        "vocabularyBank": [],
+        "dailyStats": [],
+        "sessionLog": [],
         "sessions": [],
         "dailyGoalMinutes": 10,
         "todayMinutes": 0,
@@ -126,11 +193,15 @@ def default_profile(lang: str = "en") -> dict[str, Any]:
         "totalSentences": 0,
         "correctSentences": 0,
         "totalCorrections": 0,
+        "sessionCorrections": 0,
+        "yesterdayCorrections": 0,
         "newWords": [],
         "lastTeacherText": "",
         "waitingForUser": True,
         "sessionStartAt": None,
         "lastSessionDate": None,
+        "pendingSrsId": None,
+        "pendingVocabWord": None,
     }
 
 
@@ -140,24 +211,32 @@ def merge_profile(profile: dict | None, delta: dict | None) -> dict:
         base.update({k: v for k, v in profile.items() if v is not None})
     if not delta:
         return base
-    for key in ("grammarErrors", "repeatedMistakes", "weakAreas", "strongAreas", "newWords", "sessions"):
+    list_keys = (
+        "grammarErrors", "repeatedMistakes", "weakAreas", "strongAreas", "newWords",
+        "sessions", "srsItems", "vocabularyBank", "dailyStats", "sessionLog",
+    )
+    for key in list_keys:
         if key in delta and isinstance(delta[key], list):
             base[key] = delta[key]
-    for key in (
+    scalar_keys = (
         "currentLevel", "todayMinutes", "totalSentences", "correctSentences",
-        "totalCorrections", "lastTeacherText", "waitingForUser", "targetLang",
-        "todayDate", "sessionStartAt", "lastSessionDate",
-    ):
+        "totalCorrections", "sessionCorrections", "yesterdayCorrections",
+        "lastTeacherText", "waitingForUser", "targetLang", "todayDate",
+        "sessionStartAt", "lastSessionDate", "pendingSrsId", "pendingVocabWord",
+    )
+    for key in scalar_keys:
         if key in delta:
             base[key] = delta[key]
     return base
 
 
 def reset_daily_if_needed(profile: dict) -> dict:
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    today = _today()
     if profile.get("todayDate") != today:
+        profile["yesterdayCorrections"] = profile.get("sessionCorrections", 0) or profile.get("totalCorrections", 0)
         profile["todayDate"] = today
         profile["todayMinutes"] = 0
+        profile["sessionCorrections"] = 0
     return profile
 
 
@@ -168,6 +247,8 @@ def estimate_level(profile: dict) -> str:
     errors = len(profile.get("grammarErrors", []))
     if total < 5:
         return "A1"
+    if ratio > 0.88 and errors < 2 and total > 40:
+        return "B2"
     if ratio > 0.85 and errors < 3 and total > 30:
         return "B1"
     if ratio > 0.75 and total > 15:
@@ -194,11 +275,145 @@ def _record_mistake(profile: dict, wrong: str, correct: str, category: str) -> d
             "mistakeCount": 1, "lastAt": _now_iso(), "mastery": 0,
         })
     weak = list(set(profile.get("weakAreas", []) + [category]))
-    return {"grammarErrors": errors[-50:], "weakAreas": weak[:12]}
+    srs_patch = sync_srs_from_mistake(profile, category, correct, wrong)
+    return {"grammarErrors": errors[-50:], "weakAreas": weak[:12], **srs_patch}
+
+
+def sync_srs_from_mistake(profile: dict, category: str, correct: str, wrong: str) -> dict:
+    items = list(profile.get("srsItems", []))
+    item_id = f"{category}_{hash(correct) % 10000}"
+    found = next((i for i in items if i.get("id") == item_id), None)
+    import random
+    prompts = SRS_PROMPTS.get(category, ["Tell me more about that."])
+    if found:
+        found["mistakeCount"] = found.get("mistakeCount", 0) + 1
+        found["mastery"] = max(0, found.get("mastery", 0) - 15)
+        found["nextReviewAt"] = _today()
+    else:
+        items.append({
+            "id": item_id,
+            "type": "grammar",
+            "category": category,
+            "prompt": random.choice(prompts),
+            "targetAnswer": correct,
+            "intervalIndex": 0,
+            "nextReviewAt": _date_add(1),
+            "mastery": 0,
+            "reviewCount": 0,
+            "lastReviewAt": None,
+            "mistakeCount": 1,
+        })
+    return {"srsItems": items[-40:]}
+
+
+def get_due_srs(profile: dict) -> list[dict]:
+    today = _today()
+    items = profile.get("srsItems", [])
+    due = [i for i in items if i.get("nextReviewAt", "") <= today and i.get("mastery", 0) < 80]
+    due.sort(key=lambda x: (x.get("mastery", 0), x.get("mistakeCount", 0)), reverse=True)
+    return due[:3]
+
+
+def get_due_vocab(profile: dict) -> list[dict]:
+    today = _today()
+    bank = profile.get("vocabularyBank", [])
+    return [v for v in bank if v.get("nextReviewAt", "") <= today and v.get("mastery", 0) < 85]
+
+
+def record_srs_success(profile: dict, item_id: str) -> dict:
+    items = list(profile.get("srsItems", []))
+    for item in items:
+        if item.get("id") != item_id:
+            continue
+        idx = min(item.get("intervalIndex", 0) + 1, len(SRS_INTERVALS_DAYS) - 1)
+        item["intervalIndex"] = idx
+        item["nextReviewAt"] = _date_add(SRS_INTERVALS_DAYS[idx])
+        item["mastery"] = min(100, item.get("mastery", 0) + 20)
+        item["reviewCount"] = item.get("reviewCount", 0) + 1
+        item["lastReviewAt"] = _now_iso()
+        if item["mastery"] >= 80:
+            mastered = list(set(profile.get("masteredTopics", []) + [item.get("category", "")]))
+            return {"srsItems": items, "masteredTopics": mastered[:20], "pendingSrsId": None}
+    return {"srsItems": items, "pendingSrsId": None}
+
+
+def record_srs_failure(profile: dict, item_id: str) -> dict:
+    items = list(profile.get("srsItems", []))
+    for item in items:
+        if item.get("id") != item_id:
+            continue
+        item["intervalIndex"] = 0
+        item["nextReviewAt"] = _date_add(1)
+        item["mastery"] = max(0, item.get("mastery", 0) - 10)
+        item["lastReviewAt"] = _now_iso()
+    return {"srsItems": items, "pendingSrsId": item_id}
+
+
+def pick_srs_prompt(profile: dict) -> tuple[str | None, str | None]:
+    due = get_due_srs(profile)
+    if not due:
+        return None, None
+    item = due[0]
+    return item.get("prompt"), item.get("id")
+
+
+def suggest_new_vocab(profile: dict, user_text: str) -> dict | None:
+    level = profile.get("currentLevel", "A1")
+    bank = {v.get("word", "").lower() for v in profile.get("vocabularyBank", [])}
+    ul = user_text.lower()
+    if re.search(r"\b(tired|yorgun|exhausted|busy)\b", ul):
+        candidates = VOCAB_LIBRARY.get("A2", []) + VOCAB_LIBRARY.get("B1", [])
+        for c in candidates:
+            if c["word"].lower() not in bank and c["word"].lower() not in ul:
+                return c
+    pool = VOCAB_LIBRARY.get(level, []) + VOCAB_LIBRARY.get("A2", [])
+    for c in pool:
+        if c["word"].lower() not in bank:
+            return c
+    return None
+
+
+def add_vocab_to_bank(profile: dict, entry: dict) -> dict:
+    bank = list(profile.get("vocabularyBank", []))
+    word = entry.get("word", "")
+    if any(v.get("word", "").lower() == word.lower() for v in bank):
+        return {}
+    bank.append({
+        "word": word,
+        "meaningTr": entry.get("meaningTr", ""),
+        "example": entry.get("example", ""),
+        "introducedAt": _now_iso(),
+        "nextReviewAt": _date_add(1),
+        "intervalIndex": 0,
+        "mastery": 0,
+        "usedCorrectly": False,
+    })
+    new_words = list(profile.get("newWords", []))
+    if word not in new_words:
+        new_words.append(word)
+    return {"vocabularyBank": bank[-60:], "newWords": new_words[-40:]}
+
+
+def record_vocab_used(profile: dict, word: str, correct: bool) -> dict:
+    bank = list(profile.get("vocabularyBank", []))
+    for v in bank:
+        if v.get("word", "").lower() != word.lower():
+            continue
+        if correct:
+            idx = min(v.get("intervalIndex", 0) + 1, len(SRS_INTERVALS_DAYS) - 1)
+            v["intervalIndex"] = idx
+            v["nextReviewAt"] = _date_add(SRS_INTERVALS_DAYS[idx])
+            v["mastery"] = min(100, v.get("mastery", 0) + 25)
+            v["usedCorrectly"] = True
+        else:
+            v["intervalIndex"] = 0
+            v["nextReviewAt"] = _date_add(1)
+            v["mastery"] = max(0, v.get("mastery", 0) - 10)
+        return {"vocabularyBank": bank, "pendingVocabWord": None}
+    return {}
 
 
 def check_english(text: str) -> tuple[int, str | None, str | None, str | None, str | None]:
-    """Returns (level 1-3, correct, category, explain_en, explain_tr). Level 1 = OK."""
     t = text.strip()
     if len(t) < 2:
         return 3, None, None, None, None
@@ -219,7 +434,55 @@ def _norm(s: str) -> str:
     return re.sub(r"[^\w\s']", "", s.lower()).strip()
 
 
-def _llm(messages: list[dict], target_lang: str, level: str, roleplay: str | None = None) -> str | None:
+def grammar_breakdown(sentence: str, level: str) -> str:
+    s = sentence.strip()
+    if not s:
+        return "No sentence to explain."
+    if re.search(r"\bhave been \w+ing\b", s, re.I):
+        if level in ("A1", "A2"):
+            return (
+                f"Cümle: \"{s}\"\n\n"
+                "have been + fiil-ing = geçmişte başlayıp hâlâ devam eden eylem.\n"
+                "Türkçe: '... yapmaktayım / yapmış bulunuyorum'"
+            )
+        return (
+            f"Let's break it down:\n\"{s}\"\n\n"
+            "have been + verb-ing = present perfect continuous\n"
+            "The action started in the past and continues now."
+        )
+    if re.search(r"\b(went|swam|did|ate)\b", s, re.I):
+        return (
+            f"Cümle: \"{s}\"\n\n"
+            "Geçmiş zaman (past simple) kullanılmış.\n"
+            "Düzensiz fiillerde V2 formu gerekir (go→went, swim→swam)."
+        )
+    if re.search(r"\b(I'm|I am|he is|she is|they are)\b", s, re.I):
+        return (
+            f"Cümle: \"{s}\"\n\n"
+            "am/is/are + sıfat veya isim = durum bildirme.\n"
+            "Örnek: I'm tired = Yorgunum."
+        )
+    words = s.split()
+    if level in ("A1", "A2"):
+        return f"Cümle: \"{s}\"\n\nBasit yapı: özne + fiil + (nesne/zarf)."
+    return f"Sentence: \"{s}\"\n\nSubject + verb + complements. Ask me about a specific part."
+
+
+def motivation_message(profile: dict) -> str | None:
+    yesterday = profile.get("yesterdayCorrections", 0)
+    today = profile.get("sessionCorrections", 0)
+    if yesterday > 0 and today < yesterday:
+        diff = yesterday - today
+        return f"Yesterday you made {yesterday} grammar mistakes. Today only {today}. Great improvement!"
+    mastered = profile.get("masteredTopics", [])
+    if mastered and profile.get("totalSentences", 0) > 10:
+        topic = mastered[-1].replace("_", " ")
+        return f"You've been doing well with {topic} lately. Keep it up!"
+    return None
+
+
+def _llm(messages: list[dict], target_lang: str, level: str, roleplay: str | None = None,
+           extra: str = "") -> str | None:
     key = os.environ.get("OPENAI_API_KEY", "").strip()
     if not key:
         return None
@@ -228,7 +491,8 @@ def _llm(messages: list[dict], target_lang: str, level: str, roleplay: str | Non
         rp = ROLEPLAYS[roleplay].get(target_lang) or ROLEPLAYS[roleplay].get("en", "")
         if rp:
             sys += f"\nRoleplay scenario: {rp}"
-    weak = []
+    if extra:
+        sys += f"\n{extra}"
     body = json.dumps({
         "model": os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
         "messages": [{"role": "system", "content": sys}] + messages,
@@ -252,6 +516,8 @@ def _llm(messages: list[dict], target_lang: str, level: str, roleplay: str | Non
 def _fallback_reply(
     user_text: str, lang: str, history: list[dict], profile: dict,
     roleplay: str | None, correction: tuple | None,
+    srs_prompt: str | None = None,
+    vocab_hint: dict | None = None,
 ) -> str:
     if correction and correction[0] >= 2:
         correct, ex_en = correction[1], correction[3]
@@ -273,6 +539,12 @@ def _fallback_reply(
     if re.search(r"\b(i'?m|i am) (fine|good|ok|well|great)\b", ul):
         return "That's great to hear! What did you do today?"
     if re.search(r"\b(tired|exhausted|busy)\b", ul):
+        if vocab_hint and vocab_hint.get("word", "").lower() not in ul:
+            w = vocab_hint["word"]
+            return (
+                f"I understand. By the way, try a stronger word next time: '{w}' "
+                f"— it means {vocab_hint.get('meaningTr', 'very tired')}."
+            )
         return "I understand. Why do you feel tired today?"
     if re.search(r"\b(work|office|job)\b", ul):
         return "Work can be demanding. What do you do at work?"
@@ -281,7 +553,9 @@ def _fallback_reply(
     if re.search(r"\b(antalya|istanbul|london|paris|travel|trip|vacation|holiday)\b", ul):
         return "That sounds wonderful! What did you enjoy most there?"
 
-    # Spaced repetition: weak area prompts
+    if srs_prompt:
+        return srs_prompt
+
     weak = profile.get("weakAreas") or []
     if "past_tense" in weak:
         return "By the way — what did you do yesterday?"
@@ -321,8 +595,23 @@ def greeting(lang: str, profile: dict | None = None) -> dict[str, Any]:
     profile = reset_daily_if_needed(profile)
     opts = GREETINGS.get(lang, GREETINGS["en"])
     text = random.choice(opts)
-    delta = {"lastTeacherText": text, "waitingForUser": True, "sessionStartAt": _now_iso()}
-    return _pack(profile, delta, text, None, None, 1, "greeting", waiting=True)
+    motiv = motivation_message(profile)
+    if motiv:
+        text = f"{motiv}\n\n{text}"
+    srs_prompt, srs_id = pick_srs_prompt(profile)
+    if srs_prompt and random.random() > 0.5:
+        text = f"{text}\n\n{srs_prompt}"
+    delta = {
+        "lastTeacherText": text,
+        "waitingForUser": True,
+        "sessionStartAt": _now_iso(),
+        "pendingSrsId": srs_id,
+    }
+    result = _pack(profile, delta, text, None, None, 1, "greeting", waiting=True)
+    result["daily_lesson"] = daily_lesson(profile)
+    result["motivation"] = motiv
+    result["weekly_progress"] = weekly_progress(profile)
+    return result
 
 
 def process_turn(
@@ -356,7 +645,10 @@ def process_turn(
         if re.search(r"slow|yavaş", low) and last_teacher:
             return _pack(profile, session_delta, last_teacher, None, None, 1, "slow", waiting=True, user_text=user_text, speak_slow=True)
 
-    # Teaching help mode — only when clearly asking how to say something in Turkish
+    if BREAKDOWN_RE.search(user_text):
+        breakdown = grammar_breakdown(last_teacher, profile.get("currentLevel", "A1"))
+        return _pack(profile, session_delta, breakdown, breakdown, None, 1, "breakdown", waiting=True, user_text=user_text)
+
     if translate_fn and (user_lang == "tr" or HELP_RE.search(user_text)):
         help_result = _help_mode(user_text, target_lang, translate_fn)
         p = merge_profile(profile, session_delta)
@@ -376,9 +668,22 @@ def process_turn(
 
     if target_lang == "en":
         correction_level, correct_phrase, category, explain_en, explain_tr = check_english(user_text)
+
+    pending_srs = profile.get("pendingSrsId")
+    if pending_srs:
+        if correction_level == 1:
+            profile_patch.update(record_srs_success(profile, pending_srs))
+        elif correction_level >= 2:
+            profile_patch.update(record_srs_failure(profile, pending_srs))
+
+    pending_vocab = profile.get("pendingVocabWord")
+    if pending_vocab and pending_vocab.lower() in user_text.lower():
+        profile_patch.update(record_vocab_used(profile, pending_vocab, correction_level == 1))
+
     if correction_level >= 2 and correct_phrase:
-        profile_patch = _record_mistake(profile, user_text, correct_phrase, category or "grammar")
+        profile_patch.update(_record_mistake(profile, user_text, correct_phrase, category or "grammar"))
         session_delta["totalCorrections"] = profile.get("totalCorrections", 0) + 1
+        session_delta["sessionCorrections"] = profile.get("sessionCorrections", 0) + 1
     elif correction_level == 1:
         session_delta["correctSentences"] = profile.get("correctSentences", 0) + 1
 
@@ -387,15 +692,41 @@ def process_turn(
 
     corr_tuple = (correction_level, correct_phrase, category, explain_en, explain_tr) if correction_level >= 2 else None
 
+    vocab_new = None
+    new_word_card = None
+    if correction_level == 1 and merged.get("totalSentences", 0) % 5 == 0:
+        vocab_new = suggest_new_vocab(merged, user_text)
+        if vocab_new:
+            merged = merge_profile(merged, add_vocab_to_bank(merged, vocab_new))
+            new_word_card = vocab_new
+
+    due_vocab = get_due_vocab(merged)
+    vocab_hint = due_vocab[0] if due_vocab else vocab_new
+
+    srs_prompt, srs_id = pick_srs_prompt(merged)
+    if srs_prompt and not pending_srs and correction_level == 1 and merged.get("totalSentences", 0) % 4 == 0:
+        merged["pendingSrsId"] = srs_id
+    else:
+        srs_prompt = None
+
     llm_msgs = []
     for h in history[-12:]:
         role = "assistant" if h.get("role") == "teacher" else "user"
         llm_msgs.append({"role": role, "content": h.get("text", "")})
     llm_msgs.append({"role": "user", "content": user_text})
 
-    teacher = _llm(llm_msgs, target_lang, merged["currentLevel"], roleplay)
+    extra = ""
+    if srs_prompt:
+        extra += f"End your response by naturally asking: {srs_prompt}"
+    if vocab_hint and isinstance(vocab_hint, dict):
+        extra += f" Try to introduce the word '{vocab_hint.get('word')}' naturally."
+
+    teacher = _llm(llm_msgs, target_lang, merged["currentLevel"], roleplay, extra)
     if not teacher:
-        teacher = _fallback_reply(user_text, target_lang, history, merged, roleplay, corr_tuple)
+        teacher = _fallback_reply(
+            user_text, target_lang, history, merged, roleplay, corr_tuple,
+            srs_prompt, vocab_hint if isinstance(vocab_hint, dict) else None,
+        )
 
     explain = None
     if correction_level >= 2 and explain_tr:
@@ -403,11 +734,26 @@ def process_turn(
     elif correction_level >= 2 and explain_en:
         explain = explain_en
 
-    return _pack(
+    result = _pack(
         merged, session_delta, teacher, explain, correct_phrase, correction_level,
         "correction" if correction_level >= 2 else "conversation",
         waiting=True, user_text=user_text, speak_slow=speak_slow,
     )
+    if new_word_card:
+        result["new_word"] = {
+            "word": new_word_card["word"],
+            "meaningTr": new_word_card.get("meaningTr", ""),
+            "example": new_word_card.get("example", ""),
+        }
+        result["explain_tr"] = (
+            (result.get("explain_tr") or "")
+            + f"\n\n📚 Yeni kelime: {new_word_card['word']} = {new_word_card.get('meaningTr', '')}"
+            + f"\nÖrnek: \"{new_word_card.get('example', '')}\""
+        ).strip()
+        merged["pendingVocabWord"] = new_word_card["word"]
+        result["profile"] = merge_profile(merged, {"pendingVocabWord": new_word_card["word"]})
+    result["weekly_progress"] = weekly_progress(result["profile"])
+    return result
 
 
 def _pack(
@@ -438,21 +784,117 @@ def _pack(
     }
 
 
+def _score_for_day(sentences: int, correct: int, minutes: float, corrections: int) -> dict:
+    total = max(sentences, 1)
+    grammar = min(100, int(100 * correct / total))
+    vocabulary = min(100, 50 + correct // 2)
+    fluency = min(100, int(40 + minutes * 3 + correct))
+    return {"grammar": grammar, "vocabulary": vocabulary, "fluency": fluency}
+
+
+def update_daily_stat(profile: dict, minutes: float, sentences_delta: int = 0) -> dict:
+    stats = list(profile.get("dailyStats", []))
+    today = _today()
+    total = profile.get("totalSentences", 0)
+    correct = profile.get("correctSentences", 0)
+    corrections = profile.get("totalCorrections", 0)
+    scores = _score_for_day(total, correct, minutes, corrections)
+    entry = next((s for s in stats if s.get("date") == today), None)
+    if entry:
+        entry["minutes"] = round(entry.get("minutes", 0) + minutes, 1)
+        entry["sentences"] = total
+        entry["correct"] = correct
+        entry["corrections"] = corrections
+        entry["grammar"] = scores["grammar"]
+        entry["vocabulary"] = scores["vocabulary"]
+        entry["fluency"] = scores["fluency"]
+        entry["level"] = profile.get("currentLevel", "A1")
+    else:
+        stats.append({
+            "date": today,
+            "minutes": round(minutes, 1),
+            "sentences": total,
+            "correct": correct,
+            "corrections": corrections,
+            **scores,
+            "level": profile.get("currentLevel", "A1"),
+        })
+    stats = sorted(stats, key=lambda x: x.get("date", ""))[-14:]
+    return {"dailyStats": stats}
+
+
+def finalize_session(profile: dict, minutes: float, topic: str = "Daily conversation") -> dict:
+    profile = merge_profile(profile, None)
+    weak = (profile.get("weakAreas") or ["conversation"])[0]
+    log = list(profile.get("sessionLog", []))
+    log.insert(0, {
+        "date": _today(),
+        "minutes": round(minutes, 1),
+        "level": profile.get("currentLevel", "A1"),
+        "topic": topic.replace("_", " ").title(),
+        "weakArea": weak,
+        "sentences": profile.get("totalSentences", 0),
+        "corrections": profile.get("sessionCorrections", 0),
+    })
+    stat_patch = update_daily_stat(profile, minutes)
+    return {
+        "sessionLog": log[:30],
+        "lastSessionDate": _today(),
+        "todayMinutes": (profile.get("todayMinutes", 0) or 0) + minutes,
+        **stat_patch,
+    }
+
+
+def weekly_progress(profile: dict) -> dict:
+    stats = profile.get("dailyStats", [])
+    today = datetime.now(timezone.utc).date()
+    days = []
+    for i in range(6, -1, -1):
+        d = (today - timedelta(days=i)).strftime("%Y-%m-%d")
+        entry = next((s for s in stats if s.get("date") == d), None)
+        if entry:
+            days.append(entry)
+        else:
+            days.append({
+                "date": d, "minutes": 0, "sentences": 0, "correct": 0,
+                "corrections": 0, "grammar": 0, "vocabulary": 0, "fluency": 0,
+                "level": profile.get("currentLevel", "A1"),
+            })
+    def avg(key: str) -> int:
+        vals = [d.get(key, 0) for d in days if d.get("minutes", 0) > 0 or d.get("sentences", 0) > 0]
+        return int(sum(vals) / len(vals)) if vals else 0
+    return {
+        "days": days,
+        "speaking": min(100, int(sum(d.get("minutes", 0) for d in days) / 70 * 100)),
+        "grammar": avg("grammar"),
+        "vocabulary": avg("vocabulary"),
+        "fluency": avg("fluency"),
+    }
+
+
 def session_report(profile: dict, minutes: float) -> dict:
     total = max(profile.get("totalSentences", 0), 1)
     correct = profile.get("correctSentences", 0)
+    scores = _score_for_day(total, correct, minutes, profile.get("totalCorrections", 0))
+    strong = profile.get("strongAreas", []) or []
+    if correct / total > 0.7:
+        strong = list(set(strong + ["Basic conversation"]))[:5]
     return {
         "speakingMinutes": round(minutes, 1),
         "sentences": total,
         "correctSentences": correct,
-        "corrections": profile.get("totalCorrections", 0),
+        "corrections": profile.get("sessionCorrections", profile.get("totalCorrections", 0)),
         "newWords": len(profile.get("newWords", [])),
-        "grammarScore": min(100, int(100 * correct / total)),
-        "vocabularyScore": min(100, 50 + len(profile.get("newWords", [])) * 5),
-        "fluencyScore": min(100, int(60 + minutes * 2)),
+        "grammarScore": scores["grammar"],
+        "vocabularyScore": scores["vocabulary"],
+        "fluencyScore": scores["fluency"],
         "estimatedLevel": profile.get("currentLevel", "A1"),
         "weakAreas": profile.get("weakAreas", [])[:5],
-        "strongAreas": profile.get("strongAreas", []) or ["Basic conversation"],
+        "strongAreas": strong or ["Willingness to speak"],
+        "weeklyProgress": weekly_progress(profile),
+        "motivation": motivation_message(profile),
+        "srsDue": len(get_due_srs(profile)),
+        "vocabDue": len(get_due_vocab(profile)),
     }
 
 
@@ -462,10 +904,15 @@ def daily_lesson(profile: dict) -> dict:
     topics = TOPICS_BY_LEVEL.get(level, TOPICS_BY_LEVEL["A1"])
     import random
     topic = random.choice(topics)
+    due_srs = get_due_srs(profile)
+    practice = "Past tense questions" if weak == "past_tense" else weak.replace("_", " ").title()
     return {
         "mainWeakness": weak.replace("_", " ").title(),
         "vocabulary": topic.title(),
         "conversation": topic,
+        "practice": practice,
         "practiceMinutes": profile.get("dailyGoalMinutes", 10),
         "estimatedLevel": level,
+        "srsReviewsDue": len(due_srs),
+        "vocabReviewsDue": len(get_due_vocab(profile)),
     }

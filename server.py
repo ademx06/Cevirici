@@ -14,6 +14,7 @@ import tempfile
 from tutor import get_lesson, tutor_reply
 from education_engine import (
     process_turn, greeting, session_report, daily_lesson, default_profile,
+    finalize_session, weekly_progress,
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -490,6 +491,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self.handle_education_voice(parse_qs(parsed.query))
         if parsed.path == "/api/education/chat":
             return self.handle_education_chat(parse_qs(parsed.query))
+        if parsed.path == "/api/education/session-end":
+            return self.handle_education_session_end(parse_qs(parsed.query))
         self.send_error(404)
 
     def do_GET(self):
@@ -506,6 +509,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self.handle_education_greeting(parse_qs(parsed.query))
         if parsed.path == "/api/education/lesson-plan":
             return self.handle_education_lesson_plan(parse_qs(parsed.query))
+        if parsed.path == "/api/education/progress":
+            return self.handle_education_progress(parse_qs(parsed.query))
         return super().do_GET()
 
     def handle_stt(self, params):
@@ -609,6 +614,45 @@ class Handler(SimpleHTTPRequestHandler):
             return json.loads(raw.decode("utf-8"))
         except Exception:
             return {}
+
+    def handle_education_progress(self, params):
+        profile_raw = (params.get("profile") or ["{}"])[0]
+        try:
+            profile = json.loads(profile_raw) if profile_raw else default_profile()
+        except Exception:
+            profile = default_profile()
+        try:
+            body = json.dumps({
+                "weeklyProgress": weekly_progress(profile),
+                "sessionLog": profile.get("sessionLog", [])[:10],
+                "dailyLesson": daily_lesson(profile),
+            }, ensure_ascii=False).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        except Exception as e:
+            self.send_json_error(422, self.api_error_message(e))
+
+    def handle_education_session_end(self, params):
+        payload = self._read_json_body()
+        profile = payload.get("profile") or default_profile()
+        minutes = float(payload.get("minutes") or 0)
+        topic = (payload.get("topic") or "Daily conversation").strip()
+        try:
+            patch = finalize_session(profile, minutes, topic)
+            merged = {**profile, **patch}
+            report = session_report(merged, minutes)
+            report["profile"] = merged
+            body = json.dumps(report, ensure_ascii=False).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        except Exception as e:
+            self.send_json_error(422, self.api_error_message(e))
 
     def handle_education_greeting(self, params):
         lang = (params.get("lang") or ["en"])[0]
