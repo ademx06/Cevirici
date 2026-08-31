@@ -64,9 +64,19 @@ GitHub hesabın yoksa Seçenek 1 (Telegram) daha kolay.
 
 ---
 
-## Seçenek 4 — Bulut sunucu 7/24 açık + sabit adres
+## Seçenek 4 — GitHub + Render (7/24, sabit adres, Mac gerekmez)
 
-Sunucu hiç kapanmazsa link de nadiren değişir. Kalıcı barındırma: Railway, Render, VPS + `docs/SABIT-ADRES.md`.
+En pratik kalıcı çözüm:
+
+1. Kod GitHub’da → **[docs/GITHUB-DEPLOY.md](docs/GITHUB-DEPLOY.md)** adımlarını izle
+2. Render’da ücretsiz deploy → `https://....onrender.com` **sabit kalır**
+3. iPhone Safari → Ana ekrana ekle
+
+Telegram `/link` Render adresini gösterir (env tanımlıysa).
+
+---
+
+## Seçenek 5 — Bulut sunucu (VPS) + sabit domain
 
 ---
 
