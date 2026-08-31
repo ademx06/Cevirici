@@ -23,7 +23,9 @@ Uygulama açıkken:
 
 1. **mobil.html** sayfasına git (çalışan bir linkten).
 2. Yeşil “Sunucu çalışıyor” görüyorsan adres doğrudur → Ana ekrana tekrar ekle.
-3. Kırmızı “ulaşılamıyor” görüyorsan sunucu kapalı veya adres eski → sunucuyu çalıştıran kişiden **yeni link** iste.
+3. Kırmızı “ulaşılamıyor” görüyorsan sunucu kapalı veya adres eski.
+
+**Yeni link nereden?** Eski link ölünce telefondan kendin bulamazsın. Çözüm: **[YENI-LINK-NEREDEN.md](YENI-LINK-NEREDEN.md)** (Telegram veya sabit domain).
 
 ## Ana ekrana ekleme (Safari)
 
