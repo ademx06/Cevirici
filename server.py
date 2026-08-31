@@ -20,6 +20,7 @@ from education_engine import (
 ROOT = os.path.dirname(os.path.abspath(__file__))
 PORT = int(os.environ.get("PORT", "8780"))
 WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "base")
+DISABLE_WHISPER = os.environ.get("DISABLE_WHISPER", "1").lower() in ("1", "true", "yes")
 EDU_STATE_MARKER = b"\n--EDU_STATE_END--\n"
 
 UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15"
@@ -174,6 +175,8 @@ def decode_education_state(raw: str) -> dict:
 
 
 def get_whisper():
+    if DISABLE_WHISPER:
+        raise RuntimeError("whisper disabled")
     global _whisper_model
     if _whisper_model is None:
         from faster_whisper import WhisperModel
@@ -377,7 +380,7 @@ def stt_for_lang(wav: str, lang: str, allow_whisper: bool = True) -> tuple[str, 
             return None
         return text, lang, score_text(text, lang) + 40
 
-    if not allow_whisper:
+    if not allow_whisper or DISABLE_WHISPER:
         return None
 
     whisper = whisper_stt(wav, lang)
@@ -588,7 +591,7 @@ def transcribe_education(
             text, detected, score = _rank_education_stt(
                 raw, raw, lang, result[2], history,
             )
-            if text and score >= 0.75:
+            if text:
                 candidates.append((text, detected, score))
                 break
 
@@ -642,9 +645,15 @@ def transcribe_dual(data: bytes, my: str, other: str, last_from: str | None = No
 
         candidates: list[tuple[str, str, float]] = []
         for lang in (my, other):
-            r = stt_for_lang(wav, lang)
+            r = stt_for_lang(wav, lang, allow_whisper=False)
             if r:
                 candidates.append(r)
+
+        if not candidates and not DISABLE_WHISPER:
+            for lang in (my, other):
+                r = stt_for_lang(wav, lang, allow_whisper=True)
+                if r:
+                    candidates.append(r)
 
         if not candidates:
             raise ValueError("speech not recognized")
@@ -1075,11 +1084,16 @@ class Handler(SimpleHTTPRequestHandler):
             return
         try:
             translated = translate_text(text[:500], from_lang, to_lang)
-            audio = synthesize(translated[:500], to_lang)
-            import base64
+            audio_b64 = ""
+            try:
+                audio = synthesize(translated[:500], to_lang)
+                import base64
+                audio_b64 = base64.b64encode(audio).decode("ascii")
+            except Exception:
+                pass
 
             body = json.dumps(
-                {"translated": translated, "audio": base64.b64encode(audio).decode("ascii")}
+                {"translated": translated, "audio": audio_b64}
             ).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -1087,31 +1101,33 @@ class Handler(SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
         except Exception as e:
-            self.send_error(502, str(e))
+            self.send_json_error(422, self.api_error_message(e))
 
     def handle_tts(self, params):
         text = (params.get("q") or [""])[0].strip()
         lang = (params.get("tl") or ["tr"])[0].strip()
         slow = (params.get("slow") or ["0"])[0].lower() in ("1", "true", "yes")
         if not text:
-            self.send_error(400, "q required")
+            self.send_json_error(400, "Metin gerekli")
             return
         try:
             data = synthesize(text[:500], lang, slow=slow)
+            if not data:
+                raise ValueError("Ses oluşturulamadı")
             self.send_response(200)
             self.send_header("Content-Type", "audio/mpeg")
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
             self.wfile.write(data)
         except Exception as e:
-            self.send_error(502, str(e))
+            self.send_json_error(422, self.api_error_message(e))
 
     def handle_translate(self, params):
         text = (params.get("q") or [""])[0].strip()
         from_lang = (params.get("from") or ["tr"])[0]
         to_lang = (params.get("to") or ["en"])[0]
         if not text:
-            self.send_error(400, "q required")
+            self.send_json_error(400, "Metin gerekli")
             return
         try:
             translated = translate_text(text, from_lang, to_lang)
@@ -1122,7 +1138,7 @@ class Handler(SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
         except Exception as e:
-            self.send_error(502, str(e))
+            self.send_json_error(422, self.api_error_message(e))
 
 
 if __name__ == "__main__":
@@ -1134,12 +1150,15 @@ if __name__ == "__main__":
     print(f"Serving {ROOT} on port {PORT}")
 
     def _warm_whisper() -> None:
+        if DISABLE_WHISPER:
+            print("Whisper kapalı — Google STT (hızlı mod).")
+            return
         print(f"Whisper modeli yükleniyor ({WHISPER_MODEL})…")
         try:
             get_whisper()
             print("Whisper hazır.")
         except Exception as exc:
-            print(f"Whisper yüklenemedi (STT kısıtlı çalışabilir): {exc}")
+            print(f"Whisper yüklenemedi (Google STT kullanılacak): {exc}")
 
     threading.Thread(target=_warm_whisper, name="whisper-warmup", daemon=True).start()
 

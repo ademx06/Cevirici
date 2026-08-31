@@ -95,23 +95,33 @@ function resetIdle() {
   if (S.busyCount === 0) setStatus('Basılı tut ve konuş', false);
 }
 
+function cleanupRecorder() {
+  if (!S.recorder) return;
+  S.recorder.ondataavailable = null;
+  S.recorder.onstop = null;
+  S.recorder = null;
+}
+
+function releaseStream() {
+  if (S.stream) {
+    S.stream.getTracks().forEach((t) => t.stop());
+    S.stream = null;
+  }
+}
+
 function releaseMic() {
   clearTimeout(S.stopTimer);
   clearTimeout(S.safetyTimer);
   S.stopTimer = null;
   S.safetyTimer = null;
   if (S.recorder) {
-    S.recorder.ondataavailable = null;
-    S.recorder.onstop = null;
     if (S.recorder.state === 'recording') {
-      try { S.recorder.stop(); } catch { /* ignore */ }
+      try { S.recorder.stop(); } catch { cleanupRecorder(); }
+    } else {
+      cleanupRecorder();
     }
-    S.recorder = null;
   }
-  if (S.stream) {
-    S.stream.getTracks().forEach((t) => t.stop());
-    S.stream = null;
-  }
+  releaseStream();
 }
 
 function render() {
@@ -187,14 +197,25 @@ async function playB64(b64) {
 }
 
 async function processAudio(blob) {
-  const r = await fetch(`/api/process?${new URLSearchParams({ my: S.my, other: S.other, last: S.lastFrom })}`, {
-    method: 'POST',
-    body: blob,
-    headers: { 'Content-Type': blob.type || 'audio/mp4' },
-  });
-  const d = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(d.error || 'Ses işlenemedi — tekrar deneyin');
-  return d;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 45000);
+  try {
+    const r = await fetch(`/api/process?${new URLSearchParams({ my: S.my, other: S.other, last: S.lastFrom })}`, {
+      method: 'POST',
+      body: blob,
+      headers: { 'Content-Type': blob.type || 'audio/mp4' },
+      signal: ctrl.signal,
+    });
+    const raw = await r.text();
+    let d = {};
+    try { d = raw ? JSON.parse(raw) : {}; } catch {
+      throw new Error(r.ok ? 'Sunucu yanıtı okunamadı' : `Sunucu hatası (${r.status})`);
+    }
+    if (!r.ok) throw new Error(d.error || 'Ses işlenemedi — tekrar deneyin');
+    return d;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function handleResult(d) {
@@ -203,7 +224,9 @@ function handleResult(d) {
     orig: d.original, trans: d.translated, from: d.from, to: d.to, audio: null,
   });
   render();
-  fetchTranslateTts(d.translated, d.to, 0);
+  clearInterim();
+  setStatus('Çeviri hazır', false);
+  void fetchTranslateTts(d.translated, d.to, 0);
 }
 
 async function fetchTranslateTts(text, lang, msgIndex) {
@@ -245,7 +268,12 @@ function pickMime() {
 }
 
 async function openFreshMic() {
+  if (S.stream) {
+    const live = S.stream.getTracks().every((t) => t.readyState === 'live');
+    if (live) return S.stream;
+  }
   releaseMic();
+  await new Promise((r) => setTimeout(r, 50));
   S.stream = await navigator.mediaDevices.getUserMedia(MIC_OPTS);
   return S.stream;
 }
@@ -275,7 +303,7 @@ function startRecorder(gen) {
     const chunks = S.chunks.slice();
     const pressMs = S.pressMs || 0;
     S.chunks = [];
-    releaseMic();
+    cleanupRecorder();
 
     if (pressMs < MIN_HOLD_MS) {
       if (!S.holdActive && S.busyCount === 0) resetIdle();
@@ -318,7 +346,8 @@ function finishRecording() {
         S.recorder.requestData();
         S.recorder.stop();
       } catch {
-        releaseMic();
+        cleanupRecorder();
+        releaseStream();
         if (!S.holdActive && S.busyCount === 0) resetIdle();
       }
     }

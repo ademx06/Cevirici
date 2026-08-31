@@ -2,6 +2,14 @@
 
 Bu uygulama iPhone’da **Safari** ile açılır. Sunucu bilgisayarda veya bulutta çalışır; telefon sadece bağlanır.
 
+## Kalıcı adres (bir kez kur, link değişmez)
+
+GitHub + Render ile sabit adres: **[docs/GITHUB-DEPLOY.md](docs/GITHUB-DEPLOY.md)**
+
+Kurulumdan sonra iPhone’a `https://....onrender.com/education.html?v=20` ekleyin — link artık ölmez.
+
+---
+
 ## Günlük kullanım (en kolay)
 
 1. Ana ekrandaki **Sesli Çevirmen** simgesine dokun.

@@ -1819,7 +1819,7 @@ def _openai_chat(messages: list[dict], json_mode: bool = False, max_tokens: int 
             headers=_api_headers({"Authorization": f"Bearer {os.environ.get('OPENAI_API_KEY', '').strip()}"}),
             method="POST",
         )
-        with urlopen(req, timeout=35) as resp:
+        with urlopen(req, timeout=18) as resp:
             data = json.loads(resp.read().decode())
         return data["choices"][0]["message"]["content"].strip()
     except Exception:
@@ -1842,7 +1842,7 @@ def _groq_chat(messages: list[dict], max_tokens: int = 520, json_mode: bool = Fa
             headers=_api_headers({"Authorization": f"Bearer {os.environ.get('GROQ_API_KEY', '').strip()}"}),
             method="POST",
         )
-        with urlopen(req, timeout=35) as resp:
+        with urlopen(req, timeout=18) as resp:
             data = json.loads(resp.read().decode())
         return data["choices"][0]["message"]["content"].strip()
     except Exception:
@@ -1862,7 +1862,7 @@ def _gemini_chat(system: str, user: str, max_tokens: int = 520) -> str | None:
     }).encode()
     try:
         req = Request(url, data=body, headers=_api_headers(), method="POST")
-        with urlopen(req, timeout=35) as resp:
+        with urlopen(req, timeout=18) as resp:
             data = json.loads(resp.read().decode())
         parts = data["candidates"][0]["content"]["parts"]
         return "".join(p.get("text", "") for p in parts).strip()
@@ -1899,7 +1899,7 @@ def _llm_json(system: str, user: str, max_tokens: int = 380) -> dict[str, Any] |
         }).encode()
         try:
             req = Request(url, data=body, headers=_api_headers(), method="POST")
-            with urlopen(req, timeout=35) as resp:
+            with urlopen(req, timeout=18) as resp:
                 data = json.loads(resp.read().decode())
             parts = data["candidates"][0]["content"]["parts"]
             raw = "".join(p.get("text", "") for p in parts).strip()

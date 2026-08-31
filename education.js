@@ -591,7 +591,7 @@ function render() {
     const teacherEn = safeStr(m.teacherEn || m.teacher || '');
     const teacherTr = safeStr(m.teacherTr || m.explain || '');
     const corrLevel = Number(m.correctionLevel) || 1;
-    let corr = m.correctionDetail ? renderCorrectionCard(m.correctionDetail) : '';
+    let corr = (corrLevel >= 2 && m.correctionDetail) ? renderCorrectionCard(m.correctionDetail) : '';
     if (!corr && m.correction && corrLevel >= 2) {
       corr = renderCorrectionCard({
         userSaid: m.userSaid,

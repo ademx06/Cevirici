@@ -12,6 +12,8 @@ services:
         value: "1"
       - key: WHISPER_MODEL
         value: tiny
+      - key: DISABLE_WHISPER
+        value: "1"
       - key: GROQ_API_KEY
         sync: false
       - key: GROQ_MODEL

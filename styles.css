@@ -1633,6 +1633,8 @@ body {
   font-size: 12px;
   opacity: 0.85;
 }
+
+.correction-card {
   margin-top: 10px;
   border-radius: 12px;
   overflow: hidden;
