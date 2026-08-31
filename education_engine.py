@@ -85,42 +85,46 @@ STUDENT JUST SAID ({input_lang}) — raw speech-to-text:
 
 {stt_note}
 
-TEACHING LOOP — every turn follow this mental process:
-LISTEN → UNDERSTAND → CHECK CONTEXT → CHECK LEVEL → DETECT ERROR → CORRECT IF NEEDED →
-TEACH ONE SMALL NEW THING → MAKE USER PRACTICE → CONTINUE NATURALLY → REVIEW OLD KNOWLEDGE
+TEACHING LOOP — every turn:
+TALK → UNDERSTAND → EVALUATE → CORRECT → TEACH → REPEAT → DEVELOP → NEW TOPIC
 
-DECISION CHECKLIST (decide internally before responding):
-A) Is student asking a question? B) Turkish help request? C) Trying to speak {lang_name}?
-D) Real error? E) Possible STT garble? F) Correct answer? G) Time to teach something new?
-H) Continue current lesson step?
+Evaluate on THREE axes separately (do not mix):
+1. MEANING — what did student mean?
+2. GRAMMAR — real grammar error?
+3. NATURALNESS — correct but stiff?
 
-RESPONSE STYLE — SHORT and natural like a real teacher:
-- Default: 2-4 sentences in {lang_name}. Warm, patient, professional — not robotic praise.
-- Do NOT show long analysis blocks every turn. No word lists, no grammar essays unless correcting.
-- teacher_tr: SHORT Turkish support only when needed (1-3 lines). Skip if student understood.
-- After student succeeds: teach ONE new phrase/pattern, ask them to repeat it, then continue conversation.
-- Build LESSON CHAIN — don't jump random topics. Example flow: greeting → longer greeting → "My name is…" → practice → next skill.
-- NEVER ask unrelated random questions (coffee → movies → weather). Stay on current lesson thread until natural transition.
-- Praise only real success — avoid fake "Perfect!" every turn.
+{micro_chain_block}
 
-STT / GARBLED TEXT RULES:
-- Input is speech-to-text. It may be wrong ("yes English law film or dizzy" for "Yes, I love English films and series").
-- If text looks garbled/nonsensical: stt_uncertain=true, ask SHORT confirmation: "Did you mean something about English films?"
-- NEVER claim 100% certainty about what garbled text meant. Do NOT invent a full sentence as if they said it.
-- If reasonably inferable from context + last question, infer gently and confirm.
+DECISION CHECKLIST (internal, before responding):
+1. What did student mean? 2. Is their English correct? 3. STT garble possible?
+4. Real error? 5. What are they learning now? 6. What did they learn before?
+7. Repeated mistake to review? 8. ONE small new thing to teach now?
+9. How to keep them talking? 10. How to continue naturally WITHOUT resetting progress?
 
-CORRECTION RULES:
-- correction_level 1 = no error / minor naturalness only (suggest alternative WITHOUT marking wrong)
-- correction_level 2 = real fixable error — show correct_phrase, brief grammar_tr (max 2 sentences)
-- correction_level 3 = serious repeated error
-- "I want to drink coffee" = CORRECT (level 1). Optional: "have some coffee" is also natural.
-- "hey I'm fine thank you you how are you" = level 2, fix duplicate "you": "I'm fine, thank you. How are you?"
-- "I want go home" = level 2, want + to + verb
-- "I am boring" (meaning bored) = level 2, word choice: bored vs boring
-- NEVER mark correct sentences wrong. NEVER analyze words student didn't say.
+NEVER RESET PROGRESS:
+- If student confirmed understanding ("yes that's what I meant" / "evet onu söylemek istedim"), BUILD FORWARD.
+- NEVER say "Let's go back to basics. Say Hello."
+- Use SHORT → LONGER → NATURAL: I'm fine → I'm fine thank you → And you? → I'm pretty good → I'm reading → I'm reading a book today.
 
-MEANING ERRORS:
-- September is a MONTH not a SEASON. If student confuses ay/mevsim, explain briefly in Turkish, give correct options, ask which they meant.
+"OKAY" IS NOT WRONG:
+- If student says "okay" but you wanted "And you?" — do NOT mark wrong (correction_level 1).
+- Say: "Okay! Now practice: 'And you?' Can you say it?"
+
+VARIED TEACHING (not every turn ends with "Repeat after me"):
+- Sometimes ask a question, sometimes free talk, sometimes fill-in, sometimes mini quiz, sometimes review old error.
+
+TEACHER_TR RULE — Turkish panel is SUPPORT only:
+- Max 1-3 short lines. NEVER repeat the full English answer in Turkish.
+- Use for: brief error note, key word meaning, encouragement. null if not needed.
+
+STT / GARBLED TEXT:
+- Never claim certainty. Ask: "Did you mean English films or TV series?"
+
+SPECIFIC TEACHING:
+- "today is reading book maybe" → I am reading a book today. (I + am + reading = now)
+- "children's are reading" → child/children/children's explained correctly, then "The children are reading a book."
+- "the students are reading a book" → CORRECT (level 1), then extend: "...in the classroom today."
+- Pronunciation complaint → slow down, say phrase clearly, optional word-by-word.
 
 Return ONLY valid JSON:
 {{
@@ -138,7 +142,9 @@ Return ONLY valid JSON:
   "category": "grammar|word_choice|naturalness|greeting|lesson or null",
   "inferred_meaning": "brief summary of what student meant or null",
   "stt_uncertain": false,
-  "lesson_advance": false
+  "build_on_phrase": "next longer sentence in build chain or null",
+  "lesson_advance": false,
+  "micro_advance": false
 }}"""
 
 SENTENCE_ANALYSIS_JSON_PROMPT = """You are an expert personal language tutor. Student is Turkish; target language is {lang_name} ({target_lang}).
@@ -238,6 +244,31 @@ LESSON_CURRICULUM: list[dict[str, str]] = [
     {"id": "hotel", "title": "Otel", "focus": "I have a reservation, check-in"},
     {"id": "travel", "title": "Seyahat", "focus": "I'm going to..., I visited..."},
 ]
+
+# Mikro öğrenme zinciri — SHORT → LONGER → NATURAL (V2)
+GREETING_MICRO_CHAIN: list[dict[str, str]] = [
+    {"id": "hello", "en": "Hello.", "tr": "Merhaba.", "teach_next": "How are you?"},
+    {"id": "how_are_you", "en": "How are you?", "tr": "Nasılsın?", "teach_next": "I'm fine."},
+    {"id": "im_fine", "en": "I'm fine.", "tr": "İyiyim.", "teach_next": "I'm fine, thank you."},
+    {"id": "im_fine_thanks", "en": "I'm fine, thank you.", "tr": "İyiyim, teşekkürler.", "teach_next": "And you?"},
+    {"id": "and_you", "en": "And you?", "tr": "Sen nasılsın?", "teach_next": "I'm pretty good."},
+    {"id": "pretty_good", "en": "I'm pretty good.", "tr": "Oldukça iyiyim.", "teach_next": "I'm doing great."},
+    {"id": "doing_great", "en": "I'm doing great.", "tr": "Harika gidiyor.", "teach_next": "What are you doing?"},
+]
+
+READING_BUILD_CHAIN: list[str] = [
+    "I read.",
+    "I read a book.",
+    "I am reading a book.",
+    "I am reading a book today.",
+    "I am reading a book at home today.",
+    "I am reading a book at home because I have some free time.",
+]
+
+PRONUNCIATION_FEEDBACK_RE = re.compile(
+    r"yanlış\s+telaffuz|telaffuz.*yanlış|wrong\s+pronunciation|say\s+it\s+(?:more\s+)?slow",
+    re.I,
+)
 
 TR_MONTHS = {
     "ocak": "January", "şubat": "February", "mart": "March", "nisan": "April",
@@ -558,8 +589,12 @@ def default_profile(lang: str = "en") -> dict[str, Any]:
         "pendingIntentUserSaid": None,
         "pendingIntentReason": None,
         "lessonStep": 0,
+        "microStep": 0,
         "masteredLessonTopics": [],
         "taughtPatterns": [],
+        "lastMasteredPhrase": "",
+        "sentenceBuildBase": "",
+        "awaitingTargetPhrase": "",
     }
 
 
@@ -595,6 +630,7 @@ def merge_profile(profile: dict | None, delta: dict | None) -> dict:
         "sessionStartAt", "lastSessionDate", "pendingSrsId", "pendingVocabWord",
         "pendingPracticePhrase", "pendingPracticeTr",
         "lessonStep", "masteredLessonTopics", "taughtPatterns",
+        "microStep", "lastMasteredPhrase", "sentenceBuildBase", "awaitingTargetPhrase",
     )
     for key in scalar_keys:
         if key in delta:
@@ -1847,10 +1883,10 @@ def _how_to_say_stuck_short_mode(
     tr_meaning = "Bunu nasıl söyleyeceğimi bilmiyorum."
     teacher_en = phrase_en
     teacher_tr = (
+        f"No problem! 😊 Tell me in Turkish — I'll help you say it in English.\n\n"
         f"🇬🇧 You can say:\n\"{phrase_en}\"\n\n"
         f"🇹🇷 {tr_meaning}\n\n"
-        f"🗣️ Şimdi benimle tekrar et:\n\"{phrase_en}\"\n\n"
-        f"💡 Kendi cümleni söylemek istersen Türkçe söyle — birlikte {LANG_NAMES.get(target_lang, target_lang)}'ye çevirelim."
+        f"🗣️ Şimdi benimle tekrar et:\n\"{phrase_en}\""
     )
     delta = {
         **session_delta,
@@ -1932,6 +1968,408 @@ def _advance_lesson_on_success(profile: dict, user_text: str, corr_level: int) -
             if step < len(LESSON_CURRICULUM) - 1:
                 patch["lessonStep"] = step + 1
     return patch
+
+
+def _micro_chain_block(profile: dict) -> str:
+    step = int(profile.get("microStep") or 0)
+    step = max(0, min(step, len(GREETING_MICRO_CHAIN) - 1))
+    cur = GREETING_MICRO_CHAIN[step]
+    last = safe_str(profile.get("lastMasteredPhrase")).strip()
+    build = safe_str(profile.get("sentenceBuildBase")).strip()
+    lines = [
+        f"MICRO CHAIN step {step + 1}/{len(GREETING_MICRO_CHAIN)}: target \"{cur['en']}\"",
+        f"Next to teach when ready: {cur.get('teach_next') or '(continue conversation)'}",
+    ]
+    if last:
+        lines.append(f"Last mastered phrase: \"{last}\" — BUILD ON THIS, do not reset.")
+    if build:
+        lines.append(f"Sentence build base: \"{build}\" — extend with SHORT → LONGER.")
+    return "\n".join(lines)
+
+
+def _is_simple_acknowledgment(text: str) -> bool:
+    ul = re.sub(r"[^\w\s']", "", text.lower()).strip()
+    if ul in ("okay", "ok", "k", "yes", "yeah", "yep", "sure", "alright", "yup", "fine"):
+        return True
+    return bool(re.match(r"^(tamam|evet|olur|peki)$", ul))
+
+
+def _is_progress_confirmation(text: str) -> bool:
+    t = text.strip()
+    if not t:
+        return False
+    if re.search(
+        r"evet.*söylemek\s+istedim|onu\s+söylemek\s+istedim|aynen\s+öyle|tam\s+olarak|"
+        r"that'?s\s+what\s+i\s+meant|exactly|yes\s+that'?s\s+right",
+        t,
+        re.I,
+    ):
+        return True
+    return bool(re.search(r"^evet[,\s]", t.lower()) and re.search(r"istedim|demek istedim", t.lower()))
+
+
+def _next_reading_build(base: str) -> str | None:
+    b = base.strip().rstrip(".")
+    for i, phrase in enumerate(READING_BUILD_CHAIN):
+        if _norm(phrase.rstrip(".")) == _norm(b) and i + 1 < len(READING_BUILD_CHAIN):
+            return READING_BUILD_CHAIN[i + 1]
+    for i, phrase in enumerate(READING_BUILD_CHAIN):
+        if b.lower() in phrase.lower() or phrase.lower() in b.lower():
+            if i + 1 < len(READING_BUILD_CHAIN):
+                return READING_BUILD_CHAIN[i + 1]
+    return None
+
+
+def _try_okay_guidance_turn(
+    user_text: str,
+    target_lang: str,
+    profile: dict,
+    session_delta: dict,
+    translate_fn: Callable[[str, str, str], str] | None,
+) -> dict[str, Any] | None:
+    """'Okay' yanlış değil — hedef ifadeyi henüz söylemedi, yönlendir."""
+    if not _is_simple_acknowledgment(user_text):
+        return None
+    target = (
+        safe_str(profile.get("awaitingTargetPhrase")).strip()
+        or safe_str(profile.get("pendingPracticePhrase")).strip()
+    )
+    if not target:
+        return None
+    teacher_en = (
+        f"Okay! 😊 Now let's practice the phrase I taught you:\n\n"
+        f"\"{target}\"\n\n"
+        f"Can you say it?"
+    )
+    teacher_tr = f"Tamam! Şimdi öğrettiğim ifadeyi dene: \"{target}\""
+    delta = {**session_delta, "lastTeacherText": teacher_en, "awaitingTargetPhrase": target}
+    return _pack(
+        profile, delta, teacher_en, teacher_tr, None, 1, "practice_prompt",
+        waiting=True, user_text=user_text, teacher_en=teacher_en, speak_text=target,
+        speak_tr=f"Şimdi söyle: {target}"[:120],
+        translate_fn=translate_fn,
+        target_lang=target_lang,
+    )
+
+
+def _try_progress_confirm_turn(
+    user_text: str,
+    target_lang: str,
+    profile: dict,
+    session_delta: dict,
+    translate_fn: Callable[[str, str, str], str] | None,
+) -> dict[str, Any] | None:
+    """Öğrenci anladığını onayladı — geriye dönme, üzerine inşa et."""
+    if not _is_progress_confirmation(user_text):
+        return None
+    base = (
+        safe_str(profile.get("lastMasteredPhrase")).strip()
+        or safe_str(profile.get("sentenceBuildBase")).strip()
+        or "I am reading a book."
+    )
+    extended = _next_reading_build(base) or "I am reading a book today."
+    teacher_en = (
+        f"Exactly! That's what you meant. Great!\n\n"
+        f"Now let's build on it:\n\"{extended}\"\n\n"
+        f"Try saying it."
+    )
+    teacher_tr = f"Aynen! Şimdi cümleyi biraz uzatalım: \"{extended}\""
+    delta = {
+        **session_delta,
+        "lastTeacherText": teacher_en,
+        "sentenceBuildBase": base,
+        "pendingPracticePhrase": extended,
+        "pendingPracticeTr": "Bugün evde kitap okuyorum.",
+        "awaitingTargetPhrase": extended,
+    }
+    patch = _advance_lesson_on_success(profile, extended, 1)
+    merged = merge_profile(profile, {**session_delta, **delta, **patch})
+    return _pack(
+        merged, delta, teacher_en, teacher_tr, None, 1, "build_forward",
+        waiting=True, user_text=user_text, teacher_en=teacher_en, speak_text=extended,
+        phonetic_en=pronounce_text(extended, target_lang),
+        translate_fn=translate_fn,
+        target_lang=target_lang,
+    )
+
+
+def _try_reading_fragment_teaching(
+    user_text: str,
+    target_lang: str,
+    profile: dict,
+    session_delta: dict,
+    translate_fn: Callable[[str, str, str], str] | None,
+) -> dict[str, Any] | None:
+    if target_lang != "en":
+        return None
+    ul = user_text.lower()
+    if not re.search(r"today.*read|read.*book|reading book", ul):
+        return None
+    if re.search(r"\bi am reading a book today\b", ul):
+        return None
+    correct = "I am reading a book today."
+    teacher_en = (
+        "Yes, I understand what you mean. 😊\n\n"
+        "You want to say you are reading a book today, maybe.\n\n"
+        f"✅ \"{correct}\"\n\n"
+        "Notice: I + am + reading — because you're talking about now.\n\n"
+        f"Now you try: \"{correct}\""
+    )
+    teacher_tr = "Anladım. Şimdi olan biten için: I + am + reading kullan."
+    delta = {
+        **session_delta,
+        "lastTeacherText": teacher_en,
+        "pendingPracticePhrase": correct,
+        "sentenceBuildBase": correct,
+        "lastMasteredPhrase": correct,
+        "awaitingTargetPhrase": correct,
+    }
+    return _pack(
+        profile, delta, teacher_en, teacher_tr, correct, 2, "ai_correction",
+        waiting=True, user_text=user_text, teacher_en=teacher_en, speak_text=correct,
+        speak_tr="I am reading a book today — şimdi dene.",
+        grammar_tr="Şu an için: I + am + fiil-ing",
+        correction_detail={
+            "userSaid": user_text,
+            "correctEn": correct,
+            "grammarTr": "I + am + reading (şu an)",
+            "inferredMeaning": "Bugün kitap okuyorum demek istedin.",
+        },
+        translate_fn=translate_fn,
+        target_lang=target_lang,
+    )
+
+
+def _try_children_plural_teaching(
+    user_text: str,
+    target_lang: str,
+    profile: dict,
+    session_delta: dict,
+    translate_fn: Callable[[str, str, str], str] | None,
+) -> dict[str, Any] | None:
+    if target_lang != "en":
+        return None
+    if not re.search(r"children'?s?\s+are?\s+read", user_text, re.I):
+        return None
+    correct = "The children are reading a book."
+    teacher_en = (
+        "Almost! 😊\n\n"
+        "• child = one child\n"
+        "• children = two or more\n"
+        "• children's = belongs to children (not what we need here)\n\n"
+        f"✅ \"{correct}\"\n\n"
+        "Now you try."
+    )
+    teacher_tr = (
+        "child = bir çocuk, children = çocuklar. "
+        "children's = çocukların (sahiplik). Burada: The children are..."
+    )
+    delta = {
+        **session_delta,
+        "lastTeacherText": teacher_en,
+        "pendingPracticePhrase": correct,
+        "awaitingTargetPhrase": correct,
+    }
+    profile_patch = _record_mistake(profile, user_text, correct, "word_choice")
+    merged = merge_profile(profile, {**session_delta, **profile_patch})
+    return _pack(
+        merged, delta, teacher_en, teacher_tr, correct, 2, "ai_correction",
+        waiting=True, user_text=user_text, teacher_en=teacher_en, speak_text=correct,
+        speak_tr="The children are reading a book — tekrar dene.",
+        grammar_tr=teacher_tr,
+        correction_detail={
+            "userSaid": user_text,
+            "correctEn": correct,
+            "grammarTr": teacher_tr,
+            "category": "word_choice",
+        },
+        translate_fn=translate_fn,
+        target_lang=target_lang,
+    )
+
+
+def _try_students_correct_extend(
+    user_text: str,
+    target_lang: str,
+    profile: dict,
+    session_delta: dict,
+    translate_fn: Callable[[str, str, str], str] | None,
+) -> dict[str, Any] | None:
+    if target_lang != "en":
+        return None
+    ul = user_text.lower().strip()
+    if not re.search(r"\bstudents?\s+are\s+reading\s+a?\s*book", ul):
+        return None
+    extended = "The students are reading a book in the classroom today."
+    teacher_en = (
+        f"Excellent! That's correct. ✅\n\n"
+        f"\"{user_text.strip()}\"\n\n"
+        f"Let's make it a bit longer:\n\"{extended}\"\n\n"
+        f"Where are they reading?"
+    )
+    teacher_tr = "Doğru! Şimdi cümleyi uzatalım."
+    delta = {
+        **session_delta,
+        "lastTeacherText": teacher_en,
+        "lastMasteredPhrase": user_text.strip(),
+        "sentenceBuildBase": user_text.strip().rstrip("."),
+        "pendingPracticePhrase": extended,
+        "awaitingTargetPhrase": extended,
+        "correctSentences": profile.get("correctSentences", 0) + 1,
+    }
+    merged = merge_profile(profile, delta)
+    return _pack(
+        merged, delta, teacher_en, teacher_tr, None, 1, "build_forward",
+        waiting=True, user_text=user_text, teacher_en=teacher_en, speak_text=extended,
+        phonetic_en=pronounce_text(extended, target_lang),
+        translate_fn=translate_fn,
+        target_lang=target_lang,
+    )
+
+
+def _try_pronunciation_feedback_turn(
+    user_text: str,
+    target_lang: str,
+    profile: dict,
+    session_delta: dict,
+    history: list[dict],
+    speak_slow: bool,
+    translate_fn: Callable[[str, str, str], str] | None,
+) -> dict[str, Any] | None:
+    if not PRONUNCIATION_FEEDBACK_RE.search(user_text):
+        return None
+    phrase = (
+        safe_str(profile.get("pendingPracticePhrase")).strip()
+        or safe_str(profile.get("lastMasteredPhrase")).strip()
+        or "I'm fine, thank you."
+    )
+    teacher_en = (
+        "Thanks for telling me! I'll say it more slowly and clearly.\n\n"
+        f"\"{phrase}\"\n\n"
+        "Listen: I'm / fine / thank / you."
+    )
+    teacher_tr = "Daha yavaş ve net söylüyorum — dinle ve tekrar et."
+    delta = {**session_delta, "lastTeacherText": teacher_en}
+    return _pack(
+        profile, delta, teacher_en, teacher_tr, None, 1, "slow",
+        waiting=True, user_text=user_text, teacher_en=teacher_en, speak_text=phrase,
+        speak_slow=True,
+        phonetic_en=pronounce_text(phrase, target_lang),
+        translate_fn=translate_fn,
+        target_lang=target_lang,
+    )
+
+
+def _try_repeated_weakness_turn(
+    user_text: str,
+    target_lang: str,
+    profile: dict,
+    session_delta: dict,
+    translate_fn: Callable[[str, str, str], str] | None,
+) -> dict[str, Any] | None:
+    if target_lang != "en":
+        return None
+    if not re.search(r"\bi want go\b", user_text, re.I):
+        return None
+    correct = "I want to go home."
+    if re.search(r"\bhome\b", user_text, re.I):
+        correct = "I want to go home."
+    elif re.search(r"\beat\b", user_text, re.I):
+        correct = "I want to eat."
+    teacher_en = (
+        "Remember our little rule? 😊\n\n"
+        "want + to + verb\n\n"
+        f"✅ \"{correct}\"\n\n"
+        "Try: \"I want to eat.\" — now your turn."
+    )
+    teacher_tr = "Hatırla: want + to + fiil. I want to go / I want to eat."
+    profile_patch = _record_mistake(profile, user_text, correct, "grammar")
+    merged = merge_profile(profile, {**session_delta, **profile_patch})
+    delta = {
+        **session_delta,
+        "lastTeacherText": teacher_en,
+        "pendingPracticePhrase": correct,
+        "awaitingTargetPhrase": correct,
+    }
+    return _pack(
+        merged, delta, teacher_en, teacher_tr, correct, 2, "review_error",
+        waiting=True, user_text=user_text, teacher_en=teacher_en, speak_text=correct,
+        speak_tr="want + to + fiil — tekrar dene.",
+        grammar_tr="want + to + verb kuralını hatırla.",
+        correction_detail={
+            "userSaid": user_text,
+            "correctEn": correct,
+            "grammarTr": "want + to + fiil",
+            "category": "grammar",
+        },
+        translate_fn=translate_fn,
+        target_lang=target_lang,
+    )
+
+
+def _try_hello_chain_success(
+    user_text: str,
+    target_lang: str,
+    profile: dict,
+    session_delta: dict,
+    translate_fn: Callable[[str, str, str], str] | None,
+) -> dict[str, Any] | None:
+    """Selamlaşma zincirinde başarı — bir sonraki mikro ifadeyi öğret."""
+    if target_lang != "en":
+        return None
+    ul = user_text.lower().strip()
+    step = int(profile.get("microStep") or 0)
+    step = max(0, min(step, len(GREETING_MICRO_CHAIN) - 1))
+    cur = GREETING_MICRO_CHAIN[step]
+    matched = _practice_phrase_match(user_text, cur["en"]) or _norm(ul) == _norm(cur["en"].rstrip("."))
+    if not matched:
+        if step == 2 and re.search(r"\bi'?m fine\b", ul) and "thank" not in ul:
+            matched = True
+        elif step == 3 and re.search(r"\bi'?m fine.*thank", ul):
+            matched = True
+    if not matched:
+        return None
+    nxt = cur.get("teach_next") or ""
+    if not nxt:
+        return None
+    nxt_entry = next((m for m in GREETING_MICRO_CHAIN if m["en"].rstrip(".?") == nxt.rstrip(".?") or m["en"] == nxt), None)
+    teach_tr = nxt_entry["tr"] if nxt_entry else ""
+    teacher_en = (
+        f"Great! \"{cur['en']}\" — well done.\n\n"
+        f"Now let's learn something new:\n\"{nxt}\"\n\n"
+        f"Try saying it."
+    )
+    teacher_tr = teach_tr or f"Yeni ifade: {nxt}"
+    new_step = step + 1 if step + 1 < len(GREETING_MICRO_CHAIN) else step
+    delta = {
+        **session_delta,
+        "lastTeacherText": teacher_en,
+        "lastMasteredPhrase": cur["en"],
+        "pendingPracticePhrase": nxt,
+        "awaitingTargetPhrase": nxt,
+        "microStep": new_step,
+        "correctSentences": profile.get("correctSentences", 0) + 1,
+    }
+    merged = merge_profile(profile, delta)
+    return _pack(
+        merged, delta, teacher_en, teacher_tr, None, 1, "micro_teach",
+        waiting=True, user_text=user_text, teacher_en=teacher_en, speak_text=nxt,
+        phonetic_en=pronounce_text(nxt, target_lang),
+        translate_fn=translate_fn,
+        target_lang=target_lang,
+    )
+
+
+def _trim_teacher_tr(teacher_en: str, teacher_tr: str) -> str:
+    """Türkçe panel İngilizce cevabı tekrar etmesin."""
+    tr = teacher_tr.strip()
+    if not tr or len(tr) < 120:
+        return tr
+    en_lines = [ln.strip() for ln in teacher_en.split("\n") if ln.strip() and not ln.strip().startswith("✅")]
+    for ln in en_lines[:3]:
+        if len(ln) > 15 and ln.lower()[:20] in tr.lower():
+            return tr[:200] + ("..." if len(tr) > 200 else "")
+    return tr
 
 
 def _how_to_say_help_mode(
@@ -3170,6 +3608,7 @@ def _try_ai_tutor_turn(
         repeated_mistakes=_repeated_mistakes_summary(profile),
         roleplay=rp,
         curriculum_block=_curriculum_block(profile),
+        micro_chain_block=_micro_chain_block(profile),
         history_text=_format_history_for_ai(history),
         last_teacher=last_teacher[:500],
         recent_questions=_recent_teacher_questions(history, profile),
@@ -3184,7 +3623,7 @@ def _try_ai_tutor_turn(
     parsed = _sanitize_ai_correction(user_text, parsed)
 
     teacher_en = safe_str(parsed.get("teacher_en")).strip()
-    teacher_tr = safe_str(parsed.get("teacher_tr")).strip()
+    teacher_tr = _trim_teacher_tr(teacher_en, safe_str(parsed.get("teacher_tr")).strip())
     if not teacher_en:
         return None
 
@@ -3193,7 +3632,8 @@ def _try_ai_tutor_turn(
     correct_phrase = safe_str(parsed.get("correct_phrase")).strip() or None
     teach_new = safe_str(parsed.get("teach_new_phrase")).strip() or None
     teach_new_tr = safe_str(parsed.get("teach_new_phrase_tr")).strip() or None
-    suggested = safe_str(parsed.get("suggested_practice")).strip() or teach_new or correct_phrase
+    build_on = safe_str(parsed.get("build_on_phrase")).strip() or None
+    suggested = safe_str(parsed.get("suggested_practice")).strip() or teach_new or build_on or correct_phrase
     category = safe_str(parsed.get("category")).strip() or None
     grammar_tr = safe_str(parsed.get("grammar_tr")).strip()
     word_breakdown_tr = safe_str(parsed.get("word_breakdown_tr")).strip() or None
@@ -3229,12 +3669,25 @@ def _try_ai_tutor_turn(
         if step < len(LESSON_CURRICULUM) - 1:
             profile_patch["lessonStep"] = step + 1
 
+    if bool(parsed.get("micro_advance")):
+        mstep = int(profile.get("microStep") or 0)
+        if mstep < len(GREETING_MICRO_CHAIN) - 1:
+            profile_patch["microStep"] = mstep + 1
+
+    if teach_new or build_on or (corr_level == 1 and correct_phrase):
+        mastered = teach_new or build_on or correct_phrase or user_text.strip()
+        if mastered and corr_level <= 2:
+            profile_patch["lastMasteredPhrase"] = mastered[:120]
+            if build_on:
+                profile_patch["sentenceBuildBase"] = build_on[:120]
+
     delta: dict[str, Any] = {
         **session_delta,
         "lastTeacherText": teacher_en,
     }
-    if suggested and (corr_level >= 2 or teach_new):
+    if suggested and (corr_level >= 2 or teach_new or build_on):
         delta["pendingPracticePhrase"] = suggested
+        delta["awaitingTargetPhrase"] = suggested
         meaning = teach_new_tr or (_to_tr(suggested, translate_fn, target_lang) if translate_fn else "")
         delta["pendingPracticeTr"] = meaning or safe_str(parsed.get("inferred_meaning"))
 
@@ -3709,6 +4162,8 @@ def greeting(
         "waitingForUser": True,
         "sessionStartAt": _now_iso(),
         "pendingSrsId": srs_id,
+        "microStep": 0,
+        "lessonStep": 0,
     }
     result = _pack(
         profile, delta, teacher_en, teacher_tr, None, 1, "greeting",
@@ -3841,10 +4296,35 @@ def process_turn(
 
     pending = safe_str(profile.get("pendingPracticePhrase")).strip()
     if pending and _should_exit_practice_mode(user_text, pending):
-        clear_practice = {"pendingPracticePhrase": None, "pendingPracticeTr": None}
+        clear_practice = {"pendingPracticePhrase": None, "pendingPracticeTr": None, "awaitingTargetPhrase": None}
         session_delta = {**session_delta, **clear_practice}
         profile = merge_profile(profile, session_delta)
         pending = ""
+
+    # Türkçe ilerleme onayı — geriye dönme
+    if _is_progress_confirmation(user_text):
+        result = _try_progress_confirm_turn(
+            user_text, target_lang, profile, session_delta, translate_fn,
+        )
+        if result:
+            result["weekly_progress"] = weekly_progress(result["profile"])
+            return result
+
+    # Telaffuz geri bildirimi
+    if PRONUNCIATION_FEEDBACK_RE.search(user_text):
+        result = _try_pronunciation_feedback_turn(
+            user_text, target_lang, profile, session_delta, history, speak_slow, translate_fn,
+        )
+        if result:
+            result["weekly_progress"] = weekly_progress(result["profile"])
+            return result
+
+    # "Okay" = yanlış değil, hedef ifadeyi yönlendir
+    if pending or profile.get("awaitingTargetPhrase"):
+        okay = _try_okay_guidance_turn(user_text, target_lang, profile, session_delta, translate_fn)
+        if okay:
+            okay["weekly_progress"] = weekly_progress(okay["profile"])
+            return okay
 
     # Yardım sonrası pratik — sadece gerçekten doğru söylendiyse
     if pending and translate_fn:
@@ -3898,6 +4378,20 @@ def process_turn(
         if greet_fix:
             greet_fix["weekly_progress"] = weekly_progress(greet_fix["profile"])
             return greet_fix
+
+    # V2 kural tabanlı öğretmen davranışları
+    if target_lang == "en" and user_lang == "en":
+        for handler in (
+            lambda: _try_repeated_weakness_turn(original_text, target_lang, profile, session_delta, translate_fn),
+            lambda: _try_children_plural_teaching(original_text, target_lang, profile, session_delta, translate_fn),
+            lambda: _try_reading_fragment_teaching(original_text, target_lang, profile, session_delta, translate_fn),
+            lambda: _try_students_correct_extend(original_text, target_lang, profile, session_delta, translate_fn),
+            lambda: _try_hello_chain_success(original_text, target_lang, profile, session_delta, translate_fn),
+        ):
+            result = handler()
+            if result:
+                result["weekly_progress"] = weekly_progress(result["profile"])
+                return result
 
     # AI öğretmen — ana beyin
     ai_result = _try_ai_tutor_turn(
@@ -4129,6 +4623,8 @@ def _wrong_practice_after_help(
     if _practice_phrase_match(user_text, pending):
         return None
     if pending_tr and _practice_phrase_match(user_text, pending_tr):
+        return None
+    if _is_simple_acknowledgment(user_text):
         return None
 
     meaning_tr = pending_tr or ""
