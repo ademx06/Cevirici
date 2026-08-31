@@ -1,5 +1,5 @@
 /**
- * Kendini Test Et — Kelime + Cümle sesli test modülü
+ * Kendini Test Et — profesyonel UI
  */
 (function () {
   'use strict';
@@ -22,7 +22,6 @@
     index: 0,
     current: null,
     lastResult: null,
-    uiState: 'IDLE',
     holdActive: false,
     holdGen: 0,
     stream: null,
@@ -33,6 +32,9 @@
     usedTouch: false,
     stopTimer: null,
     safetyTimer: null,
+    micOpening: false,
+    micOpenGen: 0,
+    pendingEndHold: false,
     busy: false,
   };
 
@@ -46,13 +48,11 @@
     return d.innerHTML;
   }
 
-  function setStatus(text, type) {
+  function setQuizStatus(text, live) {
     const el = $('quizStatus');
-    if (!el) return;
-    el.textContent = text || '';
-    el.classList.toggle('hidden', !text);
-    el.classList.toggle('builder-status-error', type === 'error');
-    el.classList.toggle('builder-status-busy', type === 'busy');
+    const dot = $('quizStatusDot');
+    if (el) el.textContent = text || '';
+    if (dot) dot.classList.toggle('active', !!live);
   }
 
   function setMicLabel(title, sub) {
@@ -88,7 +88,7 @@
 
   function switchTab(tab) {
     S.tab = tab;
-    document.querySelectorAll('.builder-tab').forEach((b) => {
+    document.querySelectorAll('.mod-tab').forEach((b) => {
       b.classList.toggle('active', b.dataset.tab === tab);
     });
     updateEmptyHint();
@@ -104,20 +104,21 @@
     const sentences = LS.getSentences(S.learnLang);
     const box = $('savedSummary');
     if (!box) return;
-    const wLines = words.slice(0, 8).map(
-      (w) => `<div class="builder-saved-item-static">☕ ${esc(w.word_tr)} — ${LS.learningLevel(w.stats)} (${w.stats?.attempts || 0} deneme)</div>`,
+    const wLines = words.slice(0, 6).map(
+      (w) => `<div class="mod-saved-item-static"><span>☕ ${esc(w.word_tr)}</span><small>${LS.learningLevel(w.stats)} · ${w.stats?.attempts || 0} deneme</small></div>`,
     ).join('');
-    const sLines = sentences.slice(0, 8).map(
-      (s) => `<div class="builder-saved-item-static">"${esc(s.tr_sentence)}" — ${LS.learningLevel(s.stats)}</div>`,
+    const sLines = sentences.slice(0, 6).map(
+      (s) => `<div class="mod-saved-item-static"><span>"${esc(s.tr_sentence)}"</span><small>${LS.learningLevel(s.stats)}</small></div>`,
     ).join('');
     box.innerHTML = `
-      <h3>Kelimeler (${words.length})</h3>${wLines || '<p class="builder-empty">—</p>'}
-      <h3>Cümleler (${sentences.length})</h3>${sLines || '<p class="builder-empty">—</p>'}`;
+      <p class="mod-summary-count">${words.length} kelime · ${sentences.length} cümle</p>
+      ${wLines || ''}${sLines || ''}`;
   }
 
   function showSetup() {
     $('quizSetup')?.classList.remove('hidden');
     $('quizActive')?.classList.add('hidden');
+    $('quizDock')?.classList.add('hidden');
     S.queue = [];
     S.index = 0;
     S.current = null;
@@ -127,19 +128,15 @@
   function showActive() {
     $('quizSetup')?.classList.add('hidden');
     $('quizActive')?.classList.remove('hidden');
+    $('quizDock')?.classList.remove('hidden');
     $('quizResult')?.classList.add('hidden');
     $('quizActions')?.classList.add('hidden');
   }
 
   function startQuiz() {
-    const items = LS.pickQuizItems(
-      S.tab,
-      S.quizCount,
-      S.learnLang,
-      S.hardOnly,
-    );
+    const items = LS.pickQuizItems(S.tab, S.quizCount, S.learnLang, S.hardOnly);
     if (!items.length) {
-      setStatus('Kayıtlı içerik yok — önce Cümle Kur ile kaydet.', 'error');
+      setQuizStatus('Önce Cümle Kur ile kayıt ekle', false);
       return;
     }
     S.queue = items;
@@ -153,8 +150,8 @@
     S.lastResult = null;
     $('quizResult')?.classList.add('hidden');
     $('quizActions')?.classList.add('hidden');
-    setStatus('');
-    setMicLabel('Basılı Tut ve Konuş', 'Hedef dilde söyle');
+    setQuizStatus('Basılı tut ve hedef dilde konuş', false);
+    setMicLabel('Basılı Tut ve Konuş', 'Hedef dilde cevap ver');
 
     $('quizProgress').textContent = `${S.index + 1} / ${S.queue.length}`;
     $('quizModeLabel').textContent = S.tab === 'word' ? 'Kelime testi' : 'Cümle testi';
@@ -164,13 +161,19 @@
 
     if (S.tab === 'word') {
       prompt.innerHTML = `
-        <div class="quiz-prompt-word">☕ ${esc(S.current.word_tr.toUpperCase())}</div>
-        <p>"${esc(S.current.word_tr)}" kelimesini kullanarak hedef dilde bir cümle kur.</p>`;
+        <div class="mod-quiz-word">${esc(S.current.word_tr.toUpperCase())}</div>
+        <p class="mod-quiz-instr">Bu kelimeyi kullanarak hedef dilde bir cümle kur.</p>`;
     } else {
       prompt.innerHTML = `
-        <div class="quiz-prompt-sent">🇹🇷 ${esc(S.current.tr_sentence)}</div>
-        <p>Şimdi bu cümleyi hedef dilde söyle.</p>`;
+        <div class="mod-quiz-sent">${esc(S.current.tr_sentence)}</div>
+        <p class="mod-quiz-instr">Bu cümleyi hedef dilde söyle.</p>`;
     }
+  }
+
+  function scoreIcon(ok) {
+    if (ok === true) return '✅';
+    if (ok === false) return '❌';
+    return '⚠️';
   }
 
   function renderResult(result) {
@@ -180,30 +183,29 @@
     box.classList.remove('hidden');
     $('quizActions')?.classList.remove('hidden');
 
-    const icon = (ok) => (ok ? '✅' : (ok === false ? '❌' : '⚠️'));
     const pronIssues = (result.pronunciation_issues || []).map(
-      (p) => `<li>${esc(p.word)} — ${esc(p.hint_tr)}</li>`,
+      (p) => `<li>${esc(p.word)} — <em>${esc(p.hint_tr)}</em></li>`,
     ).join('');
 
     box.innerHTML = `
-      <h3>🎯 Sonuç</h3>
-      <p><strong>Sen söyledin:</strong> ${esc(result.user_answer)}</p>
-      ${result.correct_answer ? `<p><strong>Doğrusu:</strong> ${esc(result.correct_answer)}</p>` : ''}
-      <div class="quiz-scores">
-        <span>Cümle: ${icon(result.sentence_ok)}</span>
-        <span>Gramer: ${icon(result.grammar_ok)}</span>
-        <span>Kelime: ${icon(result.vocabulary_ok)}</span>
-        <span>Telaffuz: ${icon(result.pronunciation_ok)}</span>
-        <span>Doğallık: ${icon(result.naturalness_ok)}</span>
+      <h3>🎯 ${result.score || 0} / 100</h3>
+      <p class="mod-result-you"><strong>Sen:</strong> ${esc(result.user_answer)}</p>
+      ${result.correct_answer ? `<p class="mod-result-ok"><strong>Doğrusu:</strong> ${esc(result.correct_answer)}</p>` : ''}
+      <div class="mod-score-grid">
+        <span>Cümle ${scoreIcon(result.sentence_ok)}</span>
+        <span>Gramer ${scoreIcon(result.grammar_ok)}</span>
+        <span>Kelime ${scoreIcon(result.vocabulary_ok)}</span>
+        <span>Telaffuz ${scoreIcon(result.pronunciation_ok)}</span>
+        <span>Doğallık ${scoreIcon(result.naturalness_ok)}</span>
       </div>
-      <p class="quiz-score-big">${result.score || 0} / 100</p>
-      <p>${esc(result.feedback_tr || '')}</p>
-      ${result.why_tr ? `<p class="quiz-why">${esc(result.why_tr)}</p>` : ''}
-      ${result.tense_note_tr ? `<p class="quiz-why">${esc(result.tense_note_tr)}</p>` : ''}
-      ${pronIssues ? `<ul class="builder-parts">${pronIssues}</ul>` : ''}`;
+      ${result.feedback_tr ? `<p class="mod-detail-text">${esc(result.feedback_tr)}</p>` : ''}
+      ${result.why_tr ? `<p class="mod-warn">${esc(result.why_tr)}</p>` : ''}
+      ${result.tense_note_tr ? `<p class="mod-warn">${esc(result.tense_note_tr)}</p>` : ''}
+      ${pronIssues ? `<ul class="mod-parts">${pronIssues}</ul>` : ''}`;
 
     LS.recordPractice(S.tab, S.current.id, result);
     renderSavedSummary();
+    $('modScroll')?.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   async function playTts(text, lang) {
@@ -220,23 +222,12 @@
 
   async function gradeAnswer(text) {
     if (!text || !S.current) return;
-    setStatus('🔄 Analiz ediliyor...', 'busy');
     S.busy = true;
+    setQuizStatus('🔄 Analiz ediliyor…', true);
 
     const body = S.tab === 'word'
-      ? {
-        word_tr: S.current.word_tr,
-        target_word: S.current.target_word,
-        user_answer: text,
-        lang: S.learnLang,
-      }
-      : {
-        tr_sentence: S.current.tr_sentence,
-        expected_target: S.current.target_sentence,
-        alternatives: S.current.alternatives || [],
-        user_answer: text,
-        lang: S.learnLang,
-      };
+      ? { word_tr: S.current.word_tr, target_word: S.current.target_word, user_answer: text, lang: S.learnLang }
+      : { tr_sentence: S.current.tr_sentence, expected_target: S.current.target_sentence, alternatives: S.current.alternatives || [], user_answer: text, lang: S.learnLang };
 
     const endpoint = S.tab === 'word' ? '/api/builder/grade-word' : '/api/builder/grade-sentence';
 
@@ -247,15 +238,15 @@
         body: JSON.stringify(body),
       });
       const data = await r.json();
-      setStatus('');
       if (!r.ok || data.error_tr) {
-        setStatus(data.error_tr || 'Değerlendirme yapılamadı.', 'error');
+        setQuizStatus(data.error_tr || 'Değerlendirme yapılamadı', false);
         return;
       }
+      setQuizStatus('Sonuç hazır', false);
       renderResult(data);
       setMicLabel('Tekrar konuşabilirsin', 'veya Sonraki');
     } catch {
-      setStatus('Bağlantı hatası — tekrar dene.', 'error');
+      setQuizStatus('Bağlantı hatası', false);
     } finally {
       S.busy = false;
     }
@@ -263,24 +254,21 @@
 
   async function onMicBlob(blob) {
     if (S.busy || !blob || blob.size < MIN_BLOB_BYTES) {
-      setStatus('Kayıt çok kısa — butona basılı tutup konuş.', 'error');
+      setQuizStatus('Kayıt kısa — basılı tut', false);
       return;
     }
-    setStatus('🔄 Analiz ediliyor...', 'busy');
+    setQuizStatus('🔄 Dinleniyor…', true);
     try {
-      const r = await fetch(`/api/stt?lang=${encodeURIComponent(S.learnLang)}`, {
-        method: 'POST',
-        body: blob,
-      });
+      const r = await fetch(`/api/stt?lang=${encodeURIComponent(S.learnLang)}`, { method: 'POST', body: blob });
       const data = await r.json();
       const text = (data.text || '').trim();
       if (!text) {
-        setStatus('Konuşman algılanamadı — tekrar dene.', 'error');
+        setQuizStatus('Anlaşılamadı — tekrar dene', false);
         return;
       }
       await gradeAnswer(text);
     } catch {
-      setStatus('Ses algılanamadı — tekrar dene.', 'error');
+      setQuizStatus('Ses algılanamadı', false);
     }
   }
 
@@ -292,21 +280,15 @@
       minHoldMs: MIN_HOLD_MS,
       minBlobBytes: MIN_BLOB_BYTES,
       onSpeaking: () => {
-        setStatus('🎤 Dinleniyor...', 'busy');
-        setMicLabel('Konuşun...', 'Bırakınca analiz edilir');
+        setQuizStatus('🎤 Dinleniyor…', true);
+        setMicLabel('Konuşun…', 'Bırakınca analiz');
       },
-      onProcessing: () => setStatus('🔄 Analiz ediliyor...', 'busy'),
-      onIdle: () => {
-        if (!S.busy) {
-          setMicLabel('Basılı Tut ve Konuş', 'Hedef dilde söyle');
-        }
-      },
-      onError: (msg) => setStatus(msg || 'Tekrar dene.', 'error'),
+      onProcessing: () => setQuizStatus('🔄 Analiz ediliyor…', true),
+      onIdle: () => { if (!S.busy) setQuizStatus('Basılı tut ve hedef dilde konuş', false); },
+      onError: (msg) => setQuizStatus(msg || 'Tekrar dene', false),
       isBusy: () => S.busy,
       canBegin: () => !S.busy,
-      onBlob: (blob) => {
-        void onMicBlob(blob);
-      },
+      onBlob: (blob) => { void onMicBlob(blob); },
     });
     mic.bindHold($('micBtn'));
   }
@@ -314,7 +296,7 @@
   function nextQuestion() {
     S.index += 1;
     if (S.index >= S.queue.length) {
-      setStatus('🎉 Test tamamlandı!', 'ok');
+      setQuizStatus('🎉 Test tamamlandı!', false);
       showSetup();
       renderSavedSummary();
       return;
@@ -327,27 +309,24 @@
     renderSavedSummary();
     initMic();
 
-    document.querySelectorAll('.builder-tab').forEach((btn) => {
+    document.querySelectorAll('.mod-tab').forEach((btn) => {
       btn.addEventListener('click', () => switchTab(btn.dataset.tab));
     });
 
-    document.querySelectorAll('.quiz-count').forEach((btn) => {
+    document.querySelectorAll('.mod-chip[data-count]').forEach((btn) => {
       btn.addEventListener('click', () => {
-        document.querySelectorAll('.quiz-count').forEach((b) => b.classList.remove('active'));
+        document.querySelectorAll('.mod-chip[data-count]').forEach((b) => b.classList.remove('active'));
         btn.classList.add('active');
         S.quizCount = Number(btn.dataset.count) || 10;
       });
     });
 
-    $('hardOnly')?.addEventListener('change', (e) => {
-      S.hardOnly = e.target.checked;
-    });
-
+    $('hardOnly')?.addEventListener('change', (e) => { S.hardOnly = e.target.checked; });
     $('startQuizBtn')?.addEventListener('click', startQuiz);
     $('retryBtn')?.addEventListener('click', () => {
       $('quizResult')?.classList.add('hidden');
       $('quizActions')?.classList.add('hidden');
-      setStatus('');
+      setQuizStatus('Basılı tut ve tekrar dene', false);
       setMicLabel('Basılı Tut ve Konuş', 'Tekrar dene');
     });
     $('nextBtn')?.addEventListener('click', nextQuestion);

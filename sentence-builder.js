@@ -1,16 +1,31 @@
 /**
- * Cümle Kur — Kelime + Cümle modülleri
+ * Cümle Kur — Kelime + Cümle (profesyonel UI + bas-konuş giriş)
  */
 (function () {
   'use strict';
 
   const LS = window.LearnStorage;
+  const TAIL_MS = 280;
+  const MIN_HOLD_MS = 350;
+  const MIN_BLOB_BYTES = 400;
+
   const audio = document.createElement('audio');
   audio.setAttribute('playsinline', 'true');
   document.body.appendChild(audio);
 
+  const micS = {
+    holdActive: false, holdGen: 0, stream: null, recorder: null, chunks: [],
+    fingerDownAt: 0, pressMs: 0, stopHandled: false, usedTouch: false,
+    stopTimer: null, safetyTimer: null, micOpening: false, micOpenGen: 0, pendingEndHold: false,
+  };
+
   let currentWordLesson = null;
   let currentSentence = null;
+  let activeTab = 'word';
+  let busy = false;
+  let wordMic = null;
+  let sentenceMic = null;
+  let searchTimer = null;
 
   const $ = (id) => document.getElementById(id);
 
@@ -20,12 +35,11 @@
     return d.innerHTML;
   }
 
-  function setStatus(el, text, type) {
-    if (!el) return;
-    el.textContent = text || '';
-    el.classList.toggle('hidden', !text);
-    el.classList.toggle('builder-status-error', type === 'error');
-    el.classList.toggle('builder-status-busy', type === 'busy');
+  function setUi(text, live) {
+    const dot = $('statusDot');
+    const st = $('statusText');
+    if (st) st.textContent = text;
+    if (dot) dot.classList.toggle('active', !!live);
   }
 
   function initLangSelect() {
@@ -65,21 +79,27 @@
 
   function renderExampleCard(ex, lang, idx) {
     const parts = (ex.parts || []).map(
-      (p) => `<li><strong>${esc(p.tr)}</strong> → ${esc(p.meaning_tr)}</li>`,
+      (p) => `<li><span class="mod-part-tr">${esc(p.tr)}</span><span class="mod-part-mean">${esc(p.meaning_tr)}</span></li>`,
     ).join('');
     return `
-      <article class="builder-card" data-idx="${idx}">
-        <div class="builder-card-row">🇹🇷 ${esc(ex.tr)}</div>
-        <div class="builder-card-row builder-card-target">🌍 ${esc(ex.target)}</div>
-        <button type="button" class="ghost-btn builder-listen" data-text="${esc(ex.target)}" data-lang="${lang}">🔊 Dinle</button>
-        <div class="builder-pron">🗣️ ${esc(ex.pronunciation_tr || '')}</div>
-        <details class="builder-details">
-          <summary>🧠 Nasıl kuruldu?</summary>
-          <p>${esc(ex.explanation_tr || '')}</p>
-          ${ex.structure_tr ? `<p class="builder-structure">📚 ${esc(ex.structure_tr)}</p>` : ''}
-          ${parts ? `<ul class="builder-parts">${parts}</ul>` : ''}
+      <article class="mod-card" data-idx="${idx}">
+        <div class="mod-card-line mod-card-tr"><span class="mod-flag">🇹🇷</span>${esc(ex.tr)}</div>
+        <div class="mod-card-line mod-card-target"><span class="mod-flag">🌍</span>${esc(ex.target)}</div>
+        <button type="button" class="mod-listen-btn builder-listen" data-text="${esc(ex.target)}" data-lang="${lang}">🔊 Dinle</button>
+        <div class="mod-pron">${esc(ex.pronunciation_tr || '')}</div>
+        <details class="mod-details">
+          <summary>Nasıl kuruldu?</summary>
+          <p class="mod-detail-text">${esc(ex.explanation_tr || '')}</p>
+          ${ex.structure_tr ? `<p class="mod-structure">${esc(ex.structure_tr)}</p>` : ''}
+          ${parts ? `<ul class="mod-parts">${parts}</ul>` : ''}
         </details>
       </article>`;
+  }
+
+  function bindListenButtons(root) {
+    root?.querySelectorAll('.builder-listen').forEach((btn) => {
+      btn.addEventListener('click', () => playTts(btn.dataset.text, btn.dataset.lang));
+    });
   }
 
   function renderWordLesson(data) {
@@ -91,25 +111,29 @@
     const patterns = (usage.patterns || []).map((p) => `<li>${esc(p)}</li>`).join('');
     const examples = (data.examples || []).map((ex, i) => renderExampleCard(ex, lang, i)).join('');
     box.innerHTML = `
-      <div class="builder-lesson-head">
-        <h2>☕ ${esc(data.word_tr)} → ${esc(data.target_word)}</h2>
-        <p>${esc(data.word_explanation_tr || '')}</p>
+      <div class="mod-hero mod-hero-green">
+        <div class="mod-hero-icon">☕</div>
+        <div>
+          <h2>${esc(data.word_tr)}</h2>
+          <p class="mod-hero-sub">${esc(data.target_word)}</p>
+        </div>
       </div>
-      <div class="builder-usage">
-        <h3>📚 Kelime kullanımı</h3>
+      ${data.word_explanation_tr ? `<p class="mod-lead">${esc(data.word_explanation_tr)}</p>` : ''}
+      <div class="mod-info-card">
+        <h3>Kelime kullanımı</h3>
         ${usage.noun_tr ? `<p><strong>İsim:</strong> ${esc(usage.noun_tr)}</p>` : ''}
         ${usage.verb_tr ? `<p><strong>Fiil:</strong> ${esc(usage.verb_tr)}</p>` : ''}
         ${usage.formal_tr ? `<p><strong>Resmi:</strong> ${esc(usage.formal_tr)}</p>` : ''}
         ${usage.informal_tr ? `<p><strong>Samimi:</strong> ${esc(usage.informal_tr)}</p>` : ''}
-        ${patterns ? `<ul>${patterns}</ul>` : ''}
-        ${usage.common_mistakes_tr ? `<p class="builder-mistake">⚠️ ${esc(usage.common_mistakes_tr)}</p>` : ''}
+        ${patterns ? `<ul class="mod-tags">${patterns}</ul>` : ''}
+        ${usage.common_mistakes_tr ? `<p class="mod-warn">⚠️ ${esc(usage.common_mistakes_tr)}</p>` : ''}
       </div>
-      <div class="builder-examples">${examples}</div>
-      <button type="button" id="saveWordBtn" class="primary-btn builder-save-btn">⭐ Öğrendiklerime Ekle</button>`;
+      <h3 class="mod-section-title">Örnek cümleler</h3>
+      ${examples}
+      <button type="button" id="saveWordBtn" class="mod-action-btn mod-action-save">⭐ Öğrendiklerime Ekle</button>`;
     box.querySelector('#saveWordBtn')?.addEventListener('click', saveCurrentWord);
-    box.querySelectorAll('.builder-listen').forEach((btn) => {
-      btn.addEventListener('click', () => playTts(btn.dataset.text, btn.dataset.lang));
-    });
+    bindListenButtons(box);
+    $('modScroll')?.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   function saveCurrentWord() {
@@ -122,7 +146,7 @@
       usage: currentWordLesson.usage,
       examples: currentWordLesson.examples,
     });
-    setStatus($('wordStatus'), `✅ "${saved.word_tr}" kaydedildi!`, 'ok');
+    setUi(`✅ "${saved.word_tr}" kaydedildi`, false);
     renderSavedLists();
   }
 
@@ -131,36 +155,38 @@
     if (!box || !data?.ok) return;
     currentSentence = data;
     const pairs = (data.phrase_pairs || []).map(
-      (p) => `<li>${esc(p.tr)} → ${esc(p.en)}</li>`,
+      (p) => `<li><span class="mod-part-tr">${esc(p.tr)}</span><span class="mod-part-mean">${esc(p.en)}</span></li>`,
     ).join('');
     const chunks = (data.pronunciation_chunks || []).map(
-      (c) => `<div class="builder-chunk"><span>${esc(c.target)}</span><em>${esc(c.pronunciation_tr)}</em></div>`,
+      (c) => `<div class="mod-chunk"><span>${esc(c.target)}</span><em>${esc(c.pronunciation_tr)}</em></div>`,
     ).join('');
     box.innerHTML = `
-      <article class="builder-card builder-card-sentence">
-        <div class="builder-card-row">🇹🇷 ${esc(data.tr_sentence)}</div>
-        <div class="builder-card-row builder-card-target">🌍 ${esc(data.target_sentence)}</div>
-        <button type="button" class="ghost-btn builder-listen" data-text="${esc(data.target_sentence)}" data-lang="${data.target_lang}">🔊 Dinle</button>
-        <div class="builder-pron">🗣️ ${esc(data.pronunciation_tr || '')}</div>
-        ${chunks ? `<div class="builder-chunks"><h4>Telaffuz parçaları</h4>${chunks}</div>` : ''}
-        <details class="builder-details" open>
-          <summary>🧠 Cümle nasıl kuruldu?</summary>
-          <p>${esc(data.grammar_explanation_tr || data.why_tr || '')}</p>
-          ${data.structure_tr ? `<p class="builder-structure">📚 ${esc(data.structure_tr)}</p>` : ''}
-          ${pairs ? `<ul class="builder-parts">${pairs}</ul>` : ''}
+      <div class="mod-hero mod-hero-blue">
+        <div class="mod-hero-icon">💬</div>
+        <div><h2>Cümle analizi</h2></div>
+      </div>
+      <article class="mod-card mod-card-featured">
+        <div class="mod-card-line mod-card-tr"><span class="mod-flag">🇹🇷</span>${esc(data.tr_sentence)}</div>
+        <div class="mod-card-line mod-card-target"><span class="mod-flag">🌍</span>${esc(data.target_sentence)}</div>
+        <button type="button" class="mod-listen-btn builder-listen" data-text="${esc(data.target_sentence)}" data-lang="${data.target_lang}">🔊 Dinle</button>
+        <div class="mod-pron">${esc(data.pronunciation_tr || '')}</div>
+        ${chunks ? `<div class="mod-chunks"><h4>Telaffuz</h4>${chunks}</div>` : ''}
+        <details class="mod-details" open>
+          <summary>Cümle nasıl kuruldu?</summary>
+          <p class="mod-detail-text">${esc(data.grammar_explanation_tr || data.why_tr || '')}</p>
+          ${data.structure_tr ? `<p class="mod-structure">${esc(data.structure_tr)}</p>` : ''}
+          ${pairs ? `<ul class="mod-parts">${pairs}</ul>` : ''}
         </details>
-        <button type="button" id="saveSentenceBtn" class="primary-btn builder-save-btn">⭐ Kaydet</button>
-      </article>`;
+      </article>
+      <button type="button" id="saveSentenceBtn" class="mod-action-btn mod-action-save">⭐ Kaydet</button>`;
     box.querySelector('#saveSentenceBtn')?.addEventListener('click', saveCurrentSentence);
-    box.querySelector('.builder-listen')?.addEventListener('click', (e) => {
-      const btn = e.currentTarget;
-      playTts(btn.dataset.text, btn.dataset.lang);
-    });
+    bindListenButtons(box);
+    $('modScroll')?.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   function saveCurrentSentence() {
     if (!currentSentence) return;
-    const saved = LS.saveSentence({
+    LS.saveSentence({
       tr_sentence: currentSentence.tr_sentence,
       target_sentence: currentSentence.target_sentence,
       target_lang: currentSentence.target_lang,
@@ -171,18 +197,28 @@
       alternatives: currentSentence.alternatives,
       pronunciation_chunks: currentSentence.pronunciation_chunks,
     });
-    setStatus($('sentenceStatus'), `✅ Cümle kaydedildi!`, 'ok');
+    setUi('✅ Cümle kaydedildi', false);
     renderSavedLists();
+  }
+
+  function showLoading(msg) {
+    const id = activeTab === 'word' ? 'wordResult' : 'sentenceResult';
+    const box = $(id);
+    if (box) {
+      box.innerHTML = `<div class="mod-loading"><span class="mod-spinner"></span><p>${esc(msg)}</p></div>`;
+    }
+    setUi(msg, true);
   }
 
   async function buildWord() {
     const word = ($('wordInput')?.value || '').trim();
     if (word.length < 2) {
-      setStatus($('wordStatus'), 'En az 2 harfli bir kelime gir.', 'error');
+      setUi('En az 2 harfli bir kelime gir veya söyle', false);
       return;
     }
-    setStatus($('wordStatus'), '⏳ Cümleler oluşturuluyor...', 'busy');
-    $('wordResult').innerHTML = '';
+    if (busy) return;
+    busy = true;
+    showLoading('Cümleler oluşturuluyor…');
     try {
       const r = await fetch('/api/builder/word', {
         method: 'POST',
@@ -191,24 +227,29 @@
       });
       const data = await r.json();
       if (!r.ok || !data.ok) {
-        setStatus($('wordStatus'), data.error_tr || 'Bir hata oluştu.', 'error');
+        $('wordResult').innerHTML = '';
+        setUi(data.error_tr || 'Bir hata oluştu', false);
         return;
       }
-      setStatus($('wordStatus'), '');
+      setUi('Hazır — dinle ve kaydet', false);
       renderWordLesson(data);
     } catch {
-      setStatus($('wordStatus'), 'Bağlantı hatası — tekrar dene.', 'error');
+      $('wordResult').innerHTML = '';
+      setUi('Bağlantı hatası — tekrar dene', false);
+    } finally {
+      busy = false;
     }
   }
 
   async function buildSentence() {
     const sentence = ($('sentenceInput')?.value || '').trim();
     if (sentence.length < 4) {
-      setStatus($('sentenceStatus'), 'En az 4 karakterli bir cümle gir.', 'error');
+      setUi('En az 4 karakterli cümle gir veya söyle', false);
       return;
     }
-    setStatus($('sentenceStatus'), '⏳ Cümle analiz ediliyor...', 'busy');
-    $('sentenceResult').innerHTML = '';
+    if (busy) return;
+    busy = true;
+    showLoading('Cümle analiz ediliyor…');
     try {
       const r = await fetch('/api/builder/sentence', {
         method: 'POST',
@@ -217,39 +258,87 @@
       });
       const data = await r.json();
       if (!r.ok || !data.ok) {
-        setStatus($('sentenceStatus'), data.error_tr || 'Bir hata oluştu.', 'error');
+        $('sentenceResult').innerHTML = '';
+        setUi(data.error_tr || 'Bir hata oluştu', false);
         return;
       }
-      setStatus($('sentenceStatus'), '');
+      setUi('Hazır — dinle ve kaydet', false);
       renderSentenceResult(data);
     } catch {
-      setStatus($('sentenceStatus'), 'Bağlantı hatası — tekrar dene.', 'error');
+      $('sentenceResult').innerHTML = '';
+      setUi('Bağlantı hatası — tekrar dene', false);
+    } finally {
+      busy = false;
     }
+  }
+
+  async function sttTurkish(blob, targetInputId, thenSubmit) {
+    if (!blob || blob.size < MIN_BLOB_BYTES) {
+      setUi('Kayıt kısa — basılı tutup konuş', false);
+      return;
+    }
+    setUi('🔄 Dinleniyor…', true);
+    try {
+      const r = await fetch('/api/stt?lang=tr', { method: 'POST', body: blob });
+      const data = await r.json();
+      const text = (data.text || '').trim();
+      if (!text) {
+        setUi('Anlaşılamadı — tekrar dene', false);
+        return;
+      }
+      const input = $(targetInputId);
+      if (input) input.value = text;
+      setUi(`✓ "${text.slice(0, 40)}${text.length > 40 ? '…' : ''}"`, false);
+      if (thenSubmit) {
+        if (targetInputId === 'wordInput') await buildWord();
+        else await buildSentence();
+      }
+    } catch {
+      setUi('Ses algılanamadı', false);
+    }
+  }
+
+  function makeInputMic(btnId, inputId, thenSubmit) {
+    if (!window.MicHold) return null;
+    const localS = { ...micS };
+    const mic = MicHold.create({
+      state: localS,
+      tailMs: TAIL_MS,
+      minHoldMs: MIN_HOLD_MS,
+      minBlobBytes: MIN_BLOB_BYTES,
+      onSpeaking: () => setUi('🎤 Dinleniyor…', true),
+      onProcessing: () => setUi('🔄 Yazıya çevriliyor…', true),
+      onIdle: () => { if (!busy) setUi('Kelime veya cümle yaz — veya 🎤 ile söyle', false); },
+      onError: (m) => setUi(m || 'Tekrar dene', false),
+      isBusy: () => busy,
+      canBegin: () => !busy,
+      onBlob: (blob) => { void sttTurkish(blob, inputId, thenSubmit); },
+    });
+    mic.bindHold($(btnId));
+    return mic;
   }
 
   function renderSavedLists() {
     const lang = LS.getLang();
     const wordQ = ($('wordSearch')?.value || '').trim();
     const sentQ = ($('sentenceSearch')?.value || '').trim();
-    const words = wordQ
-      ? LS.searchItems(wordQ, lang).words
-      : LS.getWords(lang);
-    const sentences = sentQ
-      ? LS.searchItems(sentQ, lang).sentences
-      : LS.getSentences(lang);
+    const words = wordQ ? LS.searchItems(wordQ, lang).words : LS.getWords(lang);
+    const sentences = sentQ ? LS.searchItems(sentQ, lang).sentences : LS.getSentences(lang);
 
     const wBox = $('savedWords');
     if (wBox) {
       wBox.innerHTML = words.length
         ? words.map((w) => `
-          <button type="button" class="builder-saved-item" data-word-id="${w.id}">
-            ☕ ${esc(w.word_tr)} <small>${LS.learningLevel(w.stats)}</small>
+          <button type="button" class="mod-saved-item" data-word-id="${w.id}">
+            <span class="mod-saved-icon">☕</span>
+            <span class="mod-saved-text">${esc(w.word_tr)}<small>${LS.learningLevel(w.stats)}</small></span>
           </button>`).join('')
-        : '<p class="builder-empty">Henüz kelime kaydedilmedi.</p>';
+        : '<p class="mod-empty">Henüz kelime yok</p>';
       wBox.querySelectorAll('[data-word-id]').forEach((btn) => {
         btn.addEventListener('click', () => {
           const w = LS.getWordById(btn.dataset.wordId);
           if (w) {
+            switchTab('word');
             currentWordLesson = { ok: true, ...w };
             renderWordLesson(currentWordLesson);
             $('wordInput').value = w.word_tr;
@@ -262,14 +351,16 @@
     if (sBox) {
       sBox.innerHTML = sentences.length
         ? sentences.map((s) => `
-          <button type="button" class="builder-saved-item" data-sent-id="${s.id}">
-            "${esc(s.tr_sentence)}" <small>${LS.learningLevel(s.stats)}</small>
+          <button type="button" class="mod-saved-item" data-sent-id="${s.id}">
+            <span class="mod-saved-icon">💬</span>
+            <span class="mod-saved-text">${esc(s.tr_sentence)}<small>${LS.learningLevel(s.stats)}</small></span>
           </button>`).join('')
-        : '<p class="builder-empty">Henüz cümle kaydedilmedi.</p>';
+        : '<p class="mod-empty">Henüz cümle yok</p>';
       sBox.querySelectorAll('[data-sent-id]').forEach((btn) => {
         btn.addEventListener('click', () => {
           const s = LS.getSentenceById(btn.dataset.sentId);
           if (s) {
+            switchTab('sentence');
             currentSentence = { ok: true, ...s };
             renderSentenceResult(currentSentence);
             $('sentenceInput').value = s.tr_sentence;
@@ -280,29 +371,36 @@
   }
 
   function switchTab(tab) {
-    document.querySelectorAll('.builder-tab').forEach((b) => {
+    activeTab = tab;
+    document.querySelectorAll('.mod-tab').forEach((b) => {
       b.classList.toggle('active', b.dataset.tab === tab);
     });
     $('panelWord')?.classList.toggle('hidden', tab !== 'word');
     $('panelSentence')?.classList.toggle('hidden', tab !== 'sentence');
+    $('wordComposer')?.classList.toggle('hidden', tab !== 'word');
+    $('sentenceComposer')?.classList.toggle('hidden', tab !== 'sentence');
+    setUi(tab === 'word' ? 'Türkçe kelime yaz veya 🎤 ile söyle' : 'Türkçe cümle yaz veya 🎤 ile söyle', false);
+  }
+
+  function debouncedSearch() {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(renderSavedLists, 200);
   }
 
   function init() {
     initLangSelect();
     renderSavedLists();
+    wordMic = makeInputMic('wordMicBtn', 'wordInput', true);
+    sentenceMic = makeInputMic('sentenceMicBtn', 'sentenceInput', true);
 
     $('wordGoBtn')?.addEventListener('click', buildWord);
     $('sentenceGoBtn')?.addEventListener('click', buildSentence);
-    $('wordInput')?.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') buildWord();
-    });
-    $('sentenceInput')?.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') buildSentence();
-    });
-    $('wordSearch')?.addEventListener('input', renderSavedLists);
-    $('sentenceSearch')?.addEventListener('input', renderSavedLists);
+    $('wordInput')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') buildWord(); });
+    $('sentenceInput')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') buildSentence(); });
+    $('wordSearch')?.addEventListener('input', debouncedSearch);
+    $('sentenceSearch')?.addEventListener('input', debouncedSearch);
 
-    document.querySelectorAll('.builder-tab').forEach((btn) => {
+    document.querySelectorAll('.mod-tab').forEach((btn) => {
       btn.addEventListener('click', () => switchTab(btn.dataset.tab));
     });
   }

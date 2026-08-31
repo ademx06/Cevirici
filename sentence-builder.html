@@ -6,12 +6,13 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#060B18">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <title>Cümle Kur — Sesli Çevirmen</title>
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=55">
 </head>
 <body>
-  <div class="app builder-app">
-    <header class="header">
+  <div class="app mod-app builder-app">
+    <header class="header mod-header">
       <div class="header-left">
         <a href="/" class="back-btn" aria-label="Ana menü">←</a>
         <div>
@@ -19,60 +20,73 @@
           <p class="tagline" id="langLabel">🇬🇧 English</p>
         </div>
       </div>
+      <a href="self-test.html" class="ghost-btn mod-link-btn">🎯 Test</a>
     </header>
 
-    <section class="lang-card builder-lang">
+    <section class="lang-card mod-lang-card">
       <div class="lang-field lang-field-full">
-        <label for="learnLang">Hedef dil</label>
+        <label for="learnLang">Öğrenmek istediğim dil</label>
         <select id="learnLang"></select>
       </div>
     </section>
 
-    <nav class="builder-tabs">
-      <button type="button" class="builder-tab active" data-tab="word">Kelime</button>
-      <button type="button" class="builder-tab" data-tab="sentence">Cümle</button>
+    <nav class="mod-tabs">
+      <button type="button" class="mod-tab active" data-tab="word">Kelime</button>
+      <button type="button" class="mod-tab" data-tab="sentence">Cümle</button>
     </nav>
 
-    <!-- KELİME -->
-    <section id="panelWord" class="builder-panel">
-      <div class="builder-input-row">
-        <input id="wordInput" type="text" placeholder="Türkçe kelime (örn. kahve)" maxlength="60" enterkeyhint="go">
-        <button id="wordGoBtn" class="primary-btn builder-go-btn" type="button">Oluştur</button>
-      </div>
-      <div id="wordStatus" class="builder-status hidden"></div>
-      <div id="wordResult" class="builder-results"></div>
-      <section class="builder-saved">
-        <div class="builder-saved-head">
-          <h2>Öğrendiğim Kelimeler</h2>
-          <input id="wordSearch" type="search" placeholder="🔎 Kelime ara" class="builder-search">
-        </div>
-        <div id="savedWords" class="builder-saved-list"></div>
-      </section>
-    </section>
+    <div class="status-bar mod-status">
+      <span id="statusDot" class="status-dot"></span>
+      <span id="statusText">Kelime veya cümle yaz — veya 🎤 ile söyle</span>
+    </div>
 
-    <!-- CÜMLE -->
-    <section id="panelSentence" class="builder-panel hidden">
-      <div class="builder-input-row">
-        <input id="sentenceInput" type="text" placeholder="Türkçe cümle (örn. Bugün çok yoruldum.)" maxlength="300" enterkeyhint="go">
-        <button id="sentenceGoBtn" class="primary-btn builder-go-btn" type="button">Analiz Et</button>
-      </div>
-      <div id="sentenceStatus" class="builder-status hidden"></div>
-      <div id="sentenceResult" class="builder-results"></div>
-      <section class="builder-saved">
-        <div class="builder-saved-head">
-          <h2>Öğrendiğim Cümleler</h2>
-          <input id="sentenceSearch" type="search" placeholder="🔎 Cümle ara" class="builder-search">
-        </div>
-        <div id="savedSentences" class="builder-saved-list"></div>
+    <main class="mod-scroll" id="modScroll">
+      <!-- KELİME -->
+      <section id="panelWord" class="mod-panel">
+        <div id="wordResult" class="mod-results"></div>
+        <section class="mod-saved">
+          <div class="mod-saved-head">
+            <h2>Öğrendiğim Kelimeler</h2>
+            <input id="wordSearch" type="search" placeholder="🔎 Ara" class="mod-search" autocomplete="off">
+          </div>
+          <div id="savedWords" class="mod-saved-list"></div>
+        </section>
       </section>
-    </section>
 
-    <footer class="phone-footer phone-footer-compact">
-      <a href="self-test.html">🎯 Kendini Test Et →</a>
+      <!-- CÜMLE -->
+      <section id="panelSentence" class="mod-panel hidden">
+        <div id="sentenceResult" class="mod-results"></div>
+        <section class="mod-saved">
+          <div class="mod-saved-head">
+            <h2>Öğrendiğim Cümleler</h2>
+            <input id="sentenceSearch" type="search" placeholder="🔎 Ara" class="mod-search" autocomplete="off">
+          </div>
+          <div id="savedSentences" class="mod-saved-list"></div>
+        </section>
+      </section>
+    </main>
+
+    <footer class="mod-dock">
+      <div id="wordComposer" class="mod-composer">
+        <input id="wordInput" type="text" placeholder="Türkçe kelime… (kahve)" maxlength="60" enterkeyhint="go" autocomplete="off">
+        <button id="wordMicBtn" class="mod-mic-btn" type="button" aria-label="Basılı tut konuş">
+          <span class="mod-mic-icon">🎤</span>
+        </button>
+        <button id="wordGoBtn" class="mod-send-btn" type="button" aria-label="Oluştur">➤</button>
+      </div>
+      <div id="sentenceComposer" class="mod-composer hidden">
+        <input id="sentenceInput" type="text" placeholder="Türkçe cümle…" maxlength="300" enterkeyhint="go" autocomplete="off">
+        <button id="sentenceMicBtn" class="mod-mic-btn" type="button" aria-label="Basılı tut konuş">
+          <span class="mod-mic-icon">🎤</span>
+        </button>
+        <button id="sentenceGoBtn" class="mod-send-btn" type="button" aria-label="Analiz">➤</button>
+      </div>
+      <p class="mod-dock-hint">🎤 Basılı tut → Türkçe söyle → bırak</p>
     </footer>
   </div>
 
-  <script src="learn-storage.js?v=1"></script>
-  <script src="sentence-builder.js?v=1"></script>
+  <script src="mic-hold.js?v=3"></script>
+  <script src="learn-storage.js?v=2"></script>
+  <script src="sentence-builder.js?v=2"></script>
 </body>
 </html>

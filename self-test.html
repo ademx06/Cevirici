@@ -6,12 +6,13 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#060B18">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <title>Kendini Test Et — Sesli Çevirmen</title>
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=55">
 </head>
 <body>
-  <div class="app quiz-app">
-    <header class="header">
+  <div class="app mod-app quiz-app">
+    <header class="header mod-header">
       <div class="header-left">
         <a href="/" class="back-btn" aria-label="Ana menü">←</a>
         <div>
@@ -19,72 +20,73 @@
           <p class="tagline" id="langLabel">🇬🇧 English</p>
         </div>
       </div>
+      <a href="sentence-builder.html" class="ghost-btn mod-link-btn">📝 Kur</a>
     </header>
 
-    <section class="lang-card builder-lang">
+    <section class="lang-card mod-lang-card">
       <div class="lang-field lang-field-full">
         <label for="learnLang">Hedef dil</label>
         <select id="learnLang"></select>
       </div>
     </section>
 
-    <nav class="builder-tabs">
-      <button type="button" class="builder-tab active" data-tab="word">Kelime</button>
-      <button type="button" class="builder-tab" data-tab="sentence">Cümle</button>
+    <nav class="mod-tabs">
+      <button type="button" class="mod-tab active" data-tab="word">Kelime</button>
+      <button type="button" class="mod-tab" data-tab="sentence">Cümle</button>
     </nav>
 
-    <section id="quizSetup" class="quiz-setup">
-      <h2>Test Ayarları</h2>
-      <div class="quiz-count-row">
-        <button type="button" class="chip quiz-count active" data-count="10">10 soru</button>
-        <button type="button" class="chip quiz-count" data-count="20">20 soru</button>
-        <button type="button" class="chip quiz-count" data-count="30">30 soru</button>
-      </div>
-      <label class="quiz-hard-label">
-        <input type="checkbox" id="hardOnly"> Sadece zorlandıklarım
-      </label>
-      <button id="startQuizBtn" class="primary-btn quiz-start-btn" type="button">Teste Başla</button>
-      <p id="quizEmptyHint" class="quiz-empty hidden">Henüz kayıtlı içerik yok. Önce <a href="sentence-builder.html">Cümle Kur</a> ile kelime/cümle kaydet.</p>
-    </section>
-
-    <section id="quizActive" class="quiz-active hidden">
-      <div class="quiz-progress">
-        <span id="quizProgress">1 / 10</span>
-        <span id="quizModeLabel">Kelime testi</span>
-      </div>
-      <div id="quizPrompt" class="quiz-prompt"></div>
-      <div id="quizStatus" class="builder-status hidden"></div>
-      <div id="quizResult" class="quiz-result hidden"></div>
-      <section class="controls quiz-mic-section">
-        <button id="micBtn" class="mic-btn mic-btn-quiz" type="button">
-          <span class="mic-icon">🎤</span>
-          <span class="mic-text">
-            <strong id="micTitle">Basılı Tut ve Konuş</strong>
-            <small id="micSubtitle">Hedef dilde söyle</small>
-          </span>
-        </button>
+    <main class="mod-scroll quiz-scroll" id="modScroll">
+      <section id="quizSetup" class="mod-setup-card">
+        <h2>Test ayarları</h2>
+        <div class="mod-chip-row">
+          <button type="button" class="chip mod-chip active" data-count="10">10 soru</button>
+          <button type="button" class="chip mod-chip" data-count="20">20 soru</button>
+          <button type="button" class="chip mod-chip" data-count="30">30 soru</button>
+        </div>
+        <label class="mod-check-label">
+          <input type="checkbox" id="hardOnly"> Sadece zorlandıklarım
+        </label>
+        <button id="startQuizBtn" class="mod-action-btn mod-action-gold" type="button">Teste Başla</button>
+        <p id="quizEmptyHint" class="mod-empty hidden">Henüz kayıt yok. <a href="sentence-builder.html">Cümle Kur</a> ile kelime/cümle ekle.</p>
       </section>
-      <div class="quiz-actions hidden" id="quizActions">
-        <button type="button" id="retryBtn" class="ghost-btn">🔄 Tekrar Dene</button>
-        <button type="button" id="nextBtn" class="primary-btn">➡️ Sonraki</button>
-        <button type="button" id="listenCorrectBtn" class="ghost-btn">🔊 Doğru telaffuzu dinle</button>
-      </div>
-    </section>
 
-    <section class="builder-saved quiz-saved">
-      <div class="builder-saved-head">
-        <h2>Kayıtlı İçerikler</h2>
-      </div>
-      <div id="savedSummary" class="builder-saved-list"></div>
-    </section>
+      <section id="quizActive" class="hidden">
+        <div class="mod-quiz-meta">
+          <span id="quizProgress">1 / 10</span>
+          <span id="quizModeLabel">Kelime testi</span>
+        </div>
+        <div id="quizPrompt" class="mod-quiz-prompt"></div>
+        <div id="quizResult" class="mod-result-card hidden"></div>
+        <div class="mod-quiz-actions hidden" id="quizActions">
+          <button type="button" id="retryBtn" class="ghost-btn">🔄 Tekrar Dene</button>
+          <button type="button" id="listenCorrectBtn" class="ghost-btn">🔊 Doğru telaffuz</button>
+          <button type="button" id="nextBtn" class="mod-action-btn">➡️ Sonraki</button>
+        </div>
+      </section>
 
-    <footer class="phone-footer phone-footer-compact">
-      <a href="sentence-builder.html">📝 Cümle Kur →</a>
+      <section class="mod-saved">
+        <h2>İlerleme özeti</h2>
+        <div id="savedSummary" class="mod-saved-list"></div>
+      </section>
+    </main>
+
+    <footer class="mod-dock mod-dock-quiz hidden" id="quizDock">
+      <div class="status-bar mod-status">
+        <span id="quizStatusDot" class="status-dot"></span>
+        <span id="quizStatus">Basılı tut ve hedef dilde konuş</span>
+      </div>
+      <button id="micBtn" class="mic-btn mic-btn-mod" type="button">
+        <span class="mic-icon">🎤</span>
+        <span class="mic-text">
+          <strong id="micTitle">Basılı Tut ve Konuş</strong>
+          <small id="micSubtitle">Hedef dilde cevap ver</small>
+        </span>
+      </button>
     </footer>
   </div>
 
   <script src="mic-hold.js?v=3"></script>
-  <script src="learn-storage.js?v=1"></script>
-  <script src="self-test.js?v=1"></script>
+  <script src="learn-storage.js?v=2"></script>
+  <script src="self-test.js?v=2"></script>
 </body>
 </html>
