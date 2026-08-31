@@ -60,7 +60,11 @@ const S = {
   greetingLoaded: false,
   sessionSaved: false,
   softMsgTimer: null,
+  processWatchdog: null,
 };
+
+const VOICE_FETCH_MS = 55000;
+const TTS_PLAY_MS = 15000;
 
 const $ = (id) => document.getElementById(id);
 
@@ -325,12 +329,31 @@ function showSpeaking() {
 function resetIdle() {
   clearTimeout(S.stopTimer);
   clearTimeout(S.safetyTimer);
+  clearTimeout(S.processWatchdog);
   S.stopTimer = null;
   S.safetyTimer = null;
+  S.processWatchdog = null;
   S.holdActive = false;
   safeClass('micBtn', 'remove', 'recording');
   hideTyping();
-  if (S.busyCount === 0 && S.uiState !== 'SPEAKING') setUiState('IDLE');
+  if (S.busyCount === 0) {
+    const speaking = S.uiState === 'SPEAKING' && !audio.paused && audio.currentTime > 0 && !audio.ended;
+    if (!speaking) setUiState('IDLE');
+  }
+}
+
+function cleanupRecorder() {
+  if (!S.recorder) return;
+  S.recorder.ondataavailable = null;
+  S.recorder.onstop = null;
+  S.recorder = null;
+}
+
+function releaseStream() {
+  if (S.stream) {
+    S.stream.getTracks().forEach((t) => t.stop());
+    S.stream = null;
+  }
 }
 
 function releaseMic() {
@@ -339,17 +362,39 @@ function releaseMic() {
   S.stopTimer = null;
   S.safetyTimer = null;
   if (S.recorder) {
-    S.recorder.ondataavailable = null;
-    S.recorder.onstop = null;
-    if (S.recorder.state === 'recording') {
-      try { S.recorder.stop(); } catch { /* ignore */ }
+    const rec = S.recorder;
+    if (rec.state === 'recording') {
+      try { rec.stop(); } catch { cleanupRecorder(); }
+    } else {
+      cleanupRecorder();
     }
-    S.recorder = null;
   }
-  if (S.stream) {
-    S.stream.getTracks().forEach((t) => t.stop());
-    S.stream = null;
+  releaseStream();
+}
+
+function forceFinishRecording() {
+  if (!S.recorder || S.recorder.state !== 'recording') return;
+  try {
+    S.recorder.requestData();
+    S.recorder.stop();
+  } catch {
+    cleanupRecorder();
+    releaseStream();
+    if (S.busyCount === 0) resetIdle();
   }
+}
+
+function armProcessWatchdog() {
+  clearTimeout(S.processWatchdog);
+  S.processWatchdog = setTimeout(() => {
+    if (S.busyCount > 0 || S.uiState === 'PROCESSING') {
+      S.busyCount = 0;
+      cleanupRecorder();
+      releaseStream();
+      resetIdle();
+      showErr('Yanıt gecikti — tekrar dene');
+    }
+  }, VOICE_FETCH_MS + 5000);
 }
 
 function esc(s) {
@@ -605,15 +650,18 @@ async function fetchAndPlayTts(phrase, lang, slow = false) {
   setUiState('SPEAKING');
   audio.volume = 1;
   audio.src = u;
-  await new Promise((resolve) => {
-    const done = () => {
-      URL.revokeObjectURL(u);
-      resolve();
-    };
-    audio.onended = done;
-    audio.onerror = done;
-    audio.play().catch(done);
-  });
+  await Promise.race([
+    new Promise((resolve) => {
+      const done = () => {
+        URL.revokeObjectURL(u);
+        resolve();
+      };
+      audio.onended = done;
+      audio.onerror = done;
+      audio.play().catch(done);
+    }),
+    new Promise((resolve) => setTimeout(resolve, TTS_PLAY_MS)),
+  ]);
 }
 
 const TR_FIRST_TYPES = new Set(['help', 'coach_tr', 'ai_intent', 'ai_correction', 'intent_guess', 'correction', 'practice_retry']);
@@ -749,7 +797,7 @@ function appendTeacherMsg(d) {
   } catch { /* ignore bad message */ }
 }
 
-function handleEducationResult(d) {
+async function handleEducationResult(d) {
   if (!d || typeof d !== 'object') return;
   try {
     if (d.profile && typeof d.profile === 'object' && !Array.isArray(d.profile)) {
@@ -774,7 +822,7 @@ function handleEducationResult(d) {
       try { render(); } catch { /* ignore */ }
     }
     if (shouldPlayCorrectionTts(d)) {
-      playTeacherTts(d);
+      await playTeacherTts(d);
     }
   } catch {
     hideTyping();
@@ -822,7 +870,7 @@ async function sendTextMessage() {
   setUiState('PROCESSING');
   try {
     const d = await processEducationChat(text);
-    handleEducationResult(d);
+    await handleEducationResult(d);
   } catch (e) {
     hideTyping();
     showErr(safeErrMsg(e) || 'Gönderilemedi');
@@ -874,19 +922,25 @@ async function processEducationVoice(blob) {
     'X-Education-State': stateJson,
   };
   const url = `/api/education/voice?${qs}`;
-  const opts = { method: 'POST', body: blob, headers };
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), VOICE_FETCH_MS);
+  const opts = { method: 'POST', body: blob, headers, signal: ctrl.signal };
 
   try {
     const r = await fetch(url, opts);
     return await parseVoiceResponse(r);
   } catch (firstErr) {
-    // Ağ kopması veya bozuk yanıt — bir kez daha dene
+    if (firstErr?.name === 'AbortError') {
+      throw new Error('Sunucu yanıt vermedi — tekrar dene');
+    }
     if (firstErr?.message?.includes('okunamadı') || firstErr?.message?.includes('boş')) {
       await new Promise((res) => setTimeout(res, 600));
-      const r2 = await fetch(url, opts);
+      const r2 = await fetch(url, { method: 'POST', body: blob, headers });
       return await parseVoiceResponse(r2);
     }
     throw firstErr;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -912,7 +966,7 @@ async function fetchGreeting() {
     const r = await fetch(`/api/education/greeting?${params}`);
     const d = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(d.error || 'Karşılama yüklenemedi');
-    handleEducationResult(d);
+    await handleEducationResult(d);
     S.greetingLoaded = true;
     S.sessionStart = Date.now();
     S.sessionSaved = false;
@@ -1079,7 +1133,8 @@ function startRecorder(gen) {
     const chunks = S.chunks.slice();
     const pressMs = S.pressMs || 0;
     S.chunks = [];
-    releaseMic();
+    cleanupRecorder();
+    releaseStream();
 
     if (pressMs < MIN_HOLD_MS) {
       if (!S.holdActive && S.busyCount === 0) resetIdle();
@@ -1094,19 +1149,22 @@ function startRecorder(gen) {
 
     S.busyCount += 1;
     showThinking();
+    armProcessWatchdog();
 
     processEducationVoice(blob)
-      .then((d) => {
+      .then(async (d) => {
         try {
-          handleEducationResult(d);
+          await handleEducationResult(d);
         } catch {
           hideTyping();
-          try { handleEducationResult({ ...d, profile: compactProfileForApi() }); } catch { resetIdle(); }
+          try { await handleEducationResult(d); } catch { resetIdle(); }
         }
       })
       .catch((e) => showErr(safeErrMsg(e) || 'Duyamadım — tekrar dene'))
       .finally(() => {
-        S.busyCount -= 1;
+        clearTimeout(S.processWatchdog);
+        S.processWatchdog = null;
+        S.busyCount = Math.max(0, S.busyCount - 1);
         if (!S.holdActive && !isRecording() && S.busyCount === 0) resetIdle();
       });
   };
@@ -1142,6 +1200,10 @@ function finishRecording() {
 
 async function beginHold() {
   const gen = ++S.holdGen;
+  if (S.busyCount > 0) {
+    showErr('Önceki yanıt bekleniyor…');
+    return;
+  }
   S.holdActive = true;
   S.fingerDownAt = Date.now();
   hideErr();
@@ -1184,9 +1246,16 @@ function endHold() {
 
   clearTimeout(S.safetyTimer);
   S.safetyTimer = setTimeout(() => {
-    releaseMic();
-    if (S.busyCount === 0) resetIdle();
-  }, 5000);
+    forceFinishRecording();
+    setTimeout(() => {
+      if (S.uiState === 'PROCESSING' && S.busyCount === 0 && !isRecording()) {
+        cleanupRecorder();
+        releaseStream();
+        resetIdle();
+        showErr('Kayıt tamamlanamadı — tekrar dene');
+      }
+    }, 2500);
+  }, 8000);
 
   finishRecording();
 }
