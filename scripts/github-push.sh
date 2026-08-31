@@ -3,8 +3,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-GITHUB_USER="${GITHUB_USER:-ademix06}"
-REPO="${REPO:-symmetrical-guacamole}"
+GITHUB_USER="${GITHUB_USER:-ademx06}"
+REPO="${REPO:-Cevirici}"
 REMOTE="https://github.com/${GITHUB_USER}/${REPO}.git"
 
 git checkout -B main 2>/dev/null || git checkout main
