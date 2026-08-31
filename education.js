@@ -30,9 +30,9 @@ audio.setAttribute('webkit-playsinline', 'true');
 if (document.body) document.body.appendChild(audio);
 else document.addEventListener('DOMContentLoaded', () => document.body.appendChild(audio));
 
-const TAIL_MS = 550;
-const MIN_HOLD_MS = 380;
-const MIN_BLOB_BYTES = 320;
+const TAIL_MS = 720;
+const MIN_HOLD_MS = 350;
+const MIN_BLOB_BYTES = 200;
 
 const S = {
   learnLang: 'en',
@@ -67,6 +67,7 @@ const S = {
   processWatchdog: null,
   busySince: 0,
   micOpening: false,
+  lastUserLang: 'en',
 };
 
 const VOICE_FETCH_MS = 55000;
@@ -385,14 +386,7 @@ function releaseMic() {
 
 function forceFinishRecording() {
   if (!S.recorder || S.recorder.state !== 'recording') return;
-  try {
-    S.recorder.requestData();
-    S.recorder.stop();
-  } catch {
-    cleanupRecorder();
-    releaseStream();
-    if (S.busyCount === 0) resetIdle();
-  }
+  stopRecorderSafely();
 }
 
 function forceUnlockMic(reason) {
@@ -875,7 +869,10 @@ async function handleEducationResult(d) {
     if (d.daily_lesson) updatePersonalLesson(d.daily_lesson);
     if (d.motivation) showMotivation(safeStr(d.motivation));
 
-    if (d.user_text) appendUserMsg(safeStr(d.user_text), d.user_lang);
+    if (d.user_text) {
+      appendUserMsg(safeStr(d.user_text), d.user_lang);
+      S.lastUserLang = d.user_lang || S.lastUserLang;
+    }
     appendTeacherMsg(d);
     hideTyping();
     try {
@@ -949,8 +946,25 @@ function compactStateForVoice() {
     history: sanitizeHistory(S.history).slice(0, 8),
     roleplay: S.roleplay || null,
     speak_slow: S.speakSlow,
-    last_lang: S.learnLang,
+    last_lang: S.lastUserLang || S.learnLang,
   };
+}
+
+function stopRecorderSafely() {
+  if (!isRecording()) return;
+  try {
+    S.recorder.requestData();
+  } catch { /* ignore */ }
+  setTimeout(() => {
+    if (!isRecording()) return;
+    try {
+      S.recorder.requestData();
+      S.recorder.stop();
+    } catch {
+      cleanupRecorder();
+      if (!S.holdActive && S.busyCount === 0) resetIdle();
+    }
+  }, 140);
 }
 
 async function parseVoiceResponse(r) {
@@ -1222,7 +1236,7 @@ function startRecorder(gen) {
 
     const blob = new Blob(chunks, { type: mimeType });
     if (blob.size < MIN_BLOB_BYTES) {
-      showErr('Duymadım — tekrar dene');
+      showErr(`Ses kaydı boş (${blob.size} bayt) — mikrofonu kontrol edip tekrar dene`);
       if (!S.holdActive && S.busyCount === 0) resetIdle();
       return;
     }
@@ -1252,7 +1266,7 @@ function startRecorder(gen) {
   };
 
   try {
-    S.recorder.start(100);
+    S.recorder.start(250);
   } catch (e) {
     S.recorder = null;
     throw e;
@@ -1267,17 +1281,7 @@ function finishRecording() {
     return;
   }
   clearTimeout(S.stopTimer);
-  S.stopTimer = setTimeout(() => {
-    if (isRecording()) {
-      try {
-        S.recorder.requestData();
-        S.recorder.stop();
-      } catch {
-        releaseMic();
-        if (!S.holdActive && S.busyCount === 0) resetIdle();
-      }
-    }
-  }, TAIL_MS);
+  S.stopTimer = setTimeout(() => stopRecorderSafely(), TAIL_MS);
 }
 
 async function beginHold() {

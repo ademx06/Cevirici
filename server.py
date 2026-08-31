@@ -189,7 +189,12 @@ def prepare_wav(data: bytes) -> str:
         tmp.write(data)
         inp = tmp.name
     wav = inp + ".wav"
-    for af in ("highpass=f=80,lowpass=f=7500,apad=pad_dur=1.2,volume=2.0", "volume=2.0", None):
+    for af in (
+        "highpass=f=80,lowpass=f=7500,apad=pad_dur=1.2,dynaudnorm,volume=3.5",
+        "highpass=f=80,lowpass=f=7500,apad=pad_dur=1.2,volume=3.0",
+        "volume=2.5",
+        None,
+    ):
         cmd = ["ffmpeg", "-y", "-i", inp, "-ar", "16000", "-ac", "1", wav]
         if af:
             cmd[4:4] = ["-af", af]
@@ -214,7 +219,7 @@ def audio_has_speech(wav: str) -> bool:
     mean = re.search(r"mean_volume:\s*([-\d.]+)\s*dB", output)
     maxv = re.search(r"max_volume:\s*([-\d.]+)\s*dB", output)
     if mean and maxv:
-        return float(maxv.group(1)) > -38 and float(mean.group(1)) > -45
+        return float(maxv.group(1)) > -48 and float(mean.group(1)) > -54
     return True
 
 
@@ -266,6 +271,64 @@ def google_stt(wav: str, lang_code: str) -> tuple[str, str, float] | None:
             continue
         except sr.RequestError:
             return None
+    return None
+
+
+def groq_stt(wav: str, lang_code: str) -> tuple[str, str, float] | None:
+    """Groq Whisper — Google STT başarısız olunca (özellikle sunucu/iPhone sesi)."""
+    api_key = os.environ.get("GROQ_API_KEY", "").strip()
+    if not api_key:
+        return None
+    lang = lang_code if lang_code in STT_LANG else "en"
+    short = lang if lang in STT_LANG else "en"
+    prompt = WHISPER_PROMPTS.get(short, "")
+    try:
+        import uuid
+
+        with open(wav, "rb") as f:
+            audio_data = f.read()
+        if len(audio_data) < 800:
+            return None
+
+        boundary = f"----GroqStt{uuid.uuid4().hex}"
+        parts: list[bytes] = []
+        for name, value in (
+            ("model", "whisper-large-v3-turbo"),
+            ("language", short),
+            ("response_format", "json"),
+            ("temperature", "0"),
+        ):
+            parts.append(
+                f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode()
+            )
+        if prompt:
+            parts.append(
+                f'--{boundary}\r\nContent-Disposition: form-data; name="prompt"\r\n\r\n{prompt[:220]}\r\n'.encode()
+            )
+        parts.append(
+            f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="audio.wav"\r\n'
+            f"Content-Type: audio/wav\r\n\r\n".encode()
+        )
+        parts.append(audio_data)
+        parts.append(f"\r\n--{boundary}--\r\n".encode())
+        body = b"".join(parts)
+
+        req = Request(
+            "https://api.groq.com/openai/v1/audio/transcriptions",
+            data=body,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": f"multipart/form-data; boundary={boundary}",
+            },
+            method="POST",
+        )
+        with urlopen(req, timeout=28) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+        text = (payload.get("text") or "").strip()
+        if len(text) >= 2 and not is_hallucination(text):
+            return text, short, score_text(text, short) + 48
+    except Exception:
+        pass
     return None
 
 
@@ -372,13 +435,26 @@ def score_text(text: str, lang: str) -> float:
     return score
 
 
-def stt_for_lang(wav: str, lang: str, allow_whisper: bool = True) -> tuple[str, str, float] | None:
+def stt_for_lang(
+    wav: str,
+    lang: str,
+    allow_whisper: bool = True,
+    allow_groq: bool = True,
+) -> tuple[str, str, float] | None:
     google = google_stt(wav, lang)
     if google and google[0].strip():
         text = google[0].strip()
         if is_hallucination(text):
             return None
         return text, lang, score_text(text, lang) + 40
+
+    if allow_groq:
+        groq = groq_stt(wav, lang)
+        if groq and groq[0].strip():
+            text = groq[0].strip()
+            if is_hallucination(text):
+                return None
+            return text, groq[1], groq[2]
 
     if not allow_whisper or DISABLE_WHISPER:
         return None
@@ -1151,14 +1227,9 @@ if __name__ == "__main__":
 
     def _warm_whisper() -> None:
         if DISABLE_WHISPER:
-            print("Whisper kapalı — Google STT (hızlı mod).")
+            print("Whisper kapalı — Google STT + Groq Whisper STT.")
             return
-        print(f"Whisper modeli yükleniyor ({WHISPER_MODEL})…")
-        try:
-            get_whisper()
-            print("Whisper hazır.")
-        except Exception as exc:
-            print(f"Whisper yüklenemedi (Google STT kullanılacak): {exc}")
+        print(f"Whisper lazy-load ({WHISPER_MODEL}) — ilk gerektiğinde yüklenecek.")
 
     threading.Thread(target=_warm_whisper, name="whisper-warmup", daemon=True).start()
 
