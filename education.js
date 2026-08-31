@@ -59,6 +59,9 @@ const S = {
   busyCount: 0,
   lastAudio: null,
   greetingLoaded: false,
+  greetingBusy: false,
+  greetingAbort: null,
+  pendingEndHold: false,
   sessionSaved: false,
   softMsgTimer: null,
   processWatchdog: null,
@@ -1015,7 +1018,9 @@ async function fetchLessonPlan() {
 
 async function fetchGreeting() {
   if (S.greetingLoaded && S.msgs.length > 0) return;
-  S.busyCount += 1;
+  if (S.greetingBusy) return;
+  S.greetingBusy = true;
+  S.greetingAbort = new AbortController();
   showTyping();
   setUiState('PROCESSING');
   try {
@@ -1023,7 +1028,9 @@ async function fetchGreeting() {
       lang: S.learnLang,
       profile: JSON.stringify(S.profile || {}),
     });
-    const r = await fetch(`/api/education/greeting?${params}`);
+    const r = await fetch(`/api/education/greeting?${params}`, {
+      signal: S.greetingAbort.signal,
+    });
     const d = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(d.error || 'Karşılama yüklenemedi');
     await handleEducationResult(d);
@@ -1031,11 +1038,13 @@ async function fetchGreeting() {
     S.sessionStart = Date.now();
     S.sessionSaved = false;
   } catch (e) {
+    if (e?.name === 'AbortError') return;
     hideTyping();
     showErr(safeErrMsg(e) || 'Karşılama yüklenemedi');
   } finally {
-    S.busyCount -= 1;
-    resetIdle();
+    S.greetingBusy = false;
+    S.greetingAbort = null;
+    if (!S.holdActive && !isRecording() && S.busyCount === 0) resetIdle();
   }
 }
 
@@ -1273,20 +1282,29 @@ function finishRecording() {
 
 async function beginHold() {
   const gen = ++S.holdGen;
-  if (S.busyCount > 0) {
-    const stale = S.busySince && Date.now() - S.busySince > STALE_BUSY_MS;
-    if (stale) {
-      forceUnlockMic(null);
-    } else {
+
+  if (S.greetingBusy && S.greetingAbort) {
+    S.greetingAbort.abort();
+    S.greetingBusy = false;
+    S.greetingAbort = null;
+    hideTyping();
+  }
+
+  if (S.busyCount > 0 && S.busySince) {
+    const stale = Date.now() - S.busySince > STALE_BUSY_MS;
+    if (!stale) {
       showErr('Önceki yanıt bekleniyor…');
       return;
     }
-  }
-  if (S.holdActive) {
-    S.holdGen += 1;
     forceUnlockMic(null);
   }
+
+  if (isRecording()) {
+    forceFinishRecording();
+  }
+
   S.holdActive = true;
+  S.pendingEndHold = false;
   S.fingerDownAt = Date.now();
   hideErr();
   showSpeaking();
@@ -1295,11 +1313,8 @@ async function beginHold() {
 
   if (!navigator.mediaDevices?.getUserMedia) {
     showErr('Mikrofon için Safari gerekli');
+    S.holdActive = false;
     resetIdle();
-    return;
-  }
-  if (isRecording()) {
-    forceFinishRecording();
     return;
   }
 
@@ -1307,14 +1322,19 @@ async function beginHold() {
     S.micOpening = true;
     await openFreshMic();
     if (S.holdGen !== gen) {
-      releaseMic();
+      S.holdActive = false;
       resetIdle();
       return;
     }
     startRecorder(gen);
+    if (S.pendingEndHold || !S.holdActive) {
+      S.pendingEndHold = false;
+      finishRecording();
+    }
   } catch (e) {
     releaseMic();
     showErr(safeErrMsg(e) || 'Mikrofon izni gerekli. Ayarlar → Safari → Mikrofon');
+    S.holdActive = false;
     resetIdle();
   } finally {
     S.micOpening = false;
@@ -1326,7 +1346,10 @@ function endHold() {
   S.holdActive = false;
 
   if (!isRecording()) {
-    if (S.micOpening) return;
+    if (S.micOpening) {
+      S.pendingEndHold = true;
+      return;
+    }
     if (S.busyCount === 0) resetIdle();
     return;
   }
@@ -1351,6 +1374,7 @@ function bindHold(el) {
   const down = (e) => { e.preventDefault(); beginHold(); };
   const up = (e) => { e.preventDefault(); endHold(); };
 
+  el.addEventListener('contextmenu', (e) => e.preventDefault());
   el.addEventListener('touchstart', (e) => {
     S.usedTouch = true;
     down(e);

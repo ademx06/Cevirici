@@ -961,6 +961,8 @@ body {
 
 .mic-btn-edu {
   border-color: rgba(167,139,250,0.4);
+  touch-action: none;
+  -webkit-touch-callout: none;
 }
 
 .mic-btn-edu.recording {
