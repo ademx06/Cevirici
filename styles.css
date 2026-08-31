@@ -1605,7 +1605,34 @@ body {
   font-size: 13px;
 }
 
-.correction-card {
+.chat-bubble-teaching {
+  border-color: rgba(251, 191, 36, 0.35);
+}
+
+.chat-en-compact {
+  margin-top: 8px;
+  opacity: 0.92;
+}
+
+.chat-en-compact span {
+  font-size: 10px;
+  color: #94A3B8;
+}
+
+.chat-en-compact p {
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.chat-bubble-teaching .correction-card {
+  margin-bottom: 6px;
+}
+
+.chat-replay-en {
+  margin-top: 6px;
+  font-size: 12px;
+  opacity: 0.85;
+}
   margin-top: 10px;
   border-radius: 12px;
   overflow: hidden;
@@ -1630,6 +1657,8 @@ body {
   white-space: pre-wrap;
   line-height: 1.45;
 }
+
+.corr-row p {
   margin: 0;
   white-space: pre-wrap;
 }

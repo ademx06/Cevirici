@@ -94,21 +94,24 @@ function normalizeProfile(p) {
   if (!p || typeof p !== 'object' || Array.isArray(p)) {
     return loadProfile();
   }
-  return {
+  const out = {
     ...p,
-    grammarErrors: ensureArray(p.grammarErrors),
+    grammarErrors: ensureArray(p.grammarErrors).filter((e) => e && typeof e === 'object'),
     vocabularyWeaknesses: ensureArray(p.vocabularyWeaknesses),
     repeatedMistakes: ensureArray(p.repeatedMistakes),
     masteredTopics: ensureArray(p.masteredTopics),
     weakAreas: ensureArray(p.weakAreas),
     strongAreas: ensureArray(p.strongAreas),
-    srsItems: ensureArray(p.srsItems),
-    vocabularyBank: ensureArray(p.vocabularyBank),
-    dailyStats: ensureArray(p.dailyStats),
-    sessionLog: ensureArray(p.sessionLog),
+    srsItems: ensureArray(p.srsItems).filter((e) => e && typeof e === 'object'),
+    vocabularyBank: ensureArray(p.vocabularyBank).filter((e) => e && typeof e === 'object'),
+    dailyStats: ensureArray(p.dailyStats).filter((e) => e && typeof e === 'object'),
+    sessionLog: ensureArray(p.sessionLog).filter((e) => e && typeof e === 'object'),
     sessions: ensureArray(p.sessions),
     newWords: ensureArray(p.newWords),
   };
+  if (typeof out.pendingPracticePhrase === 'number') out.pendingPracticePhrase = String(out.pendingPracticePhrase);
+  if (typeof out.lastTeacherText === 'number') out.lastTeacherText = String(out.lastTeacherText);
+  return out;
 }
 
 function sanitizeHistory(raw) {
@@ -120,6 +123,20 @@ function sanitizeHistory(raw) {
   }).filter(Boolean).slice(0, 24);
 }
 
+function sanitizeCorrectionDetail(cd) {
+  if (!cd || typeof cd !== 'object' || Array.isArray(cd)) return null;
+  return {
+    userSaid: safeStr(cd.userSaid),
+    correctEn: safeStr(cd.correctEn),
+    explainTr: safeStr(cd.explainTr),
+    explainEn: safeStr(cd.explainEn),
+    grammarTr: safeStr(cd.grammarTr),
+    wordBreakdown: safeStr(cd.wordBreakdown),
+    inferredMeaning: safeStr(cd.inferredMeaning),
+    level: Number(cd.level) || 1,
+  };
+}
+
 function sanitizeChatMsg(m) {
   if (!m || typeof m !== 'object' || Array.isArray(m)) return null;
   const role = m.role === 'user' ? 'user' : 'teacher';
@@ -127,18 +144,7 @@ function sanitizeChatMsg(m) {
     const text = safeStr(m.text).slice(0, 500);
     return text ? { role, text, lang: safeStr(m.lang || S.learnLang), time: safeStr(m.time) } : null;
   }
-  const cd = m.correctionDetail;
-  const correctionDetail = cd && typeof cd === 'object' && !Array.isArray(cd)
-    ? {
-        userSaid: safeStr(cd.userSaid),
-        correctEn: safeStr(cd.correctEn),
-        explainTr: safeStr(cd.explainTr),
-        explainEn: safeStr(cd.explainEn),
-        grammarTr: safeStr(cd.grammarTr),
-        wordBreakdown: safeStr(cd.wordBreakdown),
-        inferredMeaning: safeStr(cd.inferredMeaning),
-      }
-    : null;
+  const correctionDetail = sanitizeCorrectionDetail(m.correctionDetail);
   const nw = m.newWord;
   const newWord = nw && typeof nw === 'object' && !Array.isArray(nw) && nw.word
     ? { word: safeStr(nw.word), meaningTr: safeStr(nw.meaningTr) }
@@ -157,6 +163,7 @@ function sanitizeChatMsg(m) {
     audio: typeof m.audio === 'string' && m.audio ? m.audio : null,
     type: safeStr(m.type),
     newWord,
+    speakTr: safeStr(m.speakTr),
     time: safeStr(m.time),
   };
 }
@@ -368,7 +375,7 @@ function updateDailyGoal() {
 }
 
 function updatePersonalLesson(lesson) {
-  if (!lesson) return;
+  if (!lesson || typeof lesson !== 'object' || Array.isArray(lesson)) return;
   safeText('lessonWeak', lesson.mainWeakness || '—');
   safeText('lessonVocab', lesson.vocabulary || '—');
   safeText('lessonTopic', lesson.conversation || '—');
@@ -450,41 +457,51 @@ function renderSessionLog(log) {
 }
 
 function renderCorrectionCard(detail) {
-  if (!detail) return '';
+  if (!detail || typeof detail !== 'object') return '';
+  try {
   const parts = [];
-  if (detail.inferredMeaning) {
-    parts.push(`<div class="corr-row corr-tip"><span>🤔 Sanırım bunu demek istedin</span><p>${esc(detail.inferredMeaning)}</p></div>`);
+  const inf = safeStr(detail.inferredMeaning);
+  const userSaid = safeStr(detail.userSaid);
+  const words = safeStr(detail.wordBreakdown);
+  const grammar = safeStr(detail.grammarTr);
+  const correct = safeStr(detail.correctEn);
+  const explain = safeStr(detail.explainTr || detail.explainEn);
+  if (inf) {
+    parts.push(`<div class="corr-row corr-tip"><span>🤔 Sanırım bunu demek istedin</span><p>${esc(inf)}</p></div>`);
   }
-  if (detail.userSaid) {
-    parts.push(`<div class="corr-row corr-wrong"><span>❌ Senin cümlen</span><p>${esc(detail.userSaid)}</p></div>`);
+  if (userSaid) {
+    parts.push(`<div class="corr-row corr-wrong"><span>❌ Senin cümlen</span><p>${esc(userSaid)}</p></div>`);
   }
-  if (detail.wordBreakdown) {
-    parts.push(`<div class="corr-row corr-words"><span>📖 Kelimeler</span><p>${esc(detail.wordBreakdown).replace(/\n/g, '<br>')}</p></div>`);
+  if (words) {
+    parts.push(`<div class="corr-row corr-words"><span>📖 Kelimeler</span><p>${esc(words).replace(/\n/g, '<br>')}</p></div>`);
   }
-  if (detail.grammarTr) {
-    parts.push(`<div class="corr-row corr-structure"><span>🧩 Cümle yapısı</span><p>${esc(detail.grammarTr).replace(/\n/g, '<br>')}</p></div>`);
+  if (grammar) {
+    parts.push(`<div class="corr-row corr-structure"><span>🧩 Cümle yapısı</span><p>${esc(grammar).replace(/\n/g, '<br>')}</p></div>`);
   }
-  if (detail.correctEn) {
-    parts.push(`<div class="corr-row corr-right"><span>✅ Doğrusu (EN)</span><p>${esc(detail.correctEn)}</p></div>`);
+  if (correct) {
+    parts.push(`<div class="corr-row corr-right"><span>✅ Doğrusu</span><p>${esc(correct)}</p></div>`);
   }
-  if (detail.explainTr) {
-    parts.push(`<div class="corr-row corr-tip"><span>💡 Türkçe açıklama</span><p>${esc(detail.explainTr).replace(/\n/g, '<br>')}</p></div>`);
-  } else if (detail.explainEn) {
-    parts.push(`<div class="corr-row corr-tip"><span>💡 Açıklama</span><p>${esc(detail.explainEn)}</p></div>`);
+  if (explain && !words && !grammar) {
+    parts.push(`<div class="corr-row corr-tip"><span>💡 Açıklama</span><p>${esc(explain).replace(/\n/g, '<br>')}</p></div>`);
   }
+  if (!parts.length) return '';
   return `<div class="correction-card">${parts.join('')}</div>`;
+  } catch {
+    return '';
+  }
 }
 
 function render() {
   const el = $('messages');
   if (!el) return;
+  try {
   S.msgs = sanitizeMsgs(S.msgs);
   if (!S.msgs.length) {
     el.innerHTML = `<div class="chat-welcome">
       <div class="chat-welcome-avatar">🤖</div>
       <p>Merhaba! Ben senin öğretmeninim.<br>
-      <strong>İngilizce konuş</strong> — hatalarını düzeltirim, cevabımın <strong>Türkçe çevirisini</strong> görürsün.<br>
-      Takılırsan: <strong>yardım ben bugün işe gideceğim…</strong> de — cümleyi adım adım öğretirim.</p></div>`;
+      <strong>İngilizce konuş</strong> — hatalarını Türkçe açıklarım.<br>
+      Takılırsan: <strong>yardım ben bugün işe gideceğim…</strong> de.</p></div>`;
     safeClass('clearBtn', 'add', 'hidden');
     return;
   }
@@ -502,8 +519,8 @@ function render() {
     }
     const teacherEn = safeStr(m.teacherEn || m.teacher || '');
     const teacherTr = safeStr(m.teacherTr || m.explain || '');
-    let corr = m.correctionDetail ? renderCorrectionCard(m.correctionDetail) : '';
     const corrLevel = Number(m.correctionLevel) || 1;
+    let corr = m.correctionDetail ? renderCorrectionCard(m.correctionDetail) : '';
     if (!corr && m.correction && corrLevel >= 2) {
       corr = renderCorrectionCard({
         userSaid: m.userSaid,
@@ -511,16 +528,23 @@ function render() {
         explainTr: m.explain,
       });
     }
+    const isTeaching = corrLevel >= 2 || !!corr;
     const vocab = m.newWord && m.newWord.word
       ? `<div class="chat-vocab">📚 <strong>${esc(safeStr(m.newWord.word))}</strong> = ${esc(safeStr(m.newWord.meaningTr))}</div>` : '';
+    const enBlock = teacherEn
+      ? `<div class="chat-lang-block chat-en ${isTeaching ? 'chat-en-compact' : ''}"><span>${lg.flag} ${isTeaching ? 'Devam (EN)' : lg.name}</span><p>${esc(teacherEn).replace(/\n/g, '<br>')}</p></div>`
+      : '';
+    const trBlock = teacherTr && !isTeaching
+      ? `<div class="chat-lang-block chat-tr"><span>🇹🇷 Türkçe</span><p>${esc(teacherTr).replace(/\n/g, '<br>')}</p></div>`
+      : '';
+    const replayBtn = (m.speakTr || (isTeaching && teacherTr))
+      ? `<button type="button" class="replay-btn chat-replay" data-idx="${i}">🔊 Türkçe dinle</button>`
+      : (teacherEn ? `<button type="button" class="replay-btn chat-replay-en" data-idx="${i}">🔊 EN dinle</button>` : '');
     return `<div class="chat-row chat-row-teacher">
         <div class="chat-avatar">🤖</div>
-        <div class="chat-bubble chat-bubble-teacher">
-          <div class="chat-meta">Öğretmen · ${lg.flag} ${lg.name} · ${time}</div>
-          ${teacherEn ? `<div class="chat-lang-block chat-en"><span>${lg.flag} ${lg.name}</span><p>${esc(teacherEn).replace(/\n/g, '<br>')}</p></div>` : ''}
-          ${teacherTr ? `<div class="chat-lang-block chat-tr"><span>🇹🇷 Türkçe</span><p>${esc(teacherTr).replace(/\n/g, '<br>')}</p></div>` : ''}
-          ${corr}${vocab}
-          ${m.audio ? `<button type="button" class="replay-btn chat-replay" data-idx="${i}">🔊 Dinle</button>` : ''}
+        <div class="chat-bubble chat-bubble-teacher ${isTeaching ? 'chat-bubble-teaching' : ''}">
+          <div class="chat-meta">Öğretmen · ${time}</div>
+          ${corr}${enBlock}${trBlock}${vocab}${replayBtn}
         </div></div>`;
     } catch {
       return '';
@@ -530,14 +554,24 @@ function render() {
     btn.onclick = (e) => {
       e.preventDefault();
       unlockAudioSync();
-      const idx = parseInt(btn.dataset.idx, 10);
-      const msg = S.msgs[idx];
-      if (msg?.audio) playB64(msg.audio);
+      const msg = S.msgs[parseInt(btn.dataset.idx, 10)];
+      if (msg) playTeacherTts({ speak_tr: msg.speakTr || msg.teacherTr, speak_tr_first: true, correction_level: msg.correctionLevel || 2 });
+    };
+  });
+  el.querySelectorAll('.chat-replay-en').forEach((btn) => {
+    btn.onclick = (e) => {
+      e.preventDefault();
+      unlockAudioSync();
+      const msg = S.msgs[parseInt(btn.dataset.idx, 10)];
+      if (msg) fetchAndPlayTts(msg.teacherEn || msg.teacher, S.learnLang, false);
     };
   });
   requestAnimationFrame(() => {
     el.scrollTop = el.scrollHeight;
   });
+  } catch {
+    el.innerHTML = '<p class="empty-hint">Görüntüleme hatası — Veriyi sıfırla ile düzelt.</p>';
+  }
 }
 
 function unlockAudioSync() {
@@ -591,17 +625,12 @@ const TR_FIRST_TYPES = new Set(['help', 'coach_tr', 'ai_intent', 'ai_correction'
 async function playTeacherTts(d) {
   if (!d || typeof d !== 'object') return;
   const corrLevel = Number(d.correction_level) || 1;
-  const speakTr = safeStr(d.speak_tr || '');
-  const speakEn = safeStr(d.speak_text || d.teacher_en || d.teacher_text || d.robot_target).slice(0, 500);
-  const slow = !!d.speak_slow;
-  const trFirst = d.speak_tr_first || corrLevel >= 2 || TR_FIRST_TYPES.has(safeStr(d.type));
+  const needsTr = d.speak_tr_first || corrLevel >= 2 || TR_FIRST_TYPES.has(safeStr(d.type));
+  const speakTr = safeStr(d.speak_tr || (needsTr ? d.teacher_tr : '')).slice(0, 550);
 
   try {
-    if (trFirst && speakTr) {
-      await fetchAndPlayTts(speakTr, 'tr', true);
-    }
-    if (speakEn) {
-      await fetchAndPlayTts(speakEn, safeStr(d.target_lang || S.learnLang), slow);
+    if (speakTr && needsTr) {
+      await fetchAndPlayTts(speakTr, 'tr', false);
     }
   } catch { /* ignore */ }
   finally {
@@ -652,9 +681,11 @@ function appendUserMsg(text, lang) {
 }
 
 function appendTeacherMsg(d) {
+  if (!d || typeof d !== 'object') return;
+  try {
   const teacherEn = safeStr(d.teacher_en || d.robot_target || d.teacher_text || '');
   const teacherTr = safeStr(d.teacher_tr || d.explain_tr || '');
-  const audio = typeof d.audio === 'string' && d.audio ? d.audio : null;
+  const corrLevel = Number(d.correction_level) || 1;
   S.msgs.push({
     role: 'teacher',
     teacher: safeStr(d.teacher_text || teacherEn),
@@ -662,24 +693,26 @@ function appendTeacherMsg(d) {
     teacherTr,
     explain: teacherTr,
     correction: safeStr(d.correction || ''),
-    correctionLevel: Number(d.correction_level) || 1,
-    correctionDetail: d.correction_detail && typeof d.correction_detail === 'object' ? d.correction_detail : null,
+    correctionLevel: corrLevel,
+    correctionDetail: sanitizeCorrectionDetail(d.correction_detail),
     userSaid: safeStr(d.user_text || ''),
-    targetLang: d.target_lang || S.learnLang,
-    audio,
-    type: d.type,
-    newWord: d.new_word && typeof d.new_word === 'object' ? d.new_word : null,
+    targetLang: safeStr(d.target_lang || S.learnLang),
+    speakTr: safeStr(d.speak_tr || ''),
+    type: safeStr(d.type),
+    newWord: d.new_word && typeof d.new_word === 'object' && !Array.isArray(d.new_word) && d.new_word.word
+      ? { word: safeStr(d.new_word.word), meaningTr: safeStr(d.new_word.meaningTr) }
+      : null,
     time: chatTime(),
   });
-  if (audio) S.lastAudio = audio;
   saveChat();
   pushHistory('teacher', teacherEn);
+  } catch { /* ignore bad message */ }
 }
 
 function handleEducationResult(d) {
   if (!d || typeof d !== 'object') return;
   try {
-    if (d.profile) {
+    if (d.profile && typeof d.profile === 'object' && !Array.isArray(d.profile)) {
       S.profile = normalizeProfile(d.profile);
       saveProfile();
       updateLevelBadge();
@@ -689,20 +722,21 @@ function handleEducationResult(d) {
       S.weeklyProgress = d.weekly_progress || d.weeklyProgress;
     }
     if (d.daily_lesson) updatePersonalLesson(d.daily_lesson);
-    if (d.motivation) showMotivation(d.motivation);
+    if (d.motivation) showMotivation(safeStr(d.motivation));
 
     if (d.user_text) appendUserMsg(safeStr(d.user_text), d.user_lang);
     appendTeacherMsg(d);
     hideTyping();
     render();
-    if (typeof d.audio === 'string' && d.audio) {
-      playB64(d.audio);
-    } else {
+    const corrLevel = Number(d.correction_level) || 1;
+    const needsTrAudio = corrLevel >= 2 || TR_FIRST_TYPES.has(safeStr(d.type)) || d.speak_tr_first;
+    if (needsTrAudio && (d.speak_tr || d.teacher_tr)) {
       playTeacherTts(d);
     }
   } catch (e) {
     hideTyping();
-    showErr(safeErrMsg(e) || 'Mesaj gösterilemedi');
+    console.error(e);
+    showErr('Mesaj işlenemedi — tekrar dene veya Veriyi sıfırla');
   }
 }
 
@@ -768,7 +802,7 @@ function compactStateForVoice() {
       pendingSrsId: p.pendingSrsId || null,
       pendingVocabWord: p.pendingVocabWord || null,
     },
-    history: sanitizeHistory(S.history).slice(0, 12),
+    history: sanitizeHistory(S.history).slice(0, 8),
     roleplay: S.roleplay || null,
     speak_slow: S.speakSlow,
     last_lang: S.learnLang,

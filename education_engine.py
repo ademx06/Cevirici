@@ -80,19 +80,13 @@ YOUR JOB — think like a real human tutor, NOT a dictionary:
 1. Infer what the student MEANT from context, even if they said one word ("Sleeping"), wrong grammar ("I sleeping"), STT errors ("Slipping"), or Turkish.
 2. Never reply with random unrelated topics. Always respond to what they meant.
 3. teacher_en: natural {lang_name} reply (2-4 sentences). Continue the conversation. End with a relevant question.
-4. teacher_tr: Turkish teaching block — MUST use these sections when correcting (correction_level >= 2):
-   🤔 Sanırım bunu demek istedin: (what you understood)
-   📖 Kelimeler: (each key word = Turkish meaning + short usage, e.g. "go = gitmek, to work = işe")
-   🧩 Cümle yapısı: (subject + verb + object in Turkish, e.g. "I + will + go + to work = Ben + işe + gideceğim")
-   ✅ Doğrusu: (correct English sentence + Turkish meaning)
-   💡 Neden: (brief grammar reason in Turkish)
-5. grammar_tr: One clear paragraph — ONLY the 🧩 Cümle yapısı part (for display + audio).
-6. word_breakdown_tr: ONLY the 📖 Kelimeler part — one line per word.
-7. speak_tr: Natural spoken Turkish (NO emoji, 3-5 sentences) read aloud to the student. Summarize: what they meant, word tips, correct form. REQUIRED when correction_level >= 2.
-8. If grammar or vocabulary is wrong: set correction_level 2 or 3, give correct_phrase with the full natural sentence.
-9. If input was incomplete but intent is clear: offer "Did you mean: ...?" in teacher_en, set suggested_practice to the full correct sentence, speak_tr must explain in Turkish.
-10. If student spoke Turkish: acknowledge in teacher_tr, teach the {lang_name} equivalent with word breakdown, encourage answering in {lang_name}.
-11. Praise ONLY when the sentence is actually correct — never praise wrong answers as correct.
+4. teacher_tr: Turkish teaching ONLY (for on-screen + audio). Use sections when correcting:
+   🤔 Sanırım bunu demek istedin / 📖 Kelimeler / 🧩 Cümle yapısı / ✅ Doğrusu / 💡 Neden
+   Keep it concise — max 6-8 lines total.
+5. teacher_en: SHORT English only — the correct phrase + one follow-up question. Do NOT repeat the Turkish explanation in English.
+6. grammar_tr, word_breakdown_tr, speak_tr: as before. speak_tr = Turkish audio script (no emoji, 2-4 short sentences). REQUIRED when correction_level >= 2.
+7. When correcting: correction_level 2 or 3, correct_phrase required.
+8. Praise ONLY when actually correct.
 
 Return ONLY valid JSON with these keys:
 {{
@@ -1801,7 +1795,7 @@ def _gemini_chat(system: str, user: str, max_tokens: int = 520) -> str | None:
         return None
 
 
-def _llm_json(system: str, user: str, max_tokens: int = 520) -> dict[str, Any] | None:
+def _llm_json(system: str, user: str, max_tokens: int = 380) -> dict[str, Any] | None:
     """Yapılandırılmış JSON yanıt — Groq / Gemini / OpenAI."""
     provider = _active_llm_provider()
     if not provider:
@@ -1851,7 +1845,7 @@ def _llm_json(system: str, user: str, max_tokens: int = 520) -> dict[str, Any] |
         return None
 
 
-def _format_history_for_ai(history: list[dict], limit: int = 10) -> str:
+def _format_history_for_ai(history: list[dict], limit: int = 8) -> str:
     lines: list[str] = []
     for h in history[-limit:]:
         if not isinstance(h, dict):
@@ -2473,7 +2467,7 @@ def process_turn(
         srs_prompt = None
 
     llm_msgs = []
-    for h in history[-12:]:
+    for h in history[-8:]:
         role = "assistant" if h.get("role") == "teacher" else "user"
         llm_msgs.append({"role": role, "content": h.get("text", "")})
     llm_msgs.append({"role": "user", "content": user_text})

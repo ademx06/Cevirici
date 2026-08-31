@@ -276,7 +276,7 @@ def whisper_stt(wav: str, lang_code: str) -> tuple[str, str, float] | None:
         segments, info = model.transcribe(
             wav,
             language=wlang,
-            beam_size=5,
+            beam_size=1 if WHISPER_MODEL == "tiny" else 3,
             best_of=1,
             vad_filter=False,
             condition_on_previous_text=False,
@@ -581,7 +581,7 @@ def transcribe_education(
 
         candidates: list[tuple[str, str, float]] = []
         for lang in langs:
-            result = stt_for_lang(wav, lang)
+            result = stt_for_lang(wav, lang, allow_whisper=False)
             if not result or not result[0].strip():
                 continue
             raw = result[0].strip()
@@ -590,6 +590,18 @@ def transcribe_education(
             )
             if text:
                 candidates.append((text, detected, score))
+
+        if not candidates:
+            for lang in langs:
+                result = stt_for_lang(wav, lang, allow_whisper=True)
+                if not result or not result[0].strip():
+                    continue
+                raw = result[0].strip()
+                text, detected, score = _rank_education_stt(
+                    raw, raw, lang, result[2], history,
+                )
+                if text:
+                    candidates.append((text, detected, score))
 
         if not candidates:
             raise ValueError("speech not recognized")
