@@ -276,7 +276,17 @@ FOLLOWUPS = {
 }
 
 SPECIAL_TR = re.compile(
-    r"(türkçe\s+açıkla|anlamadım|tekrar(?:\s+et|\s+söyle)?|repeat|speak\s+slowly|yavaş\s+konuş|slow)",
+    r"(türkçe\s+açıkla|anlamadım|anlamıyorum|tekrar(?:\s+et|\s+söyle)?|repeat|speak\s+slowly|yavaş\s+konuş|slow)",
+    re.I,
+)
+
+CONFUSION_RE = re.compile(
+    r"(?:^|\b)(?:i\s+)?(?:(?:don't|do not|didn't)\s+understand(?:\s+(?:it|you|this|that))?|"
+    r"(?:don't|do not)\s+get\s+it|what\s+do\s+you\s+mean|what\s+does\s+(?:that|this|it)\s+mean|"
+    r"(?:i'm|i am)\s+confused|(?:it's|its|this\s+is)\s+confusing|not\s+clear|can\s+you\s+explain|"
+    r"anlamadım|anlamıyorum|ne\s+demek|ne\s+diyorsun|açıklar\s+mısın|"
+    r"tekrar\s+(?:eder|edebilir)\s+misin|(?:^|\b)what\?(?:\s|$)|(?:^|\b)huh\?(?:\s|$)|"
+    r"pardon|excuse\s+me\?)(?:\s|$|[.!?,])",
     re.I,
 )
 
@@ -1419,6 +1429,8 @@ def _try_intent_clarify(
 ) -> dict[str, Any] | None:
     if target_lang != "en" or not translate_fn:
         return None
+    if _is_confusion_request(user_text):
+        return None
     teacher_q = _last_teacher_question(history, profile)
     if not _is_fragment_attempt(user_text):
         return None
@@ -2236,6 +2248,74 @@ def _help_mode(
     )
 
 
+def _is_confusion_request(text: str) -> bool:
+    """Öğrenci anlamadığını söylüyor — pratik cevabı sanma."""
+    t = text.strip()
+    if not t:
+        return False
+    if CONFUSION_RE.search(t):
+        return True
+    low = t.lower()
+    return bool(re.search(
+        r"^(i\s+)?(don't|do not|didn't)\s+understand",
+        low,
+    ))
+
+
+def _confusion_help_mode(
+    user_text: str,
+    target_lang: str,
+    profile: dict,
+    session_delta: dict,
+    translate_fn: Callable[[str, str, str], str] | None,
+    history: list[dict],
+) -> dict[str, Any]:
+    """Anlamadım / don't understand — Türkçe açıkla, pratik modunu kapat."""
+    lang_name = LANG_NAMES.get(target_lang, target_lang)
+    last_teacher = profile.get("lastTeacherText") or _last_teacher_question(history, profile) or ""
+    pending = safe_str(profile.get("pendingPracticePhrase")).strip()
+    clear = {"pendingPracticePhrase": None, "pendingPracticeTr": None}
+
+    teacher_tr_parts = ["Tamam — açıklayayım.\n"]
+    teacher_en_parts: list[str] = ["No problem — let me explain.\n"]
+
+    if pending:
+        meaning_tr = safe_str(profile.get("pendingPracticeTr")).strip()
+        if translate_fn and not meaning_tr:
+            meaning_tr = _to_tr(pending, translate_fn, target_lang)
+        teacher_tr_parts.append(f"📌 Çalıştığımız cümle:\n\"{pending}\"")
+        if meaning_tr:
+            teacher_tr_parts.append(f"Türkçesi: {meaning_tr}")
+        teacher_en_parts.append(f"We were practicing: \"{pending}\"")
+
+    if last_teacher and last_teacher != pending:
+        teacher_tr_parts.append(f"\n💬 Son {lang_name} mesajım:\n\"{last_teacher}\"")
+        if translate_fn:
+            tr_line = _to_tr(last_teacher, translate_fn, target_lang)
+            if tr_line:
+                teacher_tr_parts.append(f"Türkçesi: {tr_line}")
+        teacher_en_parts.append(f"My last message: \"{last_teacher}\"")
+
+    teacher_tr_parts.append(
+        "\nİstersen Türkçe 'yardım ben …' de, veya 'tekrar et' / 'yavaş' diyebilirsin."
+    )
+    teacher_en_parts.append(
+        "\nYou can say 'repeat', 'slow', or ask in Turkish starting with 'yardım …'."
+    )
+
+    teacher_tr = "\n".join(teacher_tr_parts)
+    teacher_en = "\n\n".join(teacher_en_parts)
+    display_en = last_teacher or pending or teacher_en
+
+    merged = merge_profile(profile, {**session_delta, **clear})
+    return _pack(
+        merged, {**session_delta, **clear},
+        display_en, teacher_tr, None, 1, "confusion_help",
+        waiting=True, user_text=user_text, teacher_en=display_en,
+        speak_tr="", speak_tr_first=False,
+    )
+
+
 def _yardim_help_mode(
     user_text: str, target_lang: str, profile: dict, session_delta: dict,
     translate_fn: Callable[[str, str, str], str],
@@ -2395,6 +2475,14 @@ def process_turn(
     if BREAKDOWN_RE.search(user_text):
         breakdown = grammar_breakdown(last_teacher, profile.get("currentLevel", "A1"))
         return _pack(profile, session_delta, breakdown, breakdown, None, 1, "breakdown", waiting=True, user_text=user_text)
+
+    # Anlamadım / don't understand — pratik beklerken bile önce açıkla
+    if _is_confusion_request(user_text):
+        result = _confusion_help_mode(
+            user_text, target_lang, profile, session_delta, translate_fn, history,
+        )
+        result["weekly_progress"] = weekly_progress(result["profile"])
+        return result
 
     # "yardım" ile başlayan istek → cümle kurma öğretimi
     if translate_fn and _is_yardim_request(user_text):
@@ -2649,6 +2737,8 @@ def _wrong_practice_after_help(
     pending = safe_str(profile.get("pendingPracticePhrase")).strip()
     pending_tr = safe_str(profile.get("pendingPracticeTr")).strip()
     if not pending:
+        return None
+    if _is_confusion_request(user_text):
         return None
     if _practice_phrase_match(user_text, pending):
         return None

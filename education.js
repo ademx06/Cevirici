@@ -61,10 +61,13 @@ const S = {
   sessionSaved: false,
   softMsgTimer: null,
   processWatchdog: null,
+  busySince: 0,
 };
 
 const VOICE_FETCH_MS = 55000;
 const TTS_PLAY_MS = 15000;
+const STALE_BUSY_MS = 18000;
+const MIC_OPEN_MS = 12000;
 
 const $ = (id) => document.getElementById(id);
 
@@ -257,15 +260,16 @@ function setUiState(name) {
 }
 
 function showErr(t) {
-  // Kırmızı hata kutusu yok — yalnızca durum çubuğunda kısa bilgi
   const msg = safeStr(t).slice(0, 120) || 'Tekrar dene';
   safeText('statusText', msg);
+  safeText('micTitle', msg.slice(0, 42));
   hideErr();
   if (S.uiState !== 'SPEAKING' && S.uiState !== 'RECORDING') setUiState('IDLE');
   clearTimeout(S.softMsgTimer);
   S.softMsgTimer = setTimeout(() => {
     if (S.busyCount === 0 && !isRecording() && !S.holdActive) {
       safeText('statusText', 'Hazır');
+      safeText('micTitle', STATES.IDLE.mic);
     }
   }, 4500);
 }
@@ -384,15 +388,29 @@ function forceFinishRecording() {
   }
 }
 
+function forceUnlockMic(reason) {
+  S.busyCount = 0;
+  S.busySince = 0;
+  S.holdActive = false;
+  clearTimeout(S.processWatchdog);
+  S.processWatchdog = null;
+  cleanupRecorder();
+  releaseStream();
+  stopTts();
+  resetIdle();
+  if (reason) showErr(reason);
+}
+
+function markBusy() {
+  S.busyCount += 1;
+  S.busySince = Date.now();
+}
+
 function armProcessWatchdog() {
   clearTimeout(S.processWatchdog);
   S.processWatchdog = setTimeout(() => {
     if (S.busyCount > 0 || S.uiState === 'PROCESSING') {
-      S.busyCount = 0;
-      cleanupRecorder();
-      releaseStream();
-      resetIdle();
-      showErr('Yanıt gecikti — tekrar dene');
+      forceUnlockMic('Yanıt gecikti — tekrar dene');
     }
   }, VOICE_FETCH_MS + 5000);
 }
@@ -1104,7 +1122,12 @@ function pickMime() {
 
 async function openFreshMic() {
   releaseMic();
-  S.stream = await navigator.mediaDevices.getUserMedia(MIC_OPTS);
+  await new Promise((r) => setTimeout(r, 100));
+  const micPromise = navigator.mediaDevices.getUserMedia(MIC_OPTS);
+  const timeout = new Promise((_, reject) => {
+    setTimeout(() => reject(new Error('Mikrofon açılamadı — tekrar dene')), MIC_OPEN_MS);
+  });
+  S.stream = await Promise.race([micPromise, timeout]);
   return S.stream;
 }
 
@@ -1148,6 +1171,7 @@ function startRecorder(gen) {
     }
 
     S.busyCount += 1;
+    S.busySince = Date.now();
     showThinking();
     armProcessWatchdog();
 
@@ -1165,6 +1189,7 @@ function startRecorder(gen) {
         clearTimeout(S.processWatchdog);
         S.processWatchdog = null;
         S.busyCount = Math.max(0, S.busyCount - 1);
+        if (S.busyCount === 0) S.busySince = 0;
         if (!S.holdActive && !isRecording() && S.busyCount === 0) resetIdle();
       });
   };
@@ -1201,8 +1226,17 @@ function finishRecording() {
 async function beginHold() {
   const gen = ++S.holdGen;
   if (S.busyCount > 0) {
-    showErr('Önceki yanıt bekleniyor…');
-    return;
+    const stale = S.busySince && Date.now() - S.busySince > STALE_BUSY_MS;
+    if (stale) {
+      forceUnlockMic(null);
+    } else {
+      showErr('Önceki yanıt bekleniyor…');
+      return;
+    }
+  }
+  if (S.holdActive) {
+    S.holdGen += 1;
+    forceUnlockMic(null);
   }
   S.holdActive = true;
   S.fingerDownAt = Date.now();
@@ -1216,7 +1250,10 @@ async function beginHold() {
     resetIdle();
     return;
   }
-  if (isRecording()) return;
+  if (isRecording()) {
+    forceFinishRecording();
+    return;
+  }
 
   try {
     await openFreshMic();
@@ -1226,9 +1263,9 @@ async function beginHold() {
       return;
     }
     startRecorder(gen);
-  } catch {
+  } catch (e) {
     releaseMic();
-    showErr('Mikrofon izni gerekli. Ayarlar → Safari → Mikrofon');
+    showErr(safeErrMsg(e) || 'Mikrofon izni gerekli. Ayarlar → Safari → Mikrofon');
     resetIdle();
   }
 }
@@ -1425,7 +1462,13 @@ const micBtn = $('micBtn');
 if (micBtn) bindHold(micBtn);
 
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden') endSession();
+  if (document.visibilityState === 'hidden') {
+    endSession();
+    return;
+  }
+  if (S.busyCount > 0 && S.busySince && Date.now() - S.busySince > STALE_BUSY_MS) {
+    forceUnlockMic('Devam edelim — tekrar konuş');
+  }
 });
 window.addEventListener('pagehide', () => endSession());
 
