@@ -25,11 +25,12 @@
 
   function createMicHold(cfg) {
     const S = cfg.state;
-    const tailMs = cfg.tailMs ?? 450;
-    const minHoldMs = cfg.minHoldMs ?? 400;
+    const tailMs = cfg.tailMs ?? 280;
+    const minHoldMs = cfg.minHoldMs ?? 350;
     const minBlobBytes = cfg.minBlobBytes ?? 200;
     const micOpenMs = cfg.micOpenMs ?? 12000;
     const micOpts = cfg.micOpts ?? DEFAULT_MIC_OPTS;
+    const releaseStreamAfterStop = cfg.releaseStreamAfterStop !== false;
 
     if (S.pendingEndHold == null) S.pendingEndHold = false;
     if (S.micOpening == null) S.micOpening = false;
@@ -79,10 +80,10 @@
     async function iosSafeStop(recorder) {
       if (!recorder || recorder.state !== 'recording') return;
       try { recorder.requestData(); } catch { /* ignore */ }
-      await delay(IS_IOS ? 140 : 70);
+      await delay(IS_IOS ? 90 : 45);
       if (recorder.state === 'recording') {
         try { recorder.requestData(); } catch { /* ignore */ }
-        await delay(IS_IOS ? 140 : 70);
+        await delay(IS_IOS ? 90 : 45);
       }
       if (recorder.state === 'recording') {
         try { recorder.stop(); } catch { /* ignore */ }
@@ -90,15 +91,8 @@
     }
 
     async function openFreshMic(openGen) {
-      if (IS_IOS || !S.stream) {
-        teardownMicOnly();
-        await delay(IS_IOS ? 80 : 30);
-      } else {
-        const tracks = S.stream.getAudioTracks();
-        const live = tracks.length > 0 && tracks.every((t) => t.readyState === 'live' && t.enabled);
-        if (live) return S.stream;
-        releaseStream();
-      }
+      teardownMicOnly();
+      await delay(IS_IOS ? 60 : 20);
 
       if (S.micOpenGen !== openGen) throw new Error('cancelled');
 
@@ -170,6 +164,7 @@
         const blob = chunks.length
           ? new Blob(chunks, { type: mimeType })
           : new Blob([], { type: mimeType });
+        if (releaseStreamAfterStop) releaseStream();
         deliverBlob(blob, pressMs);
       };
 

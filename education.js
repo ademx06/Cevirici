@@ -30,8 +30,8 @@ audio.setAttribute('webkit-playsinline', 'true');
 if (document.body) document.body.appendChild(audio);
 else document.addEventListener('DOMContentLoaded', () => document.body.appendChild(audio));
 
-const TAIL_MS = 450;
-const MIN_HOLD_MS = 450;
+const TAIL_MS = 280;
+const MIN_HOLD_MS = 350;
 const MIN_BLOB_BYTES = 400;
 
 const S = {

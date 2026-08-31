@@ -16,8 +16,8 @@ audio.setAttribute('playsinline', 'true');
 audio.setAttribute('webkit-playsinline', 'true');
 document.body.appendChild(audio);
 
-const TAIL_MS = 450;
-const MIN_HOLD_MS = 450;
+const TAIL_MS = 280;
+const MIN_HOLD_MS = 350;
 
 const S = {
   my: 'tr', other: 'en', msgs: [],
@@ -164,11 +164,11 @@ async function playB64(b64) {
   }
 }
 
-async function fetchListen(blob, my, other, last) {
+async function fetchProcess(blob, my, other, last) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 45000);
   try {
-    const r = await fetch(`/api/listen?${new URLSearchParams({ my, other, last: last || '' })}`, {
+    const r = await fetch(`/api/process?${new URLSearchParams({ my, other, last: last || '' })}`, {
       method: 'POST',
       body: blob,
       headers: { 'Content-Type': blob.type || 'audio/mp4' },
@@ -206,42 +206,23 @@ async function fetchPronunciation(text, lang) {
 }
 
 async function processAudio(blob) {
-  const stt = await fetchListen(blob, S.my, S.other, S.lastFrom);
-  const msg = {
-    orig: stt.original, trans: '…', from: stt.from, to: stt.to, audio: null, phonetic: '',
-  };
-  S.lastFrom = stt.from;
-  S.msgs.unshift(msg);
-  render();
-  clearInterim();
-  setStatus('Çevriliyor...', true);
-  const translated = await fetchTranslateText(stt.original, stt.from, stt.to);
-  const idx = S.msgs.indexOf(msg);
-  if (idx >= 0) {
-    S.msgs[idx].trans = translated;
-    render();
-    setStatus('Çeviri hazır', false);
-    void fetchTranslateTts(translated, stt.to, idx);
-    void fetchPronunciation(translated, stt.to).then((ph) => {
-      if (S.msgs[idx] && ph) {
-        S.msgs[idx].phonetic = ph;
-        render();
-      }
-    });
-  }
-  return { original: stt.original, translated, from: stt.from, to: stt.to };
-}
-
-function handleResult(d) {
-  if (S.msgs[0]?.orig === d.original) return;
+  const d = await fetchProcess(blob, S.my, S.other, S.lastFrom);
   S.lastFrom = d.from;
-  S.msgs.unshift({
-    orig: d.original, trans: d.translated, from: d.from, to: d.to, audio: null,
-  });
+  const msg = {
+    orig: d.original, trans: d.translated, from: d.from, to: d.to, audio: null, phonetic: '',
+  };
+  S.msgs.unshift(msg);
   render();
   clearInterim();
   setStatus('Çeviri hazır', false);
   void fetchTranslateTts(d.translated, d.to, 0);
+  void fetchPronunciation(d.translated, d.to).then((ph) => {
+    if (S.msgs[0]?.orig === d.original && ph) {
+      S.msgs[0].phonetic = ph;
+      render();
+    }
+  });
+  return d;
 }
 
 async function fetchTranslateTts(text, lang, msgIndex) {
@@ -297,7 +278,6 @@ const mic = MicHold.create({
     S.busyCount += 1;
     showTranslating();
     processAudio(blob)
-      .then(handleResult)
       .catch((e) => showErr(e.message || 'Anlaşılamadı'))
       .finally(() => {
         S.busyCount -= 1;

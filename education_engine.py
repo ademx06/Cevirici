@@ -72,6 +72,9 @@ CONVERSATION HISTORY (teacher = you, user = student):
 LAST THING YOU (teacher) SAID:
 "{last_teacher}"
 
+RECENT QUESTIONS YOU ALREADY ASKED (do NOT ask these again — pick something new):
+{recent_questions}
+
 STUDENT JUST SAID ({input_lang}) — raw speech-to-text, may contain errors:
 "{user_text}"
 
@@ -80,9 +83,10 @@ SPEECH RECOGNITION NOTE: Input is from automatic STT. Common errors: "I will"→
 CONVERSATION STYLE — talk like a real person across the table:
 1. First REACT to what they said: answer their question, comment on their day/plan/feeling, agree or empathize.
 2. Then ask ONE fresh follow-up question (different from your last question) to keep the chat going.
-3. Never ignore their message and jump to a random topic. Never lecture unless correcting.
-4. If they ask "how are you?" — answer briefly, then ask about THEM.
-5. teacher_en: natural {lang_name} reply (2-4 sentences). MUST end with a question (?) except goodbye.
+3. NEVER repeat a question you already asked in this conversation (see RECENT QUESTIONS below). Always move the chat forward with a NEW angle or topic.
+4. Never ignore their message and jump to a random topic. Never lecture unless correcting.
+5. If they ask "how are you?" — answer briefly, then ask about THEM.
+6. teacher_en: natural {lang_name} reply (2-4 sentences). MUST end with a question (?) except goodbye.
 
 YOUR JOB — think like a real human tutor, NOT a dictionary:
 1. Infer what the student MEANT from context, even if they said one word ("Sleeping"), wrong grammar ("I sleeping"), STT errors ("Slipping"), or Turkish.
@@ -119,7 +123,9 @@ CRITICAL RULES:
 - If PENDING PRACTICE is set and student said something different, explain the difference gently — do NOT praise wrong answers as correct.
 - If student greets or makes small talk (hello, how are you), IGNORE pending practice — reply naturally with correction_level 1.
 - If student sentence is grammatically broken (missing subject, wrong word order, "yes understand books"), correction_level MUST be 2+, infer meaning, show correct_phrase — do NOT continue chat as if they spoke correctly.
-- For A1 beginners: simple words, one idea at a time, warm tone, always teach through the conversation."""
+- For A1 beginners: simple words, one idea at a time, warm tone, always teach through the conversation.
+- NEVER ask the same question twice in one session. Check RECENT QUESTIONS and history — vary topics (food, hobbies, weekend, work, family, travel, feelings).
+- Be a real human tutor: curious, warm, patient. Open new conversation threads naturally when the current one feels complete."""
 
 GREETINGS_TR = [
     "Merhaba! Ben senin robot öğretmeninim. Hadi birlikte konuşalım — sen konuş, ben dinlerim ve hatalarını Türkçe açıklarım.",
@@ -1008,6 +1014,44 @@ def _is_how_to_say_stuck(text: str) -> bool:
         if re.search(r"bilmiyorum|bilemedim|bilemiyorum|kararsız|yardım", low):
             return True
     return False
+
+
+HOW_TO_SAY_PREFIX_RE = re.compile(
+    r"^(?:nasıl\s+söyleyeceğim(?:i)?\s+bilmiyorum|ne\s+söyleyeceğimi\s+bilmiyorum|"
+    r"ne\s+demem\s+lazım|ne\s+desem\s+bilemedim|nasıl\s+söylesem\s+bilemedim|"
+    r"cümleyi\s+nasıl\s+kur(?:acağım|abilirim|arım)|nasıl\s+söyleyebilirim|"
+    r"söyleyemiyorum|don'?t\s+know\s+how\s+to\s+say|don'?t\s+know\s+what\s+to\s+say|"
+    r"i\s+don'?t\s+know\s+(?:how|what)\s+(?:to\s+)?say|how\s+(?:can|do|should)\s+i\s+say\s+(?:this|it)?)"
+    r"[,\s!:.-]*",
+    re.I,
+)
+
+
+def _extract_phrase_from_how_to_say_stuck(text: str) -> str | None:
+    """'Nasıl söyleyeceğimi bilmiyorum bugün okula gittim...' → Türkçe cümle parçası."""
+    t = text.strip()
+    if not t:
+        return None
+    m = re.search(
+        r"(?:nasıl\s+söyleyeceğim(?:i)?\s+bilmiyorum|ne\s+söyleyeceğimi\s+bilmiyorum|"
+        r"ne\s+demem\s+lazım|ne\s+desem\s+bilemedim|nasıl\s+söylesem\s+bilemedim|"
+        r"cümleyi\s+nasıl\s+kur(?:acağım|abilirim|arım)|nasıl\s+söyleyebilirim|"
+        r"don'?t\s+know\s+how\s+to\s+say|don'?t\s+know\s+what\s+to\s+say|"
+        r"i\s+don'?t\s+know\s+(?:how|what)\s+(?:to\s+)?say)"
+        r"[,\s!:.-]+(.+)$",
+        t,
+        re.I,
+    )
+    phrase = ""
+    if m:
+        phrase = m.group(1).strip(" ?.!")
+    else:
+        phrase = HOW_TO_SAY_PREFIX_RE.sub("", t).strip(" ?.!")
+    if len(phrase) < 4:
+        return None
+    if not _is_real_turkish(phrase):
+        return None
+    return phrase
 
 
 def _build_how_to_say_examples(
@@ -2185,10 +2229,37 @@ def pronounce_text(text: str, lang: str = "en") -> str:
 
 def _simple_en_phonetic(text: str) -> str:
     t = re.sub(r"[^\w\s'-]", "", text.lower())
+    word_map = {
+        "the": "dı", "you": "yu", "your": "yor", "are": "ar", "was": "vaz",
+        "were": "ver", "have": "hev", "has": "hez", "had": "hed", "would": "vud",
+        "could": "kud", "should": "şud", "because": "bikoz", "through": "thru",
+        "though": "tho", "people": "pipıl", "really": "rili", "usually": "yuğuali",
+        "beautiful": "byutiful", "comfortable": "kamftıbıl", "interesting": "intresting",
+        "yesterday": "yestırdey", "today": "tudey", "tomorrow": "tumoro",
+        "work": "vork", "walk": "vok", "water": "votır", "where": "ver",
+        "what": "vat", "when": "ven", "why": "vay", "who": "hu", "how": "hav",
+        "good": "gud", "great": "greyt", "thanks": "thenks", "please": "pliz",
+        "sorry": "sori", "hello": "helo", "friend": "frend", "family": "femili",
+        "school": "skul", "coffee": "kofi", "tea": "ti", "book": "buk", "read": "rid",
+        "tired": "tayırd", "happy": "hepi", "understand": "anderstand",
+    }
+    words = t.split()
+    out_words: list[str] = []
+    for w in words:
+        base = re.sub(r"'s$|'re$|'ve$|'ll$|'d$", "", w)
+        if base in word_map:
+            out_words.append(word_map[base])
+            continue
+        out_words.append(w)
+    t = " ".join(out_words)
     repl = [
-        (r"\btion\b", "şın"), (r"\bough\b", "of"), (r"ph", "f"), (r"wh", "v"),
-        (r"th", "t"), (r"sh", "ş"), (r"ch", "ç"), (r"oo", "u"), (r"ee", "i"),
-        (r"ea", "i"), (r"ou", "au"), (r"ow", "au"),
+        (r"\btion\b", "şın"), (r"\bough\b", "of"), (r"\bight\b", "ayt"),
+        (r"\bious\b", "iös"), (r"\bable\b", "ıbıl"), (r"\bment\b", "ment"),
+        (r"ph", "f"), (r"wh", "v"), (r"th", "t"), (r"sh", "ş"), (r"ch", "ç"),
+        (r"ck", "k"), (r"qu", "kv"), (r"wr", "r"), (r"kn", "n"),
+        (r"oo(?!\w)", "u"), (r"ee", "i"), (r"ea", "i"), (r"ou", "au"), (r"ow", "au"),
+        (r"ay", "ey"), (r"ey", "ey"), (r"ai", "ey"), (r"oi", "oy"), (r"oy", "oy"),
+        (r"er(?=\b)", "ır"), (r"or(?=\b)", "or"), (r"ar(?=\b)", "ar"),
     ]
     for pat, rep in repl:
         t = re.sub(pat, rep, t)
@@ -2377,6 +2448,30 @@ def _format_history_for_ai(history: list[dict], limit: int = 8) -> str:
     return "\n".join(lines) if lines else "(start of conversation)"
 
 
+def _recent_teacher_questions(history: list[dict], profile: dict, limit: int = 5) -> str:
+    """Öğretmenin tekrar sormaması gereken son sorular."""
+    seen: list[str] = []
+    last = safe_str(profile.get("lastTeacherText")).strip()
+    if last:
+        seen.append(last)
+    for h in reversed(history):
+        if not isinstance(h, dict) or h.get("role") != "teacher":
+            continue
+        text = safe_str(h.get("text")).strip()
+        if not text or text in seen:
+            continue
+        for line in text.split("\n"):
+            line = line.strip()
+            if "?" in line and len(line) > 8:
+                seen.append(line)
+                break
+        if len(seen) >= limit:
+            break
+    if not seen:
+        return "(none yet — ask a friendly opening question)"
+    return "\n".join(f"- {q[:200]}" for q in seen[:limit])
+
+
 def _try_ai_tutor_turn(
     user_text: str,
     user_lang: str,
@@ -2417,6 +2512,7 @@ def _try_ai_tutor_turn(
         roleplay=rp,
         history_text=_format_history_for_ai(history),
         last_teacher=last_teacher[:500],
+        recent_questions=_recent_teacher_questions(history, profile),
         input_lang=input_lang,
         user_text=user_text[:500],
     ) + pending_note
@@ -2996,11 +3092,17 @@ def process_turn(
         result["weekly_progress"] = weekly_progress(result["profile"])
         return result
 
-    # Nasıl söyleyeceğimi bilmiyorum — örnek cümleler ve kalıp
+    # Nasıl söyleyeceğimi bilmiyorum — örnek cümleler veya kişisel cümle kurma
     if _is_how_to_say_stuck(user_text):
-        result = _how_to_say_help_mode(
-            user_text, target_lang, profile, session_delta, translate_fn, history,
-        )
+        phrase_tr = _extract_phrase_from_how_to_say_stuck(user_text)
+        if phrase_tr and translate_fn:
+            result = _help_mode(
+                f"yardım {phrase_tr}", target_lang, translate_fn, profile, session_delta,
+            )
+        else:
+            result = _how_to_say_help_mode(
+                user_text, target_lang, profile, session_delta, translate_fn, history,
+            )
         result["weekly_progress"] = weekly_progress(result["profile"])
         return result
 
