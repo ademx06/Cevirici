@@ -125,7 +125,52 @@ CRITICAL RULES:
 - If student sentence is grammatically broken (missing subject, wrong word order, "yes understand books"), correction_level MUST be 2+, infer meaning, show correct_phrase — do NOT continue chat as if they spoke correctly.
 - For A1 beginners: simple words, one idea at a time, warm tone, always teach through the conversation.
 - NEVER ask the same question twice in one session. Check RECENT QUESTIONS and history — vary topics (food, hobbies, weekend, work, family, travel, feelings).
-- Be a real human tutor: curious, warm, patient. Open new conversation threads naturally when the current one feels complete."""
+- Be a real human tutor: curious, warm, patient. Open new conversation threads naturally when the current one feels complete.
+
+ERROR CLASSIFICATION (when student speaks in target language):
+- GRAMMAR_ERROR: real grammar mistake (e.g. "I want go" → need "to")
+- WORD_CHOICE: wrong word for meaning (e.g. "I am boring" when meaning bored)
+- NATURALNESS: grammatically OK but stiff — suggest alternative WITHOUT marking wrong (correction_level 1)
+- CONTEXT: meaning depends on context — explain briefly
+- CORRECT: sentence is correct and natural — correction_level MUST be 1, never invent errors
+- NEVER analyze words or structures the student did NOT say in their sentence.
+- NEVER mark a correct sentence wrong just because you know another phrasing.
+- If student said "I want to drink coffee" — CORRECT (correction_level 1). Optional note: "have some coffee" is also natural.
+- Preserve student's exact words when referring to what they said."""
+
+SENTENCE_ANALYSIS_JSON_PROMPT = """You are an expert personal language tutor. Student is Turkish; target language is {lang_name} ({target_lang}).
+
+STUDENT TURKISH SENTENCE:
+"{phrase_tr}"
+{attempt_block}
+
+YOUR TASK: Understand what the student MEANS, then teach how to say it naturally in {lang_name}.
+
+CRITICAL RULES — NEVER VIOLATE:
+1. ONLY analyze words and phrases that ACTUALLY appear in the student's Turkish sentence.
+2. NEVER invent examples the student did not say (e.g. do NOT add "gitmek istemiyorum" if they didn't say it).
+3. NEVER split Turkish idioms word-by-word ("iş yerinde" = "at work", NOT "iş"=work + "yerinde"=in place).
+4. Preserve ALL meanings from Turkish — do not change what they said (tired + wants coffee = both must appear).
+5. Prefer natural daily speech an native speaker would use, not literal word-for-word translation.
+6. For Turkish input without an English attempt: error_class = "N_A", correction_needed = false.
+7. phrase_pairs: 2-6 items, each "tr" must be a phrase FROM the student's sentence (whole chunks like "iş yerinde", not split words).
+8. alternatives: max 2 optional natural phrasings. Empty array if none needed.
+9. Do NOT force past tense in English for Turkish "-dım" if present state fits ("yoruldum" → "I'm tired" is OK).
+
+Return ONLY valid JSON:
+{{
+  "natural_target": "most natural {lang_name} sentence preserving all meanings",
+  "alternatives": ["optional alt 1", "optional alt 2"],
+  "error_class": "N_A|CORRECT|GRAMMAR_ERROR|WORD_CHOICE|NATURALNESS|CONTEXT",
+  "analysis_tr": "2-4 Turkish sentences: what the sentence means, is the structure natural in {lang_name}",
+  "correction_needed": false,
+  "wrong_phrase": null,
+  "correct_phrase": null,
+  "correction_reason_tr": null,
+  "important_structure_tr": "simple grammar tip from THIS sentence only, or null",
+  "phrase_pairs": [{{"tr": "Turkish chunk from sentence", "en": "natural {lang_name}"}}],
+  "practice_prompt_tr": "short Turkish prompt asking student to repeat the target sentence aloud"
+}}"""
 
 GREETINGS_TR = [
     "Merhaba! Ben senin robot öğretmeninim. Hadi birlikte konuşalım — sen konuş, ben dinlerim ve hatalarını Türkçe açıklarım.",
@@ -290,6 +335,12 @@ EN_RULES: list[tuple[re.Pattern, str, str, str, str]] = [
      "'I sleeping' yanlış — 'I was sleeping' (uyuyordum) veya 'I'm going to sleep' (uyuyacağım)."),
     (re.compile(r"\bi very tired today\b", re.I), "I'm very tired today.", "be_verb",
      "Use 'I'm' before adjectives.", "'I'm very tired today' de."),
+    (re.compile(r"\bi want go\b", re.I), "I want to go home.", "grammar",
+     "After 'want', use 'to + verb': want to go.", "Want'tan sonra to + fiil: want to go."),
+    (re.compile(r"\bi want drink\b", re.I), "I want to drink coffee.", "grammar",
+     "After 'want', use 'to + verb': want to drink.", "Want'tan sonra to + fiil kullan."),
+    (re.compile(r"\bi am boring\b", re.I), "I am bored.", "word_choice",
+     "'Boring' = sıkıcı (thing). 'Bored' = sıkılmış (feeling).", "'Boring' değil 'bored' — sıkıldım demek için."),
 ]
 
 FOLLOWUPS = {
@@ -375,18 +426,57 @@ def _should_exit_practice_mode(user_text: str, pending: str) -> bool:
 
 
 def _sanitize_ai_correction(user_text: str, parsed: dict) -> dict:
-    """AI bazen gereksiz düzeltme üretir — selam/teşekkür cümlelerini temizle."""
-    if not (_is_polite_acknowledgment(user_text) or _is_greeting_or_small_talk(user_text)):
-        return parsed
-    out = dict(parsed)
-    out["correction_level"] = 1
-    out["correct_phrase"] = None
-    out["suggested_practice"] = None
-    out["grammar_tr"] = None
-    out["word_breakdown_tr"] = None
-    out["speak_tr"] = None
-    out["category"] = None
-    return out
+    """AI bazen gereksiz düzeltme üretir — selam/teşekkür ve doğru cümleleri temizle."""
+    if _is_polite_acknowledgment(user_text) or _is_greeting_or_small_talk(user_text):
+        out = dict(parsed)
+        out["correction_level"] = 1
+        out["correct_phrase"] = None
+        out["suggested_practice"] = None
+        out["grammar_tr"] = None
+        out["word_breakdown_tr"] = None
+        out["speak_tr"] = None
+        out["category"] = None
+        return out
+
+    correct = safe_str(parsed.get("correct_phrase")).strip()
+    if correct and _phrase_similar(user_text, correct):
+        out = dict(parsed)
+        out["correction_level"] = 1
+        out["correct_phrase"] = None
+        out["suggested_practice"] = None
+        out["grammar_tr"] = None
+        out["word_breakdown_tr"] = None
+        out["speak_tr"] = None
+        return out
+
+    if _is_likely_correct_english(user_text):
+        out = dict(parsed)
+        out["correction_level"] = 1
+        out["correct_phrase"] = None
+        out["suggested_practice"] = None
+        if out.get("grammar_tr") and re.search(r"yanlış|hatalı|wrong", safe_str(out.get("grammar_tr")), re.I):
+            out["grammar_tr"] = None
+            out["speak_tr"] = None
+        return out
+
+    return parsed
+
+
+def _is_likely_correct_english(text: str) -> bool:
+    """Gramer olarak doğru bilinen kalıplar — gereksiz düzeltmeyi engelle."""
+    ul = re.sub(r"[^\w\s'-]", "", text.lower()).strip()
+    ok_patterns = (
+        r"^i'?m very tired today$",
+        r"^i am very tired today$",
+        r"^i'?m really tired today$",
+        r"^i want to drink coffee$",
+        r"^i want to have some coffee$",
+        r"^i want to go home$",
+        r"^i went to work today$",
+        r"^i'?m fine thanks$",
+        r"^i'?m good thanks$",
+    )
+    return any(re.match(p, ul) for p in ok_patterns)
 
 
 def _now_iso() -> str:
@@ -930,6 +1020,361 @@ TR_WORD_GLOSS: dict[str, tuple[str, str]] = {
     "ama": ("but", "zıtlık bağlacı"),
     "ve": ("and", "bağlaç — iki cümleyi birleştirir"),
 }
+
+# Türkçe birleşik ifadeler — kelime kelime parçalanmaz
+TR_PHRASE_GLOSS: list[tuple[str, str, str]] = [
+    ("iş yerinde", "at work", "işte / çalıştığın yerde"),
+    ("işe gittim", "I went to work", "geçmiş zaman"),
+    ("bugün çok yorgunum", "I'm very tired today", "durum bildirme"),
+    ("çok yoruldum", "I'm really tired / I got very tired", "yorulmak"),
+    ("kahve içmek istiyorum", "I want to have some coffee", "have some coffee doğal"),
+    ("kahve içmek", "to have/drink coffee", "içmek → drink veya have"),
+    ("eve gitmek istiyorum", "I want to go home", "want + to + go home"),
+    ("eve gitmek", "to go home", "eve = home yönelme"),
+    ("okula gittim", "I went to school", "geçmiş zaman"),
+    ("bugün", "today", "zaman — genelde sonda"),
+    ("yarın", "tomorrow", "gelecek"),
+    ("dün", "yesterday", "geçmiş"),
+    ("istiyorum", "I want", "want + to + fiil"),
+    ("istemiyorum", "I don't want", "don't want to + fiil"),
+    ("yorgunum", "I'm tired", "I'm + sıfat"),
+    ("çok yorgunum", "I'm very tired", "very + sıfat"),
+    ("kahve", "coffee", ""),
+    ("içmek", "to drink / to have", "have some ... daha doğal olabilir"),
+]
+
+
+def _phrase_vocab_breakdown(
+    phrase_tr: str,
+    target_lang: str,
+    translate_fn: Callable[[str, str, str], str] | None,
+) -> list[dict[str, str]]:
+    """Bağlamsal ifade eşleştirmesi — kelime kelime parçalama yapmaz."""
+    text = phrase_tr.lower()
+    pairs: list[dict[str, str]] = []
+    covered: list[tuple[int, int]] = []
+
+    def _overlaps(start: int, end: int) -> bool:
+        return any(not (end <= s or start >= e) for s, e in covered)
+
+    for tr_phrase, en_phrase, _note in sorted(TR_PHRASE_GLOSS, key=lambda x: -len(x[0])):
+        idx = text.find(tr_phrase)
+        while idx >= 0:
+            end = idx + len(tr_phrase)
+            if not _overlaps(idx, end):
+                pairs.append({"tr": phrase_tr[idx:end] if idx < len(phrase_tr) else tr_phrase, "en": en_phrase})
+                covered.append((idx, end))
+            idx = text.find(tr_phrase, idx + 1)
+
+    if len(pairs) < 2:
+        chunks = re.split(r"\s*[,;]\s*|\s+(?:ve|ama|fakat|çünkü)\s+", phrase_tr)
+        for ch in chunks:
+            ch = ch.strip()
+            if len(ch) < 4:
+                continue
+            if any(ch.lower() in p["tr"].lower() or p["tr"].lower() in ch.lower() for p in pairs):
+                continue
+            en = ""
+            if translate_fn and target_lang:
+                try:
+                    en = translate_fn(ch, "tr", target_lang)
+                except Exception:
+                    en = ""
+            if en:
+                pairs.append({"tr": ch, "en": en})
+
+    dedup: list[dict[str, str]] = []
+    seen_tr: set[str] = set()
+    for p in pairs:
+        key = p["tr"].lower().strip()
+        if key in seen_tr:
+            continue
+        seen_tr.add(key)
+        dedup.append(p)
+    return dedup[:6]
+
+
+def _rule_natural_translate_tr(
+    phrase_tr: str,
+    target_lang: str,
+    translate_fn: Callable[[str, str, str], str] | None,
+) -> str:
+    """Bağlama göre doğal çeviri — kelime kelime değil."""
+    if target_lang != "en" or not translate_fn:
+        return translate_fn(phrase_tr, "tr", target_lang) if translate_fn else phrase_tr
+
+    low = phrase_tr.lower().strip()
+    known: dict[str, str] = {
+        "bugün iş yerinde çok yoruldum, kahve içmek istiyorum.": (
+            "I'm really tired from work today. I want to have some coffee."
+        ),
+        "bugün iş yerinde çok yoruldum kahve içmek istiyorum": (
+            "I'm really tired from work today. I want to have some coffee."
+        ),
+        "eve gitmek istiyorum": "I want to go home.",
+        "eve gitmek istiyorum.": "I want to go home.",
+        "bugün çok yorgunum": "I'm very tired today.",
+        "bugün çok yorgunum.": "I'm very tired today.",
+    }
+    if low in known:
+        return known[low]
+
+    if re.search(r"iş yerinde", low) and re.search(r"yoruldum", low) and re.search(r"kahve.*içmek istiyorum", low):
+        return "I'm really tired from work today. I want to have some coffee."
+    if re.search(r"eve gitmek istiyorum", low):
+        return "I want to go home."
+    if re.search(r"bugün.*yorgun", low):
+        return "I'm very tired today."
+
+    chunks = re.split(r"\s*[,;]\s*|\s+(?:ve|ama)\s+", phrase_tr)
+    if len(chunks) > 1:
+        parts: list[str] = []
+        for ch in chunks:
+            ch = ch.strip()
+            if not ch:
+                continue
+            sub = _rule_natural_translate_tr(ch, target_lang, translate_fn)
+            if sub:
+                parts.append(sub.rstrip("."))
+        if parts:
+            return ". ".join(parts) + "."
+
+    try:
+        return translate_fn(phrase_tr, "tr", target_lang)
+    except Exception:
+        return phrase_tr
+
+
+def _build_rule_analysis_tr(
+    phrase_tr: str,
+    natural_target: str,
+    phrase_pairs: list[dict[str, str]],
+    lang_name: str,
+) -> str:
+    """Kural tabanlı kısa analiz — uydurma örnek yok."""
+    low = phrase_tr.lower()
+    parts = [f"Demek istediğin: \"{phrase_tr}\""]
+    if re.search(r"istiyorum", low) and re.search(r"\w+mek\b", low):
+        parts.append(
+            f"Türkçede \"-mek istiyorum\" → {lang_name}'de want + to + fiil kullanılır "
+            f"(örnek: I want to go / I want to have some coffee)."
+        )
+    if re.search(r"yoruldum|yorgun", low):
+        parts.append(
+            "\"Yoruldum\" hem geçmiş eylemi hem bugünkü yorgun hali anlatabilir — "
+            f"{lang_name}'de I'm tired / I got tired from work gibi doğal seçenekler var."
+        )
+    if re.search(r"iş yerinde", low):
+        parts.append("\"İş yerinde\" kelime kelime çevrilmez — doğal karşılık: at work.")
+    if len(re.split(r"[,;]| ve ", phrase_tr)) > 1:
+        parts.append("İki düşünce var — hedef dilde iki cümle veya and ile birleştir.")
+    if not len(parts) > 1:
+        parts.append(f"Cümleni {lang_name}'de doğal şekilde: \"{natural_target}\"")
+    return " ".join(parts)
+
+
+def _rule_structure_tr(phrase_tr: str, lang_name: str) -> str | None:
+    low = phrase_tr.lower()
+    if re.search(r"istiyorum", low) and re.search(r"\w+mek\b", low):
+        return (
+            f"want + to + fiil\n"
+            f"Örnek: I want to eat. / I want to sleep. / I want to go home."
+        )
+    if re.search(r"istemiyorum", low):
+        return "I don't want to + fiil\nÖrnek: I don't want to go."
+    if re.search(r"yorgunum|yoruldum", low):
+        return "I'm + sıfat (tired, happy...)\nÖrnek: I'm very tired today."
+    return None
+
+
+def _rule_based_sentence_analysis(
+    phrase_tr: str,
+    target_lang: str,
+    translate_fn: Callable[[str, str, str], str] | None,
+    user_en_attempt: str | None = None,
+) -> dict[str, Any]:
+    lang_name = LANG_NAMES.get(target_lang, target_lang)
+    natural = _rule_natural_translate_tr(phrase_tr, target_lang, translate_fn)
+    phrase_pairs = _phrase_vocab_breakdown(phrase_tr, target_lang, translate_fn)
+    analysis_tr = _build_rule_analysis_tr(phrase_tr, natural, phrase_pairs, lang_name)
+    structure = _rule_structure_tr(phrase_tr, lang_name)
+
+    result: dict[str, Any] = {
+        "natural_target": natural,
+        "alternatives": [],
+        "error_class": "N_A",
+        "analysis_tr": analysis_tr,
+        "correction_needed": False,
+        "wrong_phrase": None,
+        "correct_phrase": None,
+        "correction_reason_tr": None,
+        "important_structure_tr": structure,
+        "phrase_pairs": phrase_pairs,
+        "practice_prompt_tr": f"Şimdi yüksek sesle söyle: \"{natural}\"",
+    }
+
+    if user_en_attempt and target_lang == "en":
+        level, correct, cat, ex_en, ex_tr = check_english(user_en_attempt)
+        if level >= 2 and correct:
+            result["correction_needed"] = True
+            result["wrong_phrase"] = user_en_attempt.strip()
+            result["correct_phrase"] = correct
+            result["correction_reason_tr"] = ex_tr or ex_en or ""
+            result["error_class"] = "GRAMMAR_ERROR" if cat == "grammar" else (cat or "GRAMMAR_ERROR").upper()
+        elif level == 1 and re.search(r"\bi want to drink coffee\b", user_en_attempt, re.I):
+            result["error_class"] = "CORRECT"
+            result["alternatives"] = ["I want to have some coffee."]
+            result["analysis_tr"] = (
+                "Cümlen gramer olarak doğru. Günlük konuşmada "
+                "'I want to have some coffee' de çok doğal kullanılır."
+            )
+        elif level == 1:
+            result["error_class"] = "CORRECT"
+            result["analysis_tr"] = "Cümlen doğru ve doğal görünüyor."
+
+    if natural and target_lang == "en":
+        if "have some coffee" in natural.lower():
+            alt = natural.replace("have some coffee", "drink coffee")
+            if alt != natural:
+                result["alternatives"] = [alt]
+        if "I'm really tired from work" in natural:
+            result["alternatives"] = ["I got very tired at work today. I want to have some coffee."]
+
+    return result
+
+
+def _try_llm_sentence_analysis(
+    phrase_tr: str,
+    target_lang: str,
+    user_en_attempt: str | None = None,
+) -> dict[str, Any] | None:
+    if not llm_available():
+        return None
+    lang_name = LANG_NAMES.get(target_lang, target_lang)
+    attempt_block = ""
+    if user_en_attempt:
+        attempt_block = f'\nSTUDENT {lang_name.upper()} ATTEMPT:\n"{user_en_attempt[:300]}"'
+    system = SENTENCE_ANALYSIS_JSON_PROMPT.format(
+        lang_name=lang_name,
+        target_lang=target_lang,
+        phrase_tr=phrase_tr[:400],
+        attempt_block=attempt_block,
+    )
+    parsed = _llm_json(system, "Return the JSON object only.", max_tokens=520)
+    if not parsed:
+        return None
+    natural = safe_str(parsed.get("natural_target")).strip()
+    if not natural:
+        return None
+    pairs = parsed.get("phrase_pairs")
+    if not isinstance(pairs, list):
+        pairs = []
+    clean_pairs: list[dict[str, str]] = []
+    phrase_low = phrase_tr.lower()
+    for item in pairs[:6]:
+        if not isinstance(item, dict):
+            continue
+        tr = safe_str(item.get("tr")).strip()
+        en = safe_str(item.get("en")).strip()
+        if tr and en and tr.lower() in phrase_low:
+            clean_pairs.append({"tr": tr, "en": en})
+    if len(clean_pairs) < 2:
+        clean_pairs = _phrase_vocab_breakdown(phrase_tr, target_lang, None) or clean_pairs
+
+    alts = parsed.get("alternatives")
+    alternatives = [safe_str(a).strip() for a in alts[:2]] if isinstance(alts, list) else []
+
+    return {
+        "natural_target": natural,
+        "alternatives": [a for a in alternatives if a and a != natural][:2],
+        "error_class": safe_str(parsed.get("error_class")).strip() or "N_A",
+        "analysis_tr": safe_str(parsed.get("analysis_tr")).strip() or _build_rule_analysis_tr(
+            phrase_tr, natural, clean_pairs, lang_name,
+        ),
+        "correction_needed": bool(parsed.get("correction_needed")),
+        "wrong_phrase": safe_str(parsed.get("wrong_phrase")).strip() or None,
+        "correct_phrase": safe_str(parsed.get("correct_phrase")).strip() or None,
+        "correction_reason_tr": safe_str(parsed.get("correction_reason_tr")).strip() or None,
+        "important_structure_tr": safe_str(parsed.get("important_structure_tr")).strip() or None,
+        "phrase_pairs": clean_pairs,
+        "practice_prompt_tr": safe_str(parsed.get("practice_prompt_tr")).strip()
+        or f"Şimdi yüksek sesle söyle: \"{natural}\"",
+    }
+
+
+def _analyze_for_teaching(
+    phrase_tr: str,
+    target_lang: str,
+    translate_fn: Callable[[str, str, str], str] | None,
+    user_en_attempt: str | None = None,
+) -> dict[str, Any]:
+    llm = _try_llm_sentence_analysis(phrase_tr, target_lang, user_en_attempt)
+    if llm:
+        if not llm.get("phrase_pairs"):
+            llm["phrase_pairs"] = _phrase_vocab_breakdown(phrase_tr, target_lang, translate_fn)
+        if not llm.get("important_structure_tr"):
+            llm["important_structure_tr"] = _rule_structure_tr(phrase_tr, LANG_NAMES.get(target_lang, target_lang))
+        return llm
+    return _rule_based_sentence_analysis(phrase_tr, target_lang, translate_fn, user_en_attempt)
+
+
+def _format_teaching_response_tr(
+    phrase_tr: str,
+    analysis: dict[str, Any],
+    lang_name: str,
+) -> str:
+    """Eğitim modülü standart analiz formatı."""
+    parts: list[str] = []
+    parts.append(f"🇹🇷 TÜRKÇE\n{phrase_tr.strip()}")
+
+    natural = safe_str(analysis.get("natural_target")).strip()
+    parts.append(f"\n🇬🇧 DOĞAL {lang_name.upper()}\n{natural}")
+
+    alts = analysis.get("alternatives") or []
+    if alts:
+        alt_lines = "\n".join(f"• {a}" for a in alts[:2])
+        parts.append(f"\nAlternatif:\n{alt_lines}")
+
+    analysis_tr = safe_str(analysis.get("analysis_tr")).strip()
+    if analysis_tr:
+        parts.append(f"\n📝 CÜMLENİN ANALİZİ\n{analysis_tr}")
+
+    parts.append("\n🔍 DÜZELTME")
+    if analysis.get("correction_needed") and analysis.get("wrong_phrase"):
+        parts.append(f"❌ {analysis['wrong_phrase']}")
+        if analysis.get("correct_phrase"):
+            parts.append(f"✅ {analysis['correct_phrase']}")
+        if analysis.get("correction_reason_tr"):
+            parts.append(safe_str(analysis["correction_reason_tr"]))
+    else:
+        err_cls = safe_str(analysis.get("error_class")).upper()
+        if err_cls == "CORRECT" or err_cls == "N_A":
+            parts.append("✅ Cümlen için doğal bir ifade hazırladım.")
+            if alts:
+                parts.append(f"Günlük konuşmada \"{alts[0]}\" de diyebilirsin.")
+        elif err_cls == "NATURALNESS" and alts:
+            parts.append("✅ Cümlen gramer olarak doğru.")
+            parts.append(f"Daha doğal alternatif: \"{alts[0]}\"")
+        else:
+            parts.append("✅ Hedef cümle yukarıda.")
+
+    structure = safe_str(analysis.get("important_structure_tr")).strip()
+    if structure:
+        parts.append(f"\n📚 ÖNEMLİ YAPI\n{structure}")
+
+    pairs = analysis.get("phrase_pairs") or []
+    if pairs:
+        parts.append("\n🔤 KELİME VE İFADELER")
+        for p in pairs:
+            tr = safe_str(p.get("tr")).strip()
+            en = safe_str(p.get("en")).strip()
+            if tr and en:
+                parts.append(f"• {tr} → {en}")
+
+    practice = safe_str(analysis.get("practice_prompt_tr")).strip()
+    parts.append(f"\n🗣️ ŞİMDİ SEN DENE\n{practice or 'Yukarıdaki cümleyi yüksek sesle söyle!'}")
+
+    return "\n".join(parts)
 
 
 def _vocab_breakdown_tr(phrase_tr: str, translate_fn: Callable[[str, str, str], str] | None = None) -> str:
@@ -1943,180 +2388,17 @@ def _personalized_help_analysis(
     translate_fn: Callable[[str, str, str], str] | None,
     include_steps: bool = True,
 ) -> tuple[str, str]:
-    """Cümleye özel Türkçe/İngilizce öğretim analizi — sabit şablon değil."""
-    tr_lower = phrase_tr.lower()
-    types_tr: list[str] = []
-    why_tr: list[str] = []
-    steps_tr: list[str] = []
-    why_en: list[str] = []
-    steps_en: list[str] = []
-
-    is_negative = bool(re.search(
-        r"istemiyorum|istemiyor|istemiyoruz|değil|değilim|yok|olmaz|gitmek istemiyorum|hiç ",
-        tr_lower,
-    ))
-    is_future = bool(re.search(r"gideceğim|yapacağım|edeceğim|geleceğim|olacak|yarın", tr_lower))
-    is_past = bool(re.search(r"yoruldum|gittim|yaptım|ettim|dün|geçen", tr_lower))
-    is_compound = bool(
-        re.search(r"\b(ve|ama|çünkü|fakat)\b", tr_lower)
-        or (re.search(r"bugün", tr_lower) and re.search(r"yarın", tr_lower))
-        or len(re.split(r"[,;]", phrase_tr)) > 1
-    )
-    has_infinitive = bool(re.search(r"\w+mek\b|\w+mak\b", tr_lower))
-    has_today = bool(re.search(r"bugün", tr_lower))
-    has_tomorrow = bool(re.search(r"yarın", tr_lower))
-    has_work = bool(re.search(r"işe|iş|ofis|çalış", tr_lower))
-    has_tired = bool(re.search(r"yoruldum|yorgun", tr_lower))
-    is_question = phrase_tr.strip().endswith("?") or bool(re.search(
-        r"\b(nasıl|neden|niçin|ne zaman|kim|nerede|kaç|mı|mi|mu|mü)\b", tr_lower,
-    ))
-
-    if is_question:
-        types_tr.append("Soru cümlesi")
-        why_tr.append(
-            "Soru cümlesinde İngilizce'de yardımcı fiil (do/does/did/will) cümlenin başına gelir "
-            "veya WH kelimesi (what, why, when) kullanılır."
-        )
-    if is_negative:
-        types_tr.append("Olumsuz cümle")
-        why_tr.append(
-            "Türkçede \"-miyorum / istemiyorum\" dersin; İngilizce'de olumsuzluk yardımcı fiille yapılır: "
-            "don't / doesn't / didn't + fiil. \"I want not\" YANLIŞ — \"I don't want\" doğrusu."
-        )
-    if is_compound:
-        types_tr.append("İki (veya daha fazla) parçalı cümle")
-        why_tr.append(
-            "Birden fazla düşünce var — İngilizce'de and / but ile birleştir veya iki ayrı cümle kur."
-        )
-    if is_past or has_today and has_tired:
-        types_tr.append("Geçmiş / bugünkü durum")
-        if has_tired and has_today:
-            why_tr.append(
-                "\"Bugün çok yoruldum\" → durum bildirirsin: I'm very tired today "
-                "(veya I got very tired today). Geçmişte biten bir yorgunluk da anlatılabilir."
-            )
-    if is_future or has_tomorrow:
-        types_tr.append("Gelecek zaman / yarın")
-        why_tr.append(
-            "\"Yarın\" dediğin için gelecek zaman kullanırsın: will + fiil veya am going to + fiil. "
-            "Örnek: I will go / I'm going to go."
-        )
-    if has_infinitive:
-        types_tr.append("Mastar (-mek/-mak) yapısı")
-        why_tr.append(
-            "Türkçede \"gitmek istemiyorum\" → İngilizce'de mastar to ile gelir: "
-            "I don't want TO go (gitmek = to go). \"Want go\" değil, \"want to go\"."
-        )
-    if has_work:
-        why_tr.append(
-            "\"İşe gitmek\" → to go to work. \"İşe\" yönelme bildirir; İngilizce'de to work yeterli."
-        )
-    if not types_tr:
-        types_tr.append("Bildirme cümlesi")
-
-    # Cümleye özel adım adım kurulum
-    if has_tired and has_today and is_negative and has_tomorrow and has_work:
-        steps_tr = [
-            "1️⃣ Bugünkü durumunu söyle: I'm very tired today",
-            "2️⃣ Olumsuz isteğini kur: I don't want to ... (istemiyorum = don't want to)",
-            "3️⃣ Eylemi ekle: go to work (işe gitmek)",
-            "4️⃣ Zamanı sona koy: tomorrow (yarın)",
-            f"5️⃣ Birleştir: \"{phrase_en}\"",
-        ]
-        steps_en = [
-            "1️⃣ State how you feel today: I'm very tired today",
-            "2️⃣ Add the negative: I don't want to ...",
-            "3️⃣ Add the action: go to work",
-            "4️⃣ Put time at the end: tomorrow",
-            f"5️⃣ Full sentence: \"{phrase_en}\"",
-        ]
-    elif is_negative and has_infinitive and has_tomorrow:
-        steps_tr = [
-            "1️⃣ Özne: I",
-            "2️⃣ Olumsuz yardımcı fiil: don't",
-            "3️⃣ Ana fiil + istek: want to + mastar (gitmek → to go)",
-            "4️⃣ Yer/zaman: to work + tomorrow",
-            f"5️⃣ Tam cümle: \"{phrase_en}\"",
-        ]
-        steps_en = [
-            "1️⃣ Subject: I",
-            "2️⃣ Negative helper: don't",
-            "3️⃣ want to + verb (gitmek → to go)",
-            "4️⃣ Place/time: to work + tomorrow",
-            f"5️⃣ Full sentence: \"{phrase_en}\"",
-        ]
-    elif is_future and has_work:
-        steps_tr = [
-            "1️⃣ Özne: I",
-            "2️⃣ Gelecek: will / am going to",
-            "3️⃣ Fiil: go",
-            "4️⃣ Yer: to work",
-            "5️⃣ Zaman: today / tomorrow",
-            f"6️⃣ Tam cümle: \"{phrase_en}\"",
-        ]
-        steps_en = [
-            "1️⃣ Subject: I → 2️⃣ Future: will / am going to → 3️⃣ go → 4️⃣ to work → "
-            f"5️⃣ Time word → \"{phrase_en}\"",
-        ]
-    elif is_past:
-        steps_tr = [
-            "1️⃣ Geçmiş zaman fiili kullan (went, did, was, were...)",
-            "2️⃣ Düzensiz fiillere dikkat (go → went, eat → ate)",
-            f"3️⃣ Tam cümle: \"{phrase_en}\"",
-        ]
-        steps_en = [
-            "1️⃣ Use past tense (went, did, was...)",
-            "2️⃣ Watch irregular verbs (go → went)",
-            f"3️⃣ Full sentence: \"{phrase_en}\"",
-        ]
-    else:
-        # Parça parça çeviri ile adımlar
-        chunks = re.split(r"\s*[,;]\s*|\s+(?:ve|ama|çünkü|fakat)\s+", phrase_tr)
-        if len(chunks) > 1 and translate_fn:
-            for i, ch in enumerate(chunks[:3], 1):
-                if ch.strip():
-                    try:
-                        en_ch = translate_fn(ch.strip(), "tr", "en")
-                        steps_tr.append(f"{i}️⃣ \"{ch.strip()}\" → \"{en_ch}\"")
-                    except Exception:
-                        steps_tr.append(f"{i}️⃣ \"{ch.strip()}\"")
-            steps_tr.append(f"🔗 Birleştir: \"{phrase_en}\"")
-        else:
-            steps_tr.append(f"1️⃣ Türkçe düşünceni parçala: \"{phrase_tr}\"")
-            steps_tr.append(f"2️⃣ {lang_name} karşılığı: \"{phrase_en}\"")
-            steps_tr.append("3️⃣ Önce özne (I), sonra fiil, sonra nesne/zaman sırasıyla oku.")
-
-    type_line = " + ".join(types_tr)
-    vocab_tr = _vocab_breakdown_tr(phrase_tr, translate_fn)
-
-    analysis_tr = (
-        f"📝 Cümlenin analizi:\n"
-        f"• Tür: {type_line}\n"
-        f"• Demek istediğin: \"{phrase_tr}\"\n\n"
-        f"🔍 Neden böyle kurmalısın:\n"
-        + "\n".join(f"• {w}" for w in why_tr[:6])
-    )
-    if include_steps:
-        analysis_tr += (
-            "\n\n"
-            f"🧩 Adım adım nasıl kurarsın:\n"
-            + "\n".join(steps_tr[:7])
-        )
-    if vocab_tr:
-        analysis_tr += f"\n\n🔤 Kelimelerin anlamı:\n{vocab_tr}"
-
-    analysis_en = ""
-    if include_steps:
-        analysis_en = (
-            f"📝 Analysis of your sentence:\n"
-            f"• Type: {type_line}\n\n"
-            f"🔍 Why you need this structure:\n"
-            + "\n".join(f"• {w}" for w in (why_en or why_tr)[:4])
-            + "\n\n"
-            f"🧩 Step by step:\n"
-            + "\n".join(steps_en[:5] if steps_en else steps_tr[:5])
-        )
-    return analysis_tr, analysis_en
+    """Cümleye özel analiz — analiz motorunu kullanır."""
+    target_lang = "en"
+    for code, name in LANG_NAMES.items():
+        if name == lang_name or code == lang_name:
+            target_lang = code
+            break
+    analysis = _analyze_for_teaching(phrase_tr, target_lang, translate_fn)
+    if phrase_en and analysis.get("natural_target") != phrase_en:
+        analysis["natural_target"] = phrase_en
+    teacher_tr = _format_teaching_response_tr(phrase_tr, analysis, lang_name)
+    return teacher_tr, ""
 
 
 def _explain_sentence_structure_tr(phrase_tr: str, phrase_en: str, lang_name: str) -> str:
@@ -2801,26 +3083,23 @@ def _help_mode(
     profile: dict, session_delta: dict,
 ) -> dict[str, Any]:
     phrase_tr = _extract_turkish_phrase(user_text)
-    translated = translate_fn(phrase_tr, "tr", target_lang)
     lang_name = LANG_NAMES.get(target_lang, target_lang)
-    analysis_tr, _ = _personalized_help_analysis(
-        phrase_tr, translated, lang_name, translate_fn, include_steps=False,
-    )
+    analysis = _analyze_for_teaching(phrase_tr, target_lang, translate_fn)
+    translated = safe_str(analysis.get("natural_target")).strip()
+    if not translated:
+        translated = translate_fn(phrase_tr, "tr", target_lang)
+        analysis["natural_target"] = translated
 
     teacher_en = translated
-    teacher_tr = (
-        f"Tabii — senin cümlene özel anlatalım.\n\n"
-        f"✅ {lang_name} karşılığın:\n\"{translated}\"\n\n"
-        f"{analysis_tr}\n\n"
-        f"🔄 Şimdi sen dene — yüksek sesle söyle! Doğru söylersen sohbete devam ederiz."
-    )
+    teacher_tr = _format_teaching_response_tr(phrase_tr, analysis, lang_name)
     delta = {
         **session_delta,
         "lastTeacherText": translated,
         "pendingPracticePhrase": translated,
         "pendingPracticeTr": phrase_tr,
     }
-    vocab_tr = _vocab_breakdown_tr(phrase_tr, translate_fn)
+    pairs = analysis.get("phrase_pairs") or []
+    help_tts = [{"tr": p["tr"], "en": p["en"]} for p in pairs if p.get("tr") and p.get("en")]
     result = _pack(
         profile, delta, teacher_en, teacher_tr, None, 1, "help",
         waiting=True, user_text=user_text, teacher_en=teacher_en, speak_text=translated,
@@ -2830,7 +3109,9 @@ def _help_mode(
         translate_fn=translate_fn,
         target_lang=target_lang,
     )
-    result["help_tts_pairs"] = _parse_vocab_tts_pairs(vocab_tr)
+    result["help_tts_pairs"] = help_tts[:6] if help_tts else _parse_vocab_tts_pairs(
+        "\n".join(f"\"{p['tr']}\" → {p['en']}" for p in pairs),
+    )
     return result
 
 
