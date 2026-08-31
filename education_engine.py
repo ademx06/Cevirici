@@ -84,7 +84,7 @@ YOUR JOB — think like a real human tutor, NOT a dictionary:
    🤔 Sanırım bunu demek istedin / 📖 Kelimeler / 🧩 Cümle yapısı / ✅ Doğrusu / 💡 Neden
    Keep it concise — max 6-8 lines total.
 5. teacher_en: SHORT English only — the correct phrase + one follow-up question. Do NOT repeat the Turkish explanation in English.
-6. grammar_tr, word_breakdown_tr, speak_tr: as before. speak_tr = Turkish audio script (no emoji, 2-4 short sentences). REQUIRED when correction_level >= 2.
+6. grammar_tr, word_breakdown_tr, speak_tr: speak_tr = ONLY when correction_level >= 2: 1-2 SHORT Turkish sentences about the mistake (max ~25 words). Never repeat full teacher_tr. null when correction_level is 1.
 7. When correcting: correction_level 2 or 3, correct_phrase required.
 8. Praise ONLY when actually correct.
 
@@ -2710,20 +2710,17 @@ def _build_speak_tr(
     corr_level: int = 1,
     inferred: str = "",
 ) -> str:
-    """Düzeltme/yardım için Türkçe sesli özet."""
-    if corr_level < 2 and not grammar_tr and not word_breakdown_tr:
+    """Düzeltme için kısa Türkçe sesli özet — tam açıklama değil."""
+    if corr_level < 2:
         return ""
     parts: list[str] = []
     if inferred:
         parts.append(f"Sanırım bunu demek istedin: {inferred}")
-    core = _strip_for_tts(explain_tr)
-    if core:
-        parts.append(core[:400])
-    if word_breakdown_tr:
-        parts.append(_strip_for_tts(word_breakdown_tr)[:250])
     if grammar_tr:
-        parts.append(_strip_for_tts(grammar_tr)[:250])
-    return _turkish_tts_text(" ".join(p for p in parts if p))
+        parts.append(_strip_for_tts(grammar_tr)[:120])
+    elif word_breakdown_tr:
+        parts.append(_strip_for_tts(word_breakdown_tr)[:120])
+    return _turkish_tts_text(" ".join(p for p in parts if p))[:200]
 
 
 def _wrong_practice_after_help(
@@ -2802,11 +2799,13 @@ def _pack(
     inferred = ""
     if correction_detail and correction_detail.get("inferredMeaning"):
         inferred = safe_str(correction_detail.get("inferredMeaning"))
-    str_speak = _turkish_tts_text(
-        _strip_for_tts(safe_str(speak_tr or "")) or _build_speak_tr(
-            explain_tr or "", gtr, wtr, corr_level, inferred,
-        )
-    )
+    explicit = _turkish_tts_text(_strip_for_tts(safe_str(speak_tr or "")))
+    if explicit:
+        str_speak = explicit[:220]
+    elif corr_level >= 2:
+        str_speak = (_build_speak_tr("", gtr, wtr, corr_level, inferred) or "")[:220]
+    else:
+        str_speak = ""
     tr_first = speak_tr_first if speak_tr_first is not None else (
         corr_level >= 2 and bool(str_speak)
     )

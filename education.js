@@ -30,8 +30,9 @@ audio.setAttribute('webkit-playsinline', 'true');
 if (document.body) document.body.appendChild(audio);
 else document.addEventListener('DOMContentLoaded', () => document.body.appendChild(audio));
 
-const TAIL_MS = 450;
-const MIN_HOLD_MS = 450;
+const TAIL_MS = 550;
+const MIN_HOLD_MS = 380;
+const MIN_BLOB_BYTES = 320;
 
 const S = {
   learnLang: 'en',
@@ -62,6 +63,7 @@ const S = {
   softMsgTimer: null,
   processWatchdog: null,
   busySince: 0,
+  micOpening: false,
 };
 
 const VOICE_FETCH_MS = 55000;
@@ -604,8 +606,8 @@ function render() {
     const trBlock = teacherTr && !isTeaching
       ? `<div class="chat-lang-block chat-tr"><span>🇹🇷 Türkçe</span><p>${esc(teacherTr).replace(/\n/g, '<br>')}</p></div>`
       : '';
-    const replayBtn = shouldPlayCorrectionTts({ correction_level: m.correctionLevel, speak_tr: m.speakTr, teacher_tr: m.teacherTr })
-      ? `<button type="button" class="replay-btn chat-replay" data-idx="${i}">🔊 Türkçe dinle</button>`
+    const replayBtn = (m.speakTr && shouldPlayCorrectionTts({ correction_level: m.correctionLevel, speak_tr: m.speakTr }))
+      ? `<button type="button" class="replay-btn chat-replay" data-idx="${i}">🔊 Düzeltmeyi dinle</button>`
       : '';
     return `<div class="chat-row chat-row-teacher">
         <div class="chat-avatar">🤖</div>
@@ -622,7 +624,7 @@ function render() {
       e.preventDefault();
       unlockAudioSync();
       const msg = S.msgs[parseInt(btn.dataset.idx, 10)];
-      if (msg) playTeacherTts({ speak_tr: msg.speakTr || msg.teacherTr, correction_level: msg.correctionLevel || 2 });
+      if (msg?.speakTr) playTeacherTts({ speak_tr: msg.speakTr, correction_level: msg.correctionLevel || 2 });
     };
   });
   requestAnimationFrame(() => {
@@ -687,7 +689,8 @@ const TR_FIRST_TYPES = new Set(['help', 'coach_tr', 'ai_intent', 'ai_correction'
 async function playTeacherTts(d) {
   if (!d || typeof d !== 'object') return;
   if (!shouldPlayCorrectionTts(d)) return;
-  const speakTr = trTextForTts(d.speak_tr || d.teacher_tr || '');
+  // Yalnızca kısa düzeltme metni — tüm açıklamayı okuma
+  const speakTr = trTextForTts(d.speak_tr || '');
   if (!speakTr) return;
 
   try {
@@ -777,7 +780,8 @@ function trTextForTts(raw) {
 
 function shouldPlayCorrectionTts(d) {
   if (!d || typeof d !== 'object') return false;
-  return Number(d.correction_level) >= 2;
+  if (Number(d.correction_level) < 2) return false;
+  return Boolean(safeStr(d.speak_tr).trim());
 }
 
 function appendUserMsg(text, lang) {
@@ -1160,12 +1164,14 @@ function startRecorder(gen) {
     releaseStream();
 
     if (pressMs < MIN_HOLD_MS) {
+      showErr('Biraz daha uzun basılı tut');
       if (!S.holdActive && S.busyCount === 0) resetIdle();
       return;
     }
 
     const blob = new Blob(chunks, { type: mimeType });
-    if (blob.size < 400) {
+    if (blob.size < MIN_BLOB_BYTES) {
+      showErr('Duymadım — tekrar dene');
       if (!S.holdActive && S.busyCount === 0) resetIdle();
       return;
     }
@@ -1256,8 +1262,9 @@ async function beginHold() {
   }
 
   try {
+    S.micOpening = true;
     await openFreshMic();
-    if (!S.holdActive || S.holdGen !== gen) {
+    if (S.holdGen !== gen) {
       releaseMic();
       resetIdle();
       return;
@@ -1267,6 +1274,8 @@ async function beginHold() {
     releaseMic();
     showErr(safeErrMsg(e) || 'Mikrofon izni gerekli. Ayarlar → Safari → Mikrofon');
     resetIdle();
+  } finally {
+    S.micOpening = false;
   }
 }
 
@@ -1275,7 +1284,9 @@ function endHold() {
   S.holdActive = false;
 
   if (!isRecording()) {
-    resetIdle();
+    // Mikrofon hâlâ açılıyorsa beginHold kaydı başlatacak
+    if (S.micOpening) return;
+    if (S.busyCount === 0) resetIdle();
     return;
   }
 
