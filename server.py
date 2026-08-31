@@ -17,6 +17,12 @@ from education_engine import (
     finalize_session, weekly_progress, merge_profile, llm_available, ai_provider_info,
     pronounce_text,
 )
+from builder_engine import (
+    generate_word_lesson,
+    analyze_sentence_for_builder,
+    grade_word_answer,
+    grade_sentence_answer,
+)
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 PORT = int(os.environ.get("PORT", "8780"))
@@ -825,6 +831,14 @@ class Handler(SimpleHTTPRequestHandler):
             return self.handle_education_chat(parse_qs(parsed.query))
         if parsed.path == "/api/education/session-end":
             return self.handle_education_session_end(parse_qs(parsed.query))
+        if parsed.path == "/api/builder/word":
+            return self.handle_builder_word()
+        if parsed.path == "/api/builder/sentence":
+            return self.handle_builder_sentence()
+        if parsed.path == "/api/builder/grade-word":
+            return self.handle_builder_grade_word()
+        if parsed.path == "/api/builder/grade-sentence":
+            return self.handle_builder_grade_sentence()
         self.send_error(404)
 
     def do_GET(self):
@@ -996,6 +1010,62 @@ class Handler(SimpleHTTPRequestHandler):
             return json.loads(raw.decode("utf-8"))
         except Exception:
             return {}
+
+    def _send_json(self, data: dict, code: int = 200):
+        body = json.dumps(data, ensure_ascii=False).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def handle_builder_word(self):
+        payload = self._read_json_body()
+        word_tr = (payload.get("word") or "").strip()
+        lang = (payload.get("lang") or "en").strip()
+        try:
+            result = generate_word_lesson(word_tr, lang, translate_fn=translate_text)
+            self._send_json(result)
+        except Exception as e:
+            self.send_json_error(422, self.api_error_message(e))
+
+    def handle_builder_sentence(self):
+        payload = self._read_json_body()
+        tr_sentence = (payload.get("sentence") or "").strip()
+        lang = (payload.get("lang") or "en").strip()
+        try:
+            result = analyze_sentence_for_builder(tr_sentence, lang, translate_fn=translate_text)
+            self._send_json(result)
+        except Exception as e:
+            self.send_json_error(422, self.api_error_message(e))
+
+    def handle_builder_grade_word(self):
+        payload = self._read_json_body()
+        try:
+            result = grade_word_answer(
+                (payload.get("word_tr") or "").strip(),
+                (payload.get("target_word") or "").strip(),
+                (payload.get("user_answer") or "").strip(),
+                (payload.get("lang") or "en").strip(),
+                translate_fn=translate_text,
+            )
+            self._send_json(result)
+        except Exception as e:
+            self.send_json_error(422, self.api_error_message(e))
+
+    def handle_builder_grade_sentence(self):
+        payload = self._read_json_body()
+        try:
+            result = grade_sentence_answer(
+                (payload.get("tr_sentence") or "").strip(),
+                (payload.get("expected_target") or "").strip(),
+                (payload.get("user_answer") or "").strip(),
+                (payload.get("lang") or "en").strip(),
+                alternatives=payload.get("alternatives") or [],
+            )
+            self._send_json(result)
+        except Exception as e:
+            self.send_json_error(422, self.api_error_message(e))
 
     def handle_education_progress(self, params):
         profile_raw = (params.get("profile") or ["{}"])[0]

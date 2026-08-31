@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#060B18">
+  <title>Cümle Kur — Sesli Çevirmen</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app builder-app">
+    <header class="header">
+      <div class="header-left">
+        <a href="/" class="back-btn" aria-label="Ana menü">←</a>
+        <div>
+          <h1>Cümle Kur</h1>
+          <p class="tagline" id="langLabel">🇬🇧 English</p>
+        </div>
+      </div>
+    </header>
+
+    <section class="lang-card builder-lang">
+      <div class="lang-field lang-field-full">
+        <label for="learnLang">Hedef dil</label>
+        <select id="learnLang"></select>
+      </div>
+    </section>
+
+    <nav class="builder-tabs">
+      <button type="button" class="builder-tab active" data-tab="word">Kelime</button>
+      <button type="button" class="builder-tab" data-tab="sentence">Cümle</button>
+    </nav>
+
+    <!-- KELİME -->
+    <section id="panelWord" class="builder-panel">
+      <div class="builder-input-row">
+        <input id="wordInput" type="text" placeholder="Türkçe kelime (örn. kahve)" maxlength="60" enterkeyhint="go">
+        <button id="wordGoBtn" class="primary-btn builder-go-btn" type="button">Oluştur</button>
+      </div>
+      <div id="wordStatus" class="builder-status hidden"></div>
+      <div id="wordResult" class="builder-results"></div>
+      <section class="builder-saved">
+        <div class="builder-saved-head">
+          <h2>Öğrendiğim Kelimeler</h2>
+          <input id="wordSearch" type="search" placeholder="🔎 Kelime ara" class="builder-search">
+        </div>
+        <div id="savedWords" class="builder-saved-list"></div>
+      </section>
+    </section>
+
+    <!-- CÜMLE -->
+    <section id="panelSentence" class="builder-panel hidden">
+      <div class="builder-input-row">
+        <input id="sentenceInput" type="text" placeholder="Türkçe cümle (örn. Bugün çok yoruldum.)" maxlength="300" enterkeyhint="go">
+        <button id="sentenceGoBtn" class="primary-btn builder-go-btn" type="button">Analiz Et</button>
+      </div>
+      <div id="sentenceStatus" class="builder-status hidden"></div>
+      <div id="sentenceResult" class="builder-results"></div>
+      <section class="builder-saved">
+        <div class="builder-saved-head">
+          <h2>Öğrendiğim Cümleler</h2>
+          <input id="sentenceSearch" type="search" placeholder="🔎 Cümle ara" class="builder-search">
+        </div>
+        <div id="savedSentences" class="builder-saved-list"></div>
+      </section>
+    </section>
+
+    <footer class="phone-footer phone-footer-compact">
+      <a href="self-test.html">🎯 Kendini Test Et →</a>
+    </footer>
+  </div>
+
+  <script src="learn-storage.js?v=1"></script>
+  <script src="sentence-builder.js?v=1"></script>
+</body>
+</html>

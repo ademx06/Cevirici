@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#060B18">
+  <title>Kendini Test Et — Sesli Çevirmen</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app quiz-app">
+    <header class="header">
+      <div class="header-left">
+        <a href="/" class="back-btn" aria-label="Ana menü">←</a>
+        <div>
+          <h1>Kendini Test Et</h1>
+          <p class="tagline" id="langLabel">🇬🇧 English</p>
+        </div>
+      </div>
+    </header>
+
+    <section class="lang-card builder-lang">
+      <div class="lang-field lang-field-full">
+        <label for="learnLang">Hedef dil</label>
+        <select id="learnLang"></select>
+      </div>
+    </section>
+
+    <nav class="builder-tabs">
+      <button type="button" class="builder-tab active" data-tab="word">Kelime</button>
+      <button type="button" class="builder-tab" data-tab="sentence">Cümle</button>
+    </nav>
+
+    <section id="quizSetup" class="quiz-setup">
+      <h2>Test Ayarları</h2>
+      <div class="quiz-count-row">
+        <button type="button" class="chip quiz-count active" data-count="10">10 soru</button>
+        <button type="button" class="chip quiz-count" data-count="20">20 soru</button>
+        <button type="button" class="chip quiz-count" data-count="30">30 soru</button>
+      </div>
+      <label class="quiz-hard-label">
+        <input type="checkbox" id="hardOnly"> Sadece zorlandıklarım
+      </label>
+      <button id="startQuizBtn" class="primary-btn quiz-start-btn" type="button">Teste Başla</button>
+      <p id="quizEmptyHint" class="quiz-empty hidden">Henüz kayıtlı içerik yok. Önce <a href="sentence-builder.html">Cümle Kur</a> ile kelime/cümle kaydet.</p>
+    </section>
+
+    <section id="quizActive" class="quiz-active hidden">
+      <div class="quiz-progress">
+        <span id="quizProgress">1 / 10</span>
+        <span id="quizModeLabel">Kelime testi</span>
+      </div>
+      <div id="quizPrompt" class="quiz-prompt"></div>
+      <div id="quizStatus" class="builder-status hidden"></div>
+      <div id="quizResult" class="quiz-result hidden"></div>
+      <section class="controls quiz-mic-section">
+        <button id="micBtn" class="mic-btn mic-btn-quiz" type="button">
+          <span class="mic-icon">🎤</span>
+          <span class="mic-text">
+            <strong id="micTitle">Basılı Tut ve Konuş</strong>
+            <small id="micSubtitle">Hedef dilde söyle</small>
+          </span>
+        </button>
+      </section>
+      <div class="quiz-actions hidden" id="quizActions">
+        <button type="button" id="retryBtn" class="ghost-btn">🔄 Tekrar Dene</button>
+        <button type="button" id="nextBtn" class="primary-btn">➡️ Sonraki</button>
+        <button type="button" id="listenCorrectBtn" class="ghost-btn">🔊 Doğru telaffuzu dinle</button>
+      </div>
+    </section>
+
+    <section class="builder-saved quiz-saved">
+      <div class="builder-saved-head">
+        <h2>Kayıtlı İçerikler</h2>
+      </div>
+      <div id="savedSummary" class="builder-saved-list"></div>
+    </section>
+
+    <footer class="phone-footer phone-footer-compact">
+      <a href="sentence-builder.html">📝 Cümle Kur →</a>
+    </footer>
+  </div>
+
+  <script src="mic-hold.js?v=3"></script>
+  <script src="learn-storage.js?v=1"></script>
+  <script src="self-test.js?v=1"></script>
+</body>
+</html>
