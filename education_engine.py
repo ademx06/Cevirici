@@ -1816,20 +1816,26 @@ def pronounce_text(text: str, lang: str = "en") -> str:
         return ""
     lang_name = LANG_NAMES.get(lang, lang)
     if llm_available():
-        raw = _groq_chat(
-            [
-                {
-                    "role": "system",
-                    "content": (
-                        "You help Turkish speakers learn pronunciation. "
-                        "Reply with ONLY simple Turkish-style phonetic spelling in Latin letters. "
-                        "No IPA, no quotes, no explanation. One line max."
-                    ),
-                },
-                {"role": "user", "content": f"{lang_name} text:\n{text[:200]}"},
-            ],
-            max_tokens=80,
+        sys_msg = (
+            "You help Turkish speakers learn pronunciation. "
+            "Reply with ONLY simple Turkish-style phonetic spelling in Latin letters. "
+            "No IPA, no quotes, no explanation. One line max."
         )
+        user_msg = f"{lang_name} text:\n{text[:200]}"
+        provider = _active_llm_provider()
+        raw = None
+        if provider == "groq":
+            raw = _groq_chat(
+                [{"role": "system", "content": sys_msg}, {"role": "user", "content": user_msg}],
+                max_tokens=80,
+            )
+        elif provider == "gemini":
+            raw = _gemini_chat(sys_msg, user_msg, max_tokens=80)
+        else:
+            raw = _openai_chat(
+                [{"role": "system", "content": sys_msg}, {"role": "user", "content": user_msg}],
+                max_tokens=80,
+            )
         if raw:
             line = raw.strip().strip('"').split("\n")[0].strip()
             if line and len(line) > 2:
