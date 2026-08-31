@@ -1514,13 +1514,17 @@ if (micBtn) bindHold(micBtn);
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') {
     endSession();
+    releaseMic();
     return;
   }
   if (S.busyCount > 0 && S.busySince && Date.now() - S.busySince > STALE_BUSY_MS) {
     forceUnlockMic('Devam edelim — tekrar konuş');
   }
 });
-window.addEventListener('pagehide', () => endSession());
+window.addEventListener('pagehide', () => {
+  endSession();
+  releaseMic();
+});
 
 S.profile = loadProfile();
 S.history = loadHistory();
