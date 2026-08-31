@@ -118,6 +118,7 @@ CRITICAL RULES:
 - NEVER correct polite phrases: "thank you", "nice", "okay", "yes", "good", "welcome" — correction_level 1, just continue chatting.
 - If PENDING PRACTICE is set and student said something different, explain the difference gently — do NOT praise wrong answers as correct.
 - If student greets or makes small talk (hello, how are you), IGNORE pending practice — reply naturally with correction_level 1.
+- If student sentence is grammatically broken (missing subject, wrong word order, "yes understand books"), correction_level MUST be 2+, infer meaning, show correct_phrase — do NOT continue chat as if they spoke correctly.
 - For A1 beginners: simple words, one idea at a time, warm tone, always teach through the conversation."""
 
 GREETINGS_TR = [
@@ -420,6 +421,9 @@ def default_profile(lang: str = "en") -> dict[str, Any]:
         "pendingVocabWord": None,
         "pendingPracticePhrase": None,
         "pendingPracticeTr": None,
+        "pendingIntentConfirm": None,
+        "pendingIntentUserSaid": None,
+        "pendingIntentReason": None,
     }
 
 
@@ -1260,7 +1264,42 @@ def _is_fragment_attempt(text: str) -> bool:
         return True
     if re.search(r"\bi (run|ran|walk|read|play|eat|swim)\b", ul) and len(words) <= 4:
         return True
+    if re.search(r"^(yes|yeah|yep|no|ok|okay)\s+(understand|like|read|want|have|know|love)", ul):
+        return True
+    if re.search(r"^(understand|like|read|want|have|know|love)\s+", ul):
+        return True
     return False
+
+
+def _is_broken_learner_english(text: str) -> bool:
+    """Gramer olarak eksik/kırık öğrenici cümlesi — AI sohbete geçmeden önce yakala."""
+    if not text or not looks_like_lang(text, "en"):
+        return False
+    if _is_greeting_or_small_talk(text) or _is_polite_acknowledgment(text):
+        return False
+    if _is_clear_activity_answer(text):
+        return False
+    return _is_fragment_attempt(text)
+
+
+def _is_yes_reply(text: str) -> bool:
+    ul = re.sub(r"[^\w\s']", "", text.strip().lower())
+    if not ul:
+        return False
+    words = ul.split()
+    if words[0] in ("yes", "yeah", "yep", "yup", "evet", "correct", "right", "aynen", "tamam", "dogru", "doğru"):
+        return True
+    return ul in ("e", "y")
+
+
+def _is_no_reply(text: str) -> bool:
+    ul = re.sub(r"[^\w\s']", "", text.strip().lower())
+    if not ul:
+        return False
+    words = ul.split()
+    if words[0] in ("no", "nope", "nah", "hayir", "hayır", "wrong", "degil", "değil", "yanlis", "yanlış"):
+        return True
+    return ul in ("n", "h")
 
 
 def _is_clear_activity_answer(text: str) -> bool:
@@ -1290,6 +1329,12 @@ def _infer_meant_sentence(user_text: str, teacher_q: str) -> tuple[str | None, s
     mode = _question_time_mode(teacher_q)
 
     patterns: list[tuple[re.Pattern, str, str]] = [
+        (re.compile(r"\b(yes|yeah|yep)\b.*\b(understand|understood)\b", re.I),
+         "Yes, I understand.",
+         "Evet, anlıyorum demeye çalışmış olabilirsin."),
+        (re.compile(r"\b(yes|yeah|yep)\b.*\b(like|love|enjoy)\b.*\b(book|books|reading|read)\b", re.I),
+         "Yes, I like reading books.",
+         "Evet, kitap okumayı seviyorum demeye çalışmış olabilirsin."),
         (re.compile(r"\b(book|books|a book|read)\b", re.I),
          f"I read a book {time_word}.",
          "Kitap okudum / bir kitap okudum demeye çalışmış olabilirsin."),
@@ -1403,64 +1448,148 @@ def _intent_clarify_mode(
     translate_fn: Callable[[str, str, str], str] | None,
     display_text: str | None = None,
 ) -> dict[str, Any]:
-    """Kırık cümle — 'bunu mu demek istedin?' modu."""
+    """Kırık cümle — 'bunu mu demek istedin?' + evet/hayır."""
     shown = display_text or user_text
-    lang_name = LANG_NAMES.get(target_lang, target_lang)
-    trigger = re.findall(r"[a-zA-Z']+", user_text.lower())
-    trigger_word = trigger[-1] if trigger else ""
-    word_help = _build_intent_word_help(inferred, trigger_word)
     meaning_tr = _to_tr(inferred, translate_fn, target_lang) if translate_fn else ""
 
-    teacher_en = (
-        f"Good try! I think I understand what you mean.\n\n"
-        f"You said: \"{shown}\"\n\n"
-        f"📌 Did you mean:\n\"{inferred}\"?\n\n"
-    )
-    if word_help:
-        teacher_en += f"🔤 Key words:\n{word_help}\n\n"
-    activity_root = _extract_activity_token(user_text) or trigger_word
-    teacher_en += (
-        f"💡 Tip: In English, use a full sentence — not just \"{trigger_word or activity_root}\".\n"
-        f"Example: \"{inferred}\"\n\n"
-        f"🔄 Say the full sentence out loud, then we'll keep chatting!"
-    )
-
     teacher_tr = (
-        f"🤔 Güzel deneme! Ne demek istediğini anladım sanırım.\n\n"
-        f"Sen dedin: \"{shown}\"\n\n"
-        f"📌 Bunu mu demeye çalıştın?\n\"{inferred}\"\n\n"
+        f"🤔 Sanırım bunu demek istedin:\n\"{inferred}\"\n\n"
+        f"Sen dedin: \"{shown}\"\n"
     )
     if reason_tr:
-        teacher_tr += f"💡 {reason_tr}\n\n"
+        teacher_tr += f"\n💡 {reason_tr}\n"
     if meaning_tr:
-        teacher_tr += f"🇹🇷 Türkçesi: {meaning_tr}\n\n"
-    if word_help:
-        teacher_tr += f"🔤 Kelimeler:\n{word_help}\n\n"
-    teacher_tr += (
-        f"💡 İpucu: Sadece \"{trigger_word or activity_root}\" deme — tam cümle kur:\n"
-        f"\"{inferred}\"\n\n"
-        f"🔄 Tam cümleyi söyle, sonra sohbete devam edelim!"
-    )
+        teacher_tr += f"\n🇹🇷 Türkçesi: {meaning_tr}\n"
+    teacher_tr += "\n\n✅ Evet mi? — 'evet' veya 'hayır' de."
 
+    teacher_en = inferred
     delta = {
         **session_delta,
         "lastTeacherText": inferred,
-        "pendingPracticePhrase": inferred,
-        "pendingPracticeTr": meaning_tr or reason_tr or user_text,
+        "pendingIntentConfirm": inferred,
+        "pendingIntentUserSaid": shown,
+        "pendingIntentReason": reason_tr or meaning_tr or "",
+        "pendingPracticePhrase": None,
+        "pendingPracticeTr": None,
     }
     return _pack(
         profile, delta, teacher_en, teacher_tr, None, 1, "intent_guess",
         waiting=True, user_text=shown, teacher_en=teacher_en, speak_text=inferred,
         speak_tr="",
         speak_tr_first=False,
+        phonetic_en=pronounce_text(inferred, target_lang),
         correction_detail={
             "userSaid": shown,
             "correctEn": inferred,
-            "explainTr": teacher_tr,
+            "explainTr": reason_tr or meaning_tr,
             "inferredMeaning": meaning_tr or reason_tr,
         },
         translate_fn=translate_fn,
         target_lang=target_lang,
+    )
+
+
+def _intent_confirm_yes(
+    profile: dict,
+    session_delta: dict,
+    target_lang: str,
+    translate_fn: Callable[[str, str, str], str] | None,
+) -> dict[str, Any]:
+    inferred = safe_str(profile.get("pendingIntentConfirm")).strip()
+    user_said = safe_str(profile.get("pendingIntentUserSaid")).strip()
+    reason = safe_str(profile.get("pendingIntentReason")).strip()
+    meaning_tr = _to_tr(inferred, translate_fn, target_lang) if translate_fn else reason
+    clear = {
+        "pendingIntentConfirm": None,
+        "pendingIntentUserSaid": None,
+        "pendingIntentReason": None,
+    }
+    grammar_tr = (
+        "İngilizce'de tam cümle kur: özne (I) + fiil (understand / like / read...) + nesne.\n"
+        f"Sen \"{user_said}\" dedin — eksik veya yanlış sıra.\n"
+        f"Doğrusu: \"{inferred}\""
+    )
+    teacher_tr = (
+        f"Harika! Evet, demek istediğin:\n\"{inferred}\"\n\n"
+        f"📝 Cümleyi böyle kurmalısın:\n"
+        f"❌ Senin dediğin: \"{user_said}\"\n"
+        f"✅ Doğrusu: \"{inferred}\"\n"
+    )
+    if meaning_tr:
+        teacher_tr += f"🇹🇷 Türkçesi: {meaning_tr}\n\n"
+    teacher_tr += (
+        f"💡 {grammar_tr}\n\n"
+        f"🔄 Şimdi doğru cümleyi yüksek sesle söyle!"
+    )
+    delta = {
+        **session_delta,
+        **clear,
+        "lastTeacherText": inferred,
+        "pendingPracticePhrase": inferred,
+        "pendingPracticeTr": meaning_tr or reason,
+    }
+    merged = merge_profile(profile, delta)
+    return _pack(
+        merged, delta, inferred, teacher_tr, inferred, 2, "intent_confirmed",
+        waiting=True, teacher_en=inferred, speak_text=inferred,
+        speak_tr=f"Doğrusu: {meaning_tr or inferred}"[:220],
+        speak_tr_first=True,
+        grammar_tr=grammar_tr,
+        phonetic_en=pronounce_text(inferred, target_lang),
+        correction_detail={
+            "userSaid": user_said,
+            "correctEn": inferred,
+            "explainTr": grammar_tr,
+            "grammarTr": grammar_tr,
+            "inferredMeaning": meaning_tr,
+        },
+        translate_fn=translate_fn,
+        target_lang=target_lang,
+    )
+
+
+def _intent_confirm_no(
+    profile: dict,
+    session_delta: dict,
+) -> dict[str, Any]:
+    clear = {
+        "pendingIntentConfirm": None,
+        "pendingIntentUserSaid": None,
+        "pendingIntentReason": None,
+        "pendingPracticePhrase": None,
+        "pendingPracticeTr": None,
+    }
+    teacher_tr = (
+        "Tamam — o zaman tekrar dene.\n\n"
+        "Ne demek istediğini kendi cümlenle söyle.\n"
+        "Takılırsan: yardım ben … diye Türkçe yazabilirsin."
+    )
+    teacher_en = "Okay — try again. Say what you mean in your own words."
+    delta = {**session_delta, **clear, "lastTeacherText": teacher_en}
+    merged = merge_profile(profile, delta)
+    return _pack(
+        merged, delta, teacher_en, teacher_tr, None, 1, "intent_retry",
+        waiting=True, teacher_en=teacher_en, speak_text=teacher_en,
+        speak_tr="Tamam, tekrar dene. Ne demek istediğini söyle.",
+        speak_tr_first=True,
+    )
+
+
+def _intent_confirm_remind(
+    profile: dict,
+    session_delta: dict,
+) -> dict[str, Any]:
+    inferred = safe_str(profile.get("pendingIntentConfirm")).strip()
+    shown = safe_str(profile.get("pendingIntentUserSaid")).strip()
+    teacher_tr = (
+        f"\"{inferred}\" demek istedin mi?\n\n"
+        f"Sen dedin: \"{shown}\"\n\n"
+        f"Lütfen 'evet' veya 'hayır' de."
+    )
+    return _pack(
+        profile, session_delta, inferred, teacher_tr, None, 1, "intent_guess",
+        waiting=True, teacher_en=inferred, speak_text=inferred,
+        speak_tr=f"Bunu mu demek istedin: {inferred}? Evet mi hayır mı?",
     )
 
 
@@ -1565,6 +1694,7 @@ def _personalized_help_analysis(
     phrase_en: str,
     lang_name: str,
     translate_fn: Callable[[str, str, str], str] | None,
+    include_steps: bool = True,
 ) -> tuple[str, str]:
     """Cümleye özel Türkçe/İngilizce öğretim analizi — sabit şablon değil."""
     tr_lower = phrase_tr.lower()
@@ -1718,22 +1848,27 @@ def _personalized_help_analysis(
         f"• Demek istediğin: \"{phrase_tr}\"\n\n"
         f"🔍 Neden böyle kurmalısın:\n"
         + "\n".join(f"• {w}" for w in why_tr[:6])
-        + "\n\n"
-        f"🧩 Adım adım nasıl kurarsın:\n"
-        + "\n".join(steps_tr[:7])
     )
+    if include_steps:
+        analysis_tr += (
+            "\n\n"
+            f"🧩 Adım adım nasıl kurarsın:\n"
+            + "\n".join(steps_tr[:7])
+        )
     if vocab_tr:
         analysis_tr += f"\n\n🔤 Kelimelerin anlamı:\n{vocab_tr}"
 
-    analysis_en = (
-        f"📝 Analysis of your sentence:\n"
-        f"• Type: {type_line}\n\n"
-        f"🔍 Why you need this structure:\n"
-        + "\n".join(f"• {w}" for w in (why_en or why_tr)[:4])
-        + "\n\n"
-        f"🧩 Step by step:\n"
-        + "\n".join(steps_en[:5] if steps_en else steps_tr[:5])
-    )
+    analysis_en = ""
+    if include_steps:
+        analysis_en = (
+            f"📝 Analysis of your sentence:\n"
+            f"• Type: {type_line}\n\n"
+            f"🔍 Why you need this structure:\n"
+            + "\n".join(f"• {w}" for w in (why_en or why_tr)[:4])
+            + "\n\n"
+            f"🧩 Step by step:\n"
+            + "\n".join(steps_en[:5] if steps_en else steps_tr[:5])
+        )
     return analysis_tr, analysis_en
 
 
@@ -2369,16 +2504,11 @@ def _help_mode(
     phrase_tr = _extract_turkish_phrase(user_text)
     translated = translate_fn(phrase_tr, "tr", target_lang)
     lang_name = LANG_NAMES.get(target_lang, target_lang)
-    analysis_tr, analysis_en = _personalized_help_analysis(
-        phrase_tr, translated, lang_name, translate_fn,
+    analysis_tr, _ = _personalized_help_analysis(
+        phrase_tr, translated, lang_name, translate_fn, include_steps=False,
     )
 
-    teacher_en = (
-        f"Of course — let's learn YOUR sentence in {lang_name}.\n\n"
-        f"🎯 What you want to say:\n\"{translated}\"\n\n"
-        f"{analysis_en}\n\n"
-        f"🔄 Now say it out loud in {lang_name} — I'm listening!"
-    )
+    teacher_en = translated
     teacher_tr = (
         f"Tabii — senin cümlene özel anlatalım.\n\n"
         f"✅ {lang_name} karşılığın:\n\"{translated}\"\n\n"
@@ -2639,6 +2769,22 @@ def process_turn(
         breakdown = grammar_breakdown(last_teacher, profile.get("currentLevel", "A1"))
         return _pack(profile, session_delta, breakdown, breakdown, None, 1, "breakdown", waiting=True, user_text=user_text)
 
+    # Niyet onayı bekleniyor (evet/hayır)
+    pending_intent = safe_str(profile.get("pendingIntentConfirm")).strip()
+    if pending_intent:
+        if _is_yes_reply(user_text):
+            result = _intent_confirm_yes(profile, session_delta, target_lang, translate_fn)
+            result["weekly_progress"] = weekly_progress(result["profile"])
+            return result
+        if _is_no_reply(user_text):
+            result = _intent_confirm_no(profile, session_delta)
+            result["weekly_progress"] = weekly_progress(result["profile"])
+            return result
+        if not _is_yardim_request(user_text) and not HELP_RE.search(user_text):
+            result = _intent_confirm_remind(profile, session_delta)
+            result["weekly_progress"] = weekly_progress(result["profile"])
+            return result
+
     # Anlamadım / don't understand — pratik beklerken bile önce açıkla
     if _is_confusion_request(user_text):
         result = _confusion_help_mode(
@@ -2685,6 +2831,17 @@ def process_turn(
         if fallback:
             fallback["weekly_progress"] = weekly_progress(fallback["profile"])
             return fallback
+
+    # Kırık İngilizce — AI'dan önce niyet sor (yes understand books vb.)
+    if translate_fn and target_lang == "en" and user_lang == "en":
+        if _is_broken_learner_english(original_text):
+            intent_early = _try_intent_clarify(
+                user_text, history, profile, session_delta, target_lang, translate_fn,
+                display_text=original_text,
+            )
+            if intent_early:
+                intent_early["weekly_progress"] = weekly_progress(intent_early["profile"])
+                return intent_early
 
     # AI öğretmen — ana beyin
     ai_result = _try_ai_tutor_turn(

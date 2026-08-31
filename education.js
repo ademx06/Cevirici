@@ -609,13 +609,14 @@ function render() {
       });
     }
     const isTeaching = corrLevel >= 2 || !!corr;
+    const hideEnBlock = m.type === 'help' || m.type === 'intent_guess' || m.type === 'intent_retry';
     const vocab = m.newWord && m.newWord.word
       ? `<div class="chat-vocab">📚 <strong>${esc(safeStr(m.newWord.word))}</strong> = ${esc(safeStr(m.newWord.meaningTr))}</div>` : '';
-    const enBlock = teacherEn
+    const enBlock = teacherEn && !hideEnBlock
       ? `<div class="chat-lang-block chat-en ${isTeaching ? 'chat-en-compact' : ''}"><span>${lg.flag} ${isTeaching ? 'Devam (EN)' : lg.name}</span><p>${esc(teacherEn).replace(/\n/g, '<br>')}</p>${m.phoneticEn ? `<p class="chat-phonetic">🔊 ${esc(m.phoneticEn)}</p>` : ''}</div>`
       : '';
     const trBlock = teacherTr && !isTeaching
-      ? `<div class="chat-lang-block chat-tr"><span>🇹🇷 Türkçe</span><p>${esc(teacherTr).replace(/\n/g, '<br>')}</p></div>`
+      ? `<div class="chat-lang-block chat-tr"><span>🇹🇷 Türkçe</span><p>${esc(teacherTr).replace(/\n/g, '<br>')}</p>${hideEnBlock && m.phoneticEn ? `<p class="chat-phonetic">🔊 ${esc(m.phoneticEn)}</p>` : ''}</div>`
       : '';
     const replayBtn = shouldShowReplay({ correction_level: m.correctionLevel, speak_tr: m.speakTr, type: m.type, teacher_en: m.teacherEn, teacher_tr: m.teacherTr })
       ? `<button type="button" class="replay-btn chat-replay" data-idx="${i}">🔊 Dinle</button>`
@@ -762,6 +763,13 @@ async function playTeacherAudio(d) {
       return;
     }
     if (SKIP_TTS_TYPES.has(type)) return;
+    if (type === 'intent_guess' || type === 'intent_retry') {
+      const en = safeStr(d.speak_text || d.teacher_en).trim();
+      if (en) await fetchAndPlayTts(en, S.learnLang, S.speakSlow);
+      const tr = trTextForTts(d.speak_tr || '');
+      if (tr) await fetchAndPlayTts(tr, 'tr', S.speakSlow);
+      return;
+    }
     const en = englishTextForTts(d);
     if (en) await fetchAndPlayTts(en, S.learnLang, S.speakSlow);
   } catch { /* ignore */ }
@@ -815,6 +823,9 @@ function compactProfileForApi() {
     currentLevel: safeStr(p.currentLevel || 'A1'),
     pendingPracticePhrase: p.pendingPracticePhrase ? safeStr(p.pendingPracticePhrase) : null,
     pendingPracticeTr: p.pendingPracticeTr ? safeStr(p.pendingPracticeTr) : null,
+    pendingIntentConfirm: p.pendingIntentConfirm ? safeStr(p.pendingIntentConfirm) : null,
+    pendingIntentUserSaid: p.pendingIntentUserSaid ? safeStr(p.pendingIntentUserSaid) : null,
+    pendingIntentReason: p.pendingIntentReason ? safeStr(p.pendingIntentReason) : null,
     lastTeacherText: safeStr(p.lastTeacherText).slice(0, 400),
     totalSentences: Number(p.totalSentences) || 0,
     correctSentences: Number(p.correctSentences) || 0,
@@ -968,10 +979,15 @@ async function sendTextMessage() {
   const input = $('textInput');
   if (!input) return;
   const text = input.value.trim();
-  if (!text || S.busyCount > 0 || isRecording()) return;
+  if (!text) return;
+  if (S.busyCount > 0 && S.busySince && Date.now() - S.busySince > STALE_BUSY_MS) {
+    forceUnlockMic(null);
+  }
+  if (S.busyCount > 0 || isRecording()) return;
   input.value = '';
   hideErr();
   S.busyCount += 1;
+  S.busySince = Date.now();
   showTyping();
   setUiState('PROCESSING');
   try {
@@ -981,7 +997,8 @@ async function sendTextMessage() {
     hideTyping();
     showErr(safeErrMsg(e) || 'Gönderilemedi');
   } finally {
-    S.busyCount -= 1;
+    S.busyCount = Math.max(0, S.busyCount - 1);
+    if (S.busyCount === 0) S.busySince = 0;
     resetIdle();
   }
 }
@@ -1056,6 +1073,10 @@ mic = MicHold.create({
   micOpenMs: MIC_OPEN_MS,
   micOpts: MIC_OPTS,
   onHideError: hideErr,
+  onMicOpening: () => {
+    safeText('statusText', 'Mikrofon izni bekleniyor…');
+    safeText('micTitle', 'İzin ver…');
+  },
   onSpeaking: () => {
     hideErr();
     showSpeaking();

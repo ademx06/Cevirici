@@ -230,6 +230,7 @@
 
       const openGen = ++S.micOpenGen;
       S.micOpening = true;
+      cfg.onMicOpening?.();
 
       try {
         await openFreshMic(openGen);
