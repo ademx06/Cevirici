@@ -107,6 +107,7 @@ CRITICAL RULES:
 - NEVER claim they said a different sentence than they actually said.
 - NEVER correct polite phrases: "thank you", "nice", "okay", "yes", "good", "welcome" — correction_level 1, just continue chatting.
 - If PENDING PRACTICE is set and student said something different, explain the difference gently — do NOT praise wrong answers as correct.
+- If student greets or makes small talk (hello, how are you), IGNORE pending practice — reply naturally with correction_level 1.
 - For A1 beginners: simple words, one idea at a time, warm tone, always teach through the conversation."""
 
 GREETINGS_TR = [
@@ -315,9 +316,41 @@ def _is_polite_acknowledgment(text: str) -> bool:
     return all(w in _POLITE_WORDS for w in words)
 
 
+def _is_greeting_or_small_talk(text: str) -> bool:
+    """Selamlaşma / hal hatır — pratik modunda bile düzeltme yapma."""
+    ul = text.strip().lower()
+    if not ul:
+        return False
+    if re.search(
+        r"\b(hello|hi|hey|good morning|good afternoon|good evening|good night|"
+        r"how are you|how're you|how are you doing|how is it going|what's up|whats up|"
+        r"nice to meet|pleased to meet|how was your day|how's your day|"
+        r"merhaba|selam|nasılsın|nasilsin|naber|günaydın|iyi akşamlar)\b",
+        ul,
+    ):
+        return True
+    return _is_polite_acknowledgment(text)
+
+
+def _should_exit_practice_mode(user_text: str, pending: str) -> bool:
+    """Bekleyen pratik varken öğrenci başka konuya geçtiyse pratiği bırak."""
+    if not pending:
+        return False
+    if _practice_phrase_match(user_text, pending):
+        return False
+    if _is_greeting_or_small_talk(user_text):
+        return True
+    if len(user_text.split()) >= 3 and not _is_fragment_attempt(user_text):
+        if _phrase_similar(user_text, pending):
+            return False
+        if looks_like_lang(user_text, "en") or looks_like_lang(user_text, "tr"):
+            return True
+    return False
+
+
 def _sanitize_ai_correction(user_text: str, parsed: dict) -> dict:
-    """AI bazen gereksiz düzeltme üretir — kabul/teşekkür cümlelerini temizle."""
-    if not _is_polite_acknowledgment(user_text):
+    """AI bazen gereksiz düzeltme üretir — selam/teşekkür cümlelerini temizle."""
+    if not (_is_polite_acknowledgment(user_text) or _is_greeting_or_small_talk(user_text)):
         return parsed
     out = dict(parsed)
     out["correction_level"] = 1
@@ -2533,8 +2566,15 @@ def process_turn(
     if translate_fn and HELP_RE.search(user_text):
         return _help_mode(user_text, target_lang, translate_fn, profile, session_delta)
 
+    pending = safe_str(profile.get("pendingPracticePhrase")).strip()
+    if pending and _should_exit_practice_mode(user_text, pending):
+        clear_practice = {"pendingPracticePhrase": None, "pendingPracticeTr": None}
+        session_delta = {**session_delta, **clear_practice}
+        profile = merge_profile(profile, session_delta)
+        pending = ""
+
     # Yardım sonrası pratik — sadece gerçekten doğru söylendiyse
-    if profile.get("pendingPracticePhrase") and translate_fn:
+    if pending and translate_fn:
         resumed = _resume_after_help(
             user_text, target_lang, profile, session_delta, translate_fn, history, roleplay,
         )
@@ -2548,8 +2588,8 @@ def process_turn(
             wrong["weekly_progress"] = weekly_progress(wrong["profile"])
             return wrong
 
-    # Pratik beklenirken AI'ya gitme — kontrollü yardım/pratik yolu
-    if profile.get("pendingPracticePhrase"):
+    # Pratik beklenirken — yalnızca hâlâ pratik modundaysa düzelt
+    if pending:
         fallback = _wrong_practice_after_help(
             user_text, target_lang, profile, session_delta, translate_fn,
         )
@@ -2775,6 +2815,10 @@ def _wrong_practice_after_help(
     pending = safe_str(profile.get("pendingPracticePhrase")).strip()
     pending_tr = safe_str(profile.get("pendingPracticeTr")).strip()
     if not pending:
+        return None
+    if _is_greeting_or_small_talk(user_text):
+        return None
+    if _should_exit_practice_mode(user_text, pending):
         return None
     if _is_confusion_request(user_text):
         return None
