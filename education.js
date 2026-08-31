@@ -71,6 +71,7 @@ const S = {
 let mic;
 
 const VOICE_FETCH_MS = 55000;
+const CHAT_FETCH_MS = 45000;
 const TTS_PLAY_MS = 12000;
 const EN_TTS_MAX = 320;
 const TR_TTS_MAX = 220;
@@ -931,6 +932,11 @@ async function handleEducationResult(d) {
       S.lastUserLang = d.user_lang || S.lastUserLang;
     }
     appendTeacherMsg(d);
+    const hasReply = safeStr(d.teacher_en || d.teacher_tr || d.teacher_text).trim();
+    if (!hasReply) {
+      if (S.msgs.length && S.msgs[S.msgs.length - 1]?.role === 'teacher') S.msgs.pop();
+      throw new Error('Öğretmen yanıtı boş — tekrar dene');
+    }
     hideTyping();
     try {
       render();
@@ -958,21 +964,28 @@ function detectInputLang(text) {
 }
 
 async function processEducationChat(text) {
-  const r = await fetch(`/api/education/chat?${new URLSearchParams({ lang: S.learnLang })}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      text,
-      profile: compactProfileForApi(),
-      history: sanitizeHistory(S.history),
-      roleplay: S.roleplay || null,
-      speak_slow: S.speakSlow,
-      user_lang: detectInputLang(text),
-    }),
-  });
-  const d = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(d.error || 'Bağlantı sorunu. Tekrar dene.');
-  return d;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), CHAT_FETCH_MS);
+  try {
+    const r = await fetch(`/api/education/chat?${new URLSearchParams({ lang: S.learnLang })}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text,
+        profile: compactProfileForApi(),
+        history: sanitizeHistory(S.history),
+        roleplay: S.roleplay || null,
+        speak_slow: S.speakSlow,
+        user_lang: detectInputLang(text),
+      }),
+      signal: ctrl.signal,
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || 'Bağlantı sorunu. Tekrar dene.');
+    return d;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function sendTextMessage() {
@@ -1045,20 +1058,28 @@ async function processEducationVoice(blob) {
   showTyping();
   setUiState('PROCESSING');
 
-  const chatRes = await fetch(`/api/education/chat?${new URLSearchParams({ lang: S.learnLang })}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      text: original,
-      profile: compactProfileForApi(),
-      history: sanitizeHistory(S.history),
-      roleplay: S.roleplay || null,
-      speak_slow: S.speakSlow,
-      user_lang: userLang,
-    }),
-  });
-  const d = await chatRes.json().catch(() => ({}));
-  if (!chatRes.ok) throw new Error(d.error || 'Bağlantı sorunu. Tekrar dene.');
+  const chatCtrl = new AbortController();
+  const chatTimer = setTimeout(() => chatCtrl.abort(), CHAT_FETCH_MS);
+  let d;
+  try {
+    const chatRes = await fetch(`/api/education/chat?${new URLSearchParams({ lang: S.learnLang })}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: original,
+        profile: compactProfileForApi(),
+        history: sanitizeHistory(S.history),
+        roleplay: S.roleplay || null,
+        speak_slow: S.speakSlow,
+        user_lang: userLang,
+      }),
+      signal: chatCtrl.signal,
+    });
+    d = await chatRes.json().catch(() => ({}));
+    if (!chatRes.ok) throw new Error(d.error || 'Bağlantı sorunu. Tekrar dene.');
+  } finally {
+    clearTimeout(chatTimer);
+  }
   d.user_text = original;
   d.user_lang = userLang;
   d._userShown = true;

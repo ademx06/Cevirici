@@ -1034,6 +1034,48 @@ def _is_real_turkish(text: str) -> bool:
     return bool(re.search(r"\b(ben|sen|biz|siz|onlar|için|ile|de|da|ki|mi|mı|mu|mü)\b", text, re.I))
 
 
+def looks_like_lang(text: str, lang: str) -> bool:
+    t = text.strip()
+    if not t:
+        return False
+    if lang == "tr":
+        if re.search(r"[ğüşıöçĞÜŞİÖÇ]", t):
+            return True
+        return bool(re.search(
+            r"neler|yapıyor|yapıyorsun|yapiyorsun|nasıl|merhaba|nasılsın|nasilsin|"
+            r"teşekkür|evet|hayır|tamam|iyiyim|güzel|ben|sen|\bne\b|neden|günaydın",
+            t,
+            re.I,
+        ))
+    if lang == "en":
+        return bool(re.search(
+            r"\b(what|how|are|you|doing|hello|thanks|thank|yes|no|good|please|fine|"
+            r"where|when|who|why|the|this|that|is|are|was|were|your|holiday|i'm|im|"
+            r"i|a|an|book|read|went|work|tired|today|yesterday|park|home|ate|had|"
+            r"played|watched|walked|studied|spoke|said|like|want|need|have|did|don't|"
+            r"understand|run|ran|running|very|so|just|only|also|then|well|now)\b",
+            t,
+            re.I,
+        ))
+    if lang == "ka":
+        return bool(re.search(r"[\u10A0-\u10FF]", t))
+    if lang == "ru":
+        return bool(re.search(r"[\u0400-\u04FF]", t))
+    if lang == "de":
+        return bool(re.search(r"\b(hallo|guten|danke|bitte|ja|nein)\b", t, re.I))
+    if lang == "fr":
+        return bool(re.search(r"\b(bonjour|merci|oui|non|comment)\b", t, re.I))
+    if lang == "es":
+        return bool(re.search(r"\b(hola|gracias|buenos|sí|si|no)\b", t, re.I))
+    if lang == "ar":
+        return bool(re.search(r"[\u0600-\u06FF]", t))
+    if lang == "it":
+        return bool(re.search(r"\b(ciao|grazie|buongiorno|si|no)\b", t, re.I))
+    if lang == "zh":
+        return bool(re.search(r"[\u4e00-\u9fff]", t))
+    return False
+
+
 def _last_teacher_question(history: list[dict], profile: dict) -> str:
     for h in history:
         if h.get("role") == "teacher":
@@ -2237,7 +2279,7 @@ def _try_ai_tutor_turn(
     word_breakdown_tr = safe_str(parsed.get("word_breakdown_tr")).strip()
     speak_tr = safe_str(parsed.get("speak_tr")).strip()
     inferred = safe_str(parsed.get("inferred_meaning")).strip()
-    phonetic_en = safe_str(parsed.get("phonetic_en")).strip() or pronounce_text(teacher_en, target_lang)
+    phonetic_en = safe_str(parsed.get("phonetic_en")).strip() or _simple_en_phonetic(teacher_en.split("\n")[0])
 
     profile_patch: dict[str, Any] = {}
     if corr_level >= 2 and correct_phrase:
@@ -3159,12 +3201,12 @@ def _pack(
                 correction_detail = {**correction_detail, "correctTr": correct_tr}
                 if corr_level >= 2 and not explicit:
                     str_speak = f"Doğrusu: {correct_tr}"[:220]
-                ph = pronounce_text(en_fix, target_lang)
+                ph = _simple_en_phonetic(en_fix)
                 if ph:
                     correction_detail = {**correction_detail, "phoneticEn": ph}
     ph_main = safe_str(phonetic_en).strip()
     if not ph_main and en and target_lang != "tr":
-        ph_main = pronounce_text(en.split("\n")[0], target_lang)
+        ph_main = _simple_en_phonetic(en.split("\n")[0])
     return {
         "type": msg_type,
         "user_text": user_text,
