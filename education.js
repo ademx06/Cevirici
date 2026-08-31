@@ -30,9 +30,9 @@ audio.setAttribute('webkit-playsinline', 'true');
 if (document.body) document.body.appendChild(audio);
 else document.addEventListener('DOMContentLoaded', () => document.body.appendChild(audio));
 
-const TAIL_MS = 720;
-const MIN_HOLD_MS = 350;
-const MIN_BLOB_BYTES = 200;
+const TAIL_MS = 450;
+const MIN_HOLD_MS = 450;
+const MIN_BLOB_BYTES = 400;
 
 const S = {
   learnLang: 'en',
@@ -61,13 +61,11 @@ const S = {
   greetingLoaded: false,
   greetingBusy: false,
   greetingAbort: null,
-  pendingEndHold: false,
   sessionSaved: false,
   softMsgTimer: null,
   processWatchdog: null,
   busySince: 0,
-  micOpening: false,
-  lastUserLang: 'en',
+  lastUserLang: 'tr',
 };
 
 const VOICE_FETCH_MS = 55000;
@@ -386,7 +384,14 @@ function releaseMic() {
 
 function forceFinishRecording() {
   if (!S.recorder || S.recorder.state !== 'recording') return;
-  stopRecorderSafely();
+  try {
+    S.recorder.requestData();
+    S.recorder.stop();
+  } catch {
+    cleanupRecorder();
+    releaseStream();
+    if (S.busyCount === 0) resetIdle();
+  }
 }
 
 function forceUnlockMic(reason) {
@@ -940,82 +945,57 @@ async function sendTextMessage() {
   }
 }
 
-function compactStateForVoice() {
-  return {
-    profile: compactProfileForApi(),
-    history: sanitizeHistory(S.history).slice(0, 8),
-    roleplay: S.roleplay || null,
-    speak_slow: S.speakSlow,
-    last_lang: S.lastUserLang || S.learnLang,
-  };
-}
-
-function stopRecorderSafely() {
-  if (!isRecording()) return;
-  try {
-    S.recorder.requestData();
-  } catch { /* ignore */ }
-  setTimeout(() => {
-    if (!isRecording()) return;
-    try {
-      S.recorder.requestData();
-      S.recorder.stop();
-    } catch {
-      cleanupRecorder();
-      if (!S.holdActive && S.busyCount === 0) resetIdle();
-    }
-  }, 140);
-}
-
-async function parseVoiceResponse(r) {
-  const raw = await r.text();
-  let d = {};
-  try {
-    d = raw ? JSON.parse(raw) : {};
-  } catch {
-    const snippet = raw ? raw.slice(0, 80).replace(/\s+/g, ' ') : '';
-    throw new Error(
-      snippet.startsWith('<')
-        ? 'Sunucu geçici olarak yanıt veremedi — birkaç saniye sonra tekrar dene'
-        : raw
-          ? `Sunucu yanıtı okunamadı — tekrar dene (${r.status || '?'})`
-          : 'Sunucu yanıtı boş — bağlantı koptu, tekrar dene',
-    );
-  }
-  if (!r.ok) throw new Error(d.error || 'Bağlantı sorunu. Tekrar dene.');
-  return d;
-}
-
 async function processEducationVoice(blob) {
-  let stateJson = '{}';
-  try {
-    stateJson = JSON.stringify(compactStateForVoice());
-  } catch {
-    stateJson = JSON.stringify({ profile: { targetLang: S.learnLang }, history: [], last_lang: S.learnLang });
-  }
-  const qs = new URLSearchParams({ lang: S.learnLang });
-  const headers = {
-    'Content-Type': blob.type || 'audio/mp4',
-    'X-Education-State': stateJson,
-  };
-  const url = `/api/education/voice?${qs}`;
+  const last = (S.lastUserLang === 'tr' || S.lastUserLang === S.learnLang)
+    ? S.lastUserLang
+    : 'tr';
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), VOICE_FETCH_MS);
-  const opts = { method: 'POST', body: blob, headers, signal: ctrl.signal };
-
   try {
-    const r = await fetch(url, opts);
-    return await parseVoiceResponse(r);
-  } catch (firstErr) {
-    if (firstErr?.name === 'AbortError') {
-      throw new Error('Sunucu yanıt vermedi — tekrar dene');
+    const sttRes = await fetch(`/api/process?${new URLSearchParams({
+      my: 'tr',
+      other: S.learnLang,
+      last,
+    })}`, {
+      method: 'POST',
+      body: blob,
+      headers: { 'Content-Type': blob.type || 'audio/mp4' },
+      signal: ctrl.signal,
+    });
+    const sttRaw = await sttRes.text();
+    let stt = {};
+    try {
+      stt = sttRaw ? JSON.parse(sttRaw) : {};
+    } catch {
+      throw new Error(sttRes.ok ? 'Sunucu yanıtı okunamadı' : `Sunucu hatası (${sttRes.status})`);
     }
-    if (firstErr?.message?.includes('okunamadı') || firstErr?.message?.includes('boş')) {
-      await new Promise((res) => setTimeout(res, 600));
-      const r2 = await fetch(url, { method: 'POST', body: blob, headers });
-      return await parseVoiceResponse(r2);
-    }
-    throw firstErr;
+    if (!sttRes.ok) throw new Error(stt.error || 'Konuşma anlaşılamadı — tekrar dene');
+
+    const original = safeStr(stt.original).trim();
+    const userLang = stt.from || detectInputLang(original);
+    if (!original) throw new Error('Konuşma anlaşılamadı — tekrar dene');
+
+    const chatRes = await fetch(`/api/education/chat?${new URLSearchParams({ lang: S.learnLang })}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: original,
+        profile: compactProfileForApi(),
+        history: sanitizeHistory(S.history),
+        roleplay: S.roleplay || null,
+        speak_slow: S.speakSlow,
+        user_lang: userLang,
+      }),
+      signal: ctrl.signal,
+    });
+    const d = await chatRes.json().catch(() => ({}));
+    if (!chatRes.ok) throw new Error(d.error || 'Bağlantı sorunu. Tekrar dene.');
+    d.user_text = original;
+    d.user_lang = userLang;
+    return d;
+  } catch (err) {
+    if (err?.name === 'AbortError') throw new Error('Sunucu yanıt vermedi — tekrar dene');
+    throw err;
   } finally {
     clearTimeout(timer);
   }
@@ -1229,14 +1209,12 @@ function startRecorder(gen) {
     // Mikrofon akışını açık tut — iOS'ta tekrar tekrar açmayı önler
 
     if (pressMs < MIN_HOLD_MS) {
-      showErr('Biraz daha uzun basılı tut');
       if (!S.holdActive && S.busyCount === 0) resetIdle();
       return;
     }
 
     const blob = new Blob(chunks, { type: mimeType });
     if (blob.size < MIN_BLOB_BYTES) {
-      showErr(`Ses kaydı boş (${blob.size} bayt) — mikrofonu kontrol edip tekrar dene`);
       if (!S.holdActive && S.busyCount === 0) resetIdle();
       return;
     }
@@ -1266,7 +1244,7 @@ function startRecorder(gen) {
   };
 
   try {
-    S.recorder.start(250);
+    S.recorder.start(100);
   } catch (e) {
     S.recorder = null;
     throw e;
@@ -1281,7 +1259,18 @@ function finishRecording() {
     return;
   }
   clearTimeout(S.stopTimer);
-  S.stopTimer = setTimeout(() => stopRecorderSafely(), TAIL_MS);
+  S.stopTimer = setTimeout(() => {
+    if (isRecording()) {
+      try {
+        S.recorder.requestData();
+        S.recorder.stop();
+      } catch {
+        cleanupRecorder();
+        releaseStream();
+        if (!S.holdActive && S.busyCount === 0) resetIdle();
+      }
+    }
+  }, TAIL_MS);
 }
 
 async function beginHold() {
@@ -1303,12 +1292,7 @@ async function beginHold() {
     forceUnlockMic(null);
   }
 
-  if (isRecording()) {
-    forceFinishRecording();
-  }
-
   S.holdActive = true;
-  S.pendingEndHold = false;
   S.fingerDownAt = Date.now();
   hideErr();
   showSpeaking();
@@ -1317,31 +1301,24 @@ async function beginHold() {
 
   if (!navigator.mediaDevices?.getUserMedia) {
     showErr('Mikrofon için Safari gerekli');
-    S.holdActive = false;
     resetIdle();
     return;
   }
 
+  if (isRecording()) return;
+
   try {
-    S.micOpening = true;
     await openFreshMic();
-    if (S.holdGen !== gen) {
-      S.holdActive = false;
+    if (!S.holdActive || S.holdGen !== gen) {
+      releaseMic();
       resetIdle();
       return;
     }
     startRecorder(gen);
-    if (S.pendingEndHold || !S.holdActive) {
-      S.pendingEndHold = false;
-      finishRecording();
-    }
-  } catch (e) {
+  } catch {
     releaseMic();
-    showErr(safeErrMsg(e) || 'Mikrofon izni gerekli. Ayarlar → Safari → Mikrofon');
-    S.holdActive = false;
+    showErr('Mikrofon izni gerekli. Ayarlar → Safari → Mikrofon');
     resetIdle();
-  } finally {
-    S.micOpening = false;
   }
 }
 
@@ -1350,26 +1327,17 @@ function endHold() {
   S.holdActive = false;
 
   if (!isRecording()) {
-    if (S.micOpening) {
-      S.pendingEndHold = true;
-      return;
-    }
-    if (S.busyCount === 0) resetIdle();
+    resetIdle();
     return;
   }
 
+  showThinking();
+
   clearTimeout(S.safetyTimer);
   S.safetyTimer = setTimeout(() => {
-    forceFinishRecording();
-    setTimeout(() => {
-      if (S.uiState === 'PROCESSING' && S.busyCount === 0 && !isRecording()) {
-        cleanupRecorder();
-        releaseStream();
-        resetIdle();
-        showErr('Kayıt tamamlanamadı — tekrar dene');
-      }
-    }, 2500);
-  }, 8000);
+    releaseMic();
+    if (S.busyCount === 0) resetIdle();
+  }, 5000);
 
   finishRecording();
 }

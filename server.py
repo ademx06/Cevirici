@@ -1106,7 +1106,7 @@ class Handler(SimpleHTTPRequestHandler):
         speak_slow = bool(state.get("speak_slow"))
         last_lang = state.get("last_lang") or lang
         try:
-            original, detected = transcribe_education(data, lang, last_lang, history)
+            original, detected = transcribe_dual(data, "tr", lang, last_lang)
             result = process_turn(
                 original, detected, lang, history, profile,
                 roleplay=roleplay, speak_slow=speak_slow, translate_fn=translate_text,
