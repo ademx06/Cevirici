@@ -16,6 +16,7 @@ from builder_engine import (
     learning_level_from_stats,
     srs_weight,
 )
+from pronunciation_service import build_sentence, get_word
 
 
 def fake_translate(text: str, from_lang: str, to_lang: str) -> str:
@@ -72,6 +73,53 @@ def test_word_lesson_quality():
     print("TEST word lesson quality OK:", len(examples), "examples,", len(types), "types")
 
 
+def test_pronunciation_consistency():
+    """Aynı kelime her yerde aynı okunuş."""
+    result = generate_word_lesson("kahve", "en", fake_translate)
+    coffee_pron = get_word("en", "coffee")["pronunciation_tr"]
+    assert coffee_pron == "kofi"
+
+    shall_pron = get_word("en", "shall")["pronunciation_tr"]
+    assert shall_pron == "şal"
+
+    for ex in result["examples"]:
+        pron = (ex.get("pronunciation_tr") or "").lower()
+        if "coffee" in (ex.get("target") or "").lower():
+            assert "kofii" not in pron
+            assert "kah-fi" not in pron
+            assert "kofi" in pron or coffee_pron in pron
+        words = {w["word"].lower(): w["pronunciation_tr"] for w in (ex.get("word_pronunciations") or [])}
+        if "coffee" in words:
+            assert words["coffee"] == "kofi"
+
+    offer = next((e for e in result["examples"] if e.get("sentence_type") == "offer"), None)
+    assert offer, "offer example missing"
+    assert "şal" in offer["pronunciation_tr"].lower()
+    pats = offer.get("pattern_examples") or []
+    assert pats and isinstance(pats[0], dict)
+    assert pats[0].get("tr")
+    assert pats[0].get("pronunciation_tr")
+    water_pat = next((p for p in pats if "water" in (p.get("target") or "").lower()), None)
+    if water_pat:
+        assert water_pat.get("new_words")
+
+    # Cümle analizi aynı sözlüğü kullanmalı
+    sent = build_sentence("I don't like coffee.", "en")
+    w = {x["word"].lower(): x["pronunciation_tr"] for x in sent["word_pronunciations"]}
+    assert w.get("coffee") == "kofi"
+    assert "dont" in sent["pronunciation_tr"].lower()
+
+    print("TEST pronunciation consistency OK")
+
+
+def test_no_duplicate_teaching_header():
+    result = generate_word_lesson("kahve", "en", fake_translate)
+    for ex in result["examples"]:
+        how = ex.get("how_it_is_formed_tr") or ""
+        assert how.count("Nasıl kuruldu") == 0, f"Duplicate header in: {how[:60]}"
+    print("TEST no duplicate header OK")
+
+
 def test_pronunciation_rules():
     p = _rule_pronunciation_en("I don't like coffee.")
     pron = p["pronunciation_tr"].lower()
@@ -119,6 +167,8 @@ def test_similarity_and_srs():
 
 if __name__ == "__main__":
     test_word_lesson_quality()
+    test_pronunciation_consistency()
+    test_no_duplicate_teaching_header()
     test_pronunciation_rules()
     test_sentence_analysis()
     test_grade_word_correct()

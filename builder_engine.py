@@ -11,11 +11,17 @@ from education_engine import (
     _analyze_for_teaching,
     _llm_json,
     _rule_natural_translate_tr,
-    _simple_en_phonetic,
     check_english,
     llm_available,
-    pronounce_text,
     safe_str,
+)
+from pronunciation_service import (
+    apply_pronunciation_to_example,
+    build_sentence,
+    enrich_pattern_examples,
+    get_word,
+    register_word,
+    strip_teaching_header,
 )
 
 # ── Yasak / şablon açıklamalar ──
@@ -168,67 +174,9 @@ def _dedupe_explanations(examples: list[dict[str, Any]]) -> bool:
     return unique >= max(2, len(texts) * 0.7)
 
 
-# ── Gelişmiş İngilizce telaffuz (kural tabanlı yedek) ──
-_EN_WORD_PRON: dict[str, str] = {
-    "i": "ay", "i'm": "aym", "you": "yu", "your": "yor", "we": "vi", "they": "dey",
-    "he": "hi", "she": "şi", "it": "it", "me": "mi", "my": "may", "the": "dı",
-    "a": "e", "an": "en", "and": "end", "or": "or", "to": "tu", "of": "ov",
-    "in": "in", "on": "on", "at": "et", "for": "for", "with": "with",
-    "do": "du", "does": "daz", "don't": "dont", "doesn't": "dazent", "did": "did",
-    "didn't": "didint", "can": "ken", "can't": "kant", "will": "vil", "won't": "vont",
-    "would": "vud", "could": "kud", "should": "şud", "shall": "şel",
-    "have": "hev", "has": "hez", "had": "hed", "haven't": "hevint",
-    "is": "iz", "are": "ar", "am": "em", "was": "vaz", "were": "ver", "be": "bi",
-    "love": "lav", "like": "layk", "want": "vant", "need": "nid", "get": "get",
-    "make": "meyk", "take": "teyk", "give": "giv", "go": "gou", "come": "kam",
-    "drink": "drink", "eat": "iit", "work": "vork", "play": "pley",
-    "coffee": "kofi", "tea": "ti", "water": "votır", "milk": "milk",
-    "morning": "morning", "today": "tudey", "every": "evri", "day": "dey",
-    "some": "sam", "please": "pliz", "thank": "thenk", "thanks": "thenks",
-    "yes": "yes", "no": "nou", "not": "not", "very": "veri", "really": "rili",
-    "good": "gud", "bad": "bed", "hot": "hat", "cold": "kould",
-}
-
-_EN_IPA_APPROX: dict[str, str] = {
-    "coffee": "/ˈkɔːfi/", "i": "/aɪ/", "love": "/lʌv/", "like": "/laɪk/",
-    "don't": "/doʊnt/", "do": "/duː/", "you": "/juː/", "want": "/wɒnt/",
-    "can": "/kæn/", "have": "/hæv/", "a": "/ə/", "shall": "/ʃæl/",
-    "get": "/ɡet/", "morning": "/ˈmɔːnɪŋ/", "drink": "/drɪŋk/",
-}
-
-
-def _tokenize_en(text: str) -> list[str]:
-    return re.findall(r"[A-Za-z]+(?:'[A-Za-z]+)?", text)
-
-
 def _rule_pronunciation_en(text: str) -> dict[str, Any]:
-    """Ses temelli Türkçe okunuş + yaklaşık IPA (LLM yokken)."""
-    tokens = _tokenize_en(text)
-    word_parts: list[dict[str, str]] = []
-    pron_words: list[str] = []
-    ipa_parts: list[str] = []
-
-    for tok in tokens:
-        low = tok.lower()
-        pron = _EN_WORD_PRON.get(low)
-        if not pron:
-            pron = _simple_en_phonetic(tok).split()[0] if tok else low
-        pron_words.append(pron)
-        ipa = _EN_IPA_APPROX.get(low, "")
-        word_parts.append({"word": tok, "pronunciation_tr": pron, "ipa": ipa})
-        if ipa:
-            ipa_parts.append(ipa)
-
-    sentence_pron = " ".join(pron_words)
-    # Doğal bağlantılar
-    sentence_pron = sentence_pron.replace("du yu", "du-yu").replace("dont layk", "dont-layk")
-    sentence_ipa = " ".join(ipa_parts) if ipa_parts else f"/{text.lower()[:40]}/"
-
-    return {
-        "pronunciation_tr": sentence_pron[:160],
-        "ipa": sentence_ipa[:120],
-        "word_pronunciations": word_parts,
-    }
+    """Geriye dönük uyumluluk — merkezi telaffuz servisini kullanır."""
+    return build_sentence(text, "en")
 
 
 def _pronunciation_bundle(
@@ -236,38 +184,11 @@ def _pronunciation_bundle(
     target_lang: str,
     focus_words: list[str] | None = None,
 ) -> dict[str, Any]:
+    """Merkezi telaffuz sözlüğü — LLM ile telaffuz üretilmez."""
     text = safe_str(text).strip()
     if not text:
         return {"pronunciation_tr": "", "ipa": "", "word_pronunciations": []}
-
-    lang_name = LANG_NAMES.get(target_lang, target_lang)
-    if llm_available():
-        focus = ", ".join(focus_words[:5]) if focus_words else ""
-        system = PRONUNCIATION_JSON_PROMPT.format(lang_name=lang_name, text=text[:300])
-        if focus:
-            system += f"\nPay extra attention to: {focus}"
-        parsed = _llm_json(system, "Return JSON only.", max_tokens=420)
-        if parsed and parsed.get("pronunciation_tr"):
-            words = parsed.get("words") or parsed.get("word_pronunciations") or []
-            clean_words: list[dict[str, str]] = []
-            if isinstance(words, list):
-                for w in words[:12]:
-                    if isinstance(w, dict) and w.get("word"):
-                        clean_words.append({
-                            "word": safe_str(w["word"]).strip(),
-                            "pronunciation_tr": safe_str(w.get("pronunciation_tr")).strip(),
-                            "ipa": safe_str(w.get("ipa")).strip(),
-                        })
-            return {
-                "pronunciation_tr": safe_str(parsed["pronunciation_tr"]).strip()[:160],
-                "ipa": safe_str(parsed.get("ipa")).strip()[:120],
-                "word_pronunciations": clean_words,
-            }
-
-    if target_lang == "en":
-        return _rule_pronunciation_en(text)
-    fallback = pronounce_text(text, target_lang)
-    return {"pronunciation_tr": fallback, "ipa": "", "word_pronunciations": []}
+    return build_sentence(text, target_lang, focus_words)
 
 
 def _merge_teaching_fields(ex: dict[str, Any]) -> dict[str, Any]:
@@ -275,6 +196,7 @@ def _merge_teaching_fields(ex: dict[str, Any]) -> dict[str, Any]:
     out = dict(ex)
     if not out.get("how_it_is_formed_tr"):
         out["how_it_is_formed_tr"] = safe_str(out.get("explanation_tr")).strip()
+    out["how_it_is_formed_tr"] = strip_teaching_header(out.get("how_it_is_formed_tr") or "")
     if not out.get("structure_tr") and out.get("structure"):
         out["structure_tr"] = out["structure"]
     parts = out.get("word_breakdown") or out.get("parts") or []
@@ -291,9 +213,6 @@ def _merge_teaching_fields(ex: dict[str, Any]) -> dict[str, Any]:
                     "meaning_tr": safe_str(p.get("meaning_tr")).strip(),
                 })
         out["word_breakdown"] = clean
-    pats = out.get("pattern_examples") or []
-    if isinstance(pats, list):
-        out["pattern_examples"] = [safe_str(p).strip() for p in pats if safe_str(p).strip()][:4]
     return out
 
 
@@ -301,17 +220,14 @@ def _enrich_example(
     ex: dict[str, Any],
     target_lang: str,
     focus_words: list[str] | None = None,
+    known_words: set[str] | None = None,
 ) -> dict[str, Any]:
     ex = _merge_teaching_fields(ex)
-    target = safe_str(ex.get("target")).strip()
-    if target:
-        bundle = _pronunciation_bundle(target, target_lang, focus_words)
-        if not ex.get("pronunciation_tr") or len(safe_str(ex.get("pronunciation_tr"))) < 4:
-            ex["pronunciation_tr"] = bundle["pronunciation_tr"]
-        if not ex.get("ipa"):
-            ex["ipa"] = bundle["ipa"]
-        if not ex.get("word_pronunciations"):
-            ex["word_pronunciations"] = bundle["word_pronunciations"]
+    focus = [w for w in (focus_words or []) if safe_str(w).strip()]
+    ex = apply_pronunciation_to_example(ex, target_lang, focus)
+    pats = ex.get("pattern_examples") or []
+    if pats:
+        ex["pattern_examples"] = enrich_pattern_examples(pats, target_lang, focus, known_words)
     return ex
 
 
@@ -345,7 +261,6 @@ def _en_lesson_templates(word_tr: str, target_word: str) -> list[dict[str, Any]]
                 {"token": T, "role_tr": "nesne", "meaning_tr": W},
             ],
             "how_it_is_formed_tr": (
-                "🧠 Nasıl kuruldu?\n"
                 "İngilizcede basit olumlu cümlede temel sıra:\n"
                 "Özne + Fiil + Nesne\n\n"
                 f"I → ben\nlove → sevmek\n{T} → {W}\n\n"
@@ -356,7 +271,11 @@ def _en_lesson_templates(word_tr: str, target_word: str) -> list[dict[str, Any]]
             "why_this_structure_tr": "Basit geniş zaman; düzenli fiil love + nesne.",
             "important_note_tr": None,
             "pattern_tr": "I love + [şey]",
-            "pattern_examples": [f"I love {T}.", "I love tea.", "I love music."],
+            "pattern_examples": [
+                {"target": f"I love {T}.", "tr": f"{W} seviyorum."},
+                {"target": "I love tea.", "tr": "Çayı seviyorum.", "new_words": [{"word": "tea", "meaning_tr": "çay"}]},
+                {"target": "I love music.", "tr": "Müziği seviyorum.", "new_words": [{"word": "music", "meaning_tr": "müzik"}]},
+            ],
         },
         {
             "tr": f"{W} sevmiyorum.",
@@ -373,7 +292,6 @@ def _en_lesson_templates(word_tr: str, target_word: str) -> list[dict[str, Any]]
                 {"token": T, "role_tr": "nesne", "meaning_tr": W},
             ],
             "how_it_is_formed_tr": (
-                "🧠 Nasıl kuruldu?\n"
                 "Bu olumsuz cümledir. Geniş zamanda like gibi fiillerle:\n"
                 "Özne + do not/don't + fiilin yalın hali + nesne\n\n"
                 f"I → ben\ndon't → -mıyorum\nlike → sevmek (liked/likes DEĞİL!)\n{T} → {W}\n\n"
@@ -382,7 +300,11 @@ def _en_lesson_templates(word_tr: str, target_word: str) -> list[dict[str, Any]]
             "why_this_structure_tr": "Olumsuzluk için don't kullanılır; fiil çekimlenmez.",
             "important_note_tr": "❌ I don't liked / I don't likes — yanlış. ✅ I don't like",
             "pattern_tr": "I don't like + [şey]",
-            "pattern_examples": ["I don't like tea.", "I don't like milk.", f"I don't like cold {T}."],
+            "pattern_examples": [
+                {"target": "I don't like tea.", "tr": "Çayı sevmiyorum.", "new_words": [{"word": "tea", "meaning_tr": "çay"}]},
+                {"target": "I don't like milk.", "tr": "Sütü sevmiyorum.", "new_words": [{"word": "milk", "meaning_tr": "süt"}]},
+                {"target": f"I don't like cold {T}.", "tr": f"Soğuk {W} sevmiyorum.", "new_words": [{"word": "cold", "meaning_tr": "soğuk"}]},
+            ],
         },
         {
             "tr": f"{W} ister misin?",
@@ -399,7 +321,6 @@ def _en_lesson_templates(word_tr: str, target_word: str) -> list[dict[str, Any]]
                 {"token": T, "role_tr": "nesne", "meaning_tr": W},
             ],
             "how_it_is_formed_tr": (
-                "🧠 Nasıl kuruldu?\n"
                 "Geniş zamanda want ile soru:\n"
                 "Do + Özne + Fiil + Nesne?\n\n"
                 f"Do → soru oluşturur\nyou → sen\nwant → istemek\n{T} → {W}\n\n"
@@ -409,7 +330,14 @@ def _en_lesson_templates(word_tr: str, target_word: str) -> list[dict[str, Any]]
             "why_this_structure_tr": "Soru için cümle başına Do gelir; fiil yalın kalır.",
             "important_note_tr": "Türkçe «Kahve ister misin?» — İngilizcede kelime sırası değişir.",
             "pattern_tr": "Do you want + [şey]?",
-            "pattern_examples": [f"Do you want {T}?", "Do you want tea?", "Do you want some water?"],
+            "pattern_examples": [
+                {"target": f"Do you want {T}?", "tr": f"{W} ister misin?"},
+                {"target": "Do you want tea?", "tr": "Çay ister misin?", "new_words": [{"word": "tea", "meaning_tr": "çay"}]},
+                {"target": "Do you want some water?", "tr": "Biraz su ister misin?", "new_words": [
+                    {"word": "some", "meaning_tr": "biraz / bazı"},
+                    {"word": "water", "meaning_tr": "su"},
+                ]},
+            ],
         },
         {
             "tr": f"Bir {W} alabilir miyim?",
@@ -426,7 +354,6 @@ def _en_lesson_templates(word_tr: str, target_word: str) -> list[dict[str, Any]]
                 {"token": f"a {T}", "role_tr": "nesne", "meaning_tr": f"bir {W}"},
             ],
             "how_it_is_formed_tr": (
-                "🧠 Nasıl kuruldu?\n"
                 "Can I have…? kibarca bir şey istemek için çok kullanılır.\n"
                 "Can + I + have + nesne?\n\n"
                 f"Can → -ebilir miyim?\nI → ben\nhave → burada «almak/istemek»\na {T} → bir {W}\n\n"
@@ -436,7 +363,14 @@ def _en_lesson_templates(word_tr: str, target_word: str) -> list[dict[str, Any]]
             "why_this_structure_tr": "Modal can + özne + have = rica/istek kalıbı.",
             "important_note_tr": "have kelimesi bağlama göre «istemek/almak» anlamına gelir.",
             "pattern_tr": "Can I have + [şey]?",
-            "pattern_examples": ["Can I have some water?", "Can I have the menu?", f"Can I have a {T}?"],
+            "pattern_examples": [
+                {"target": "Can I have some water?", "tr": "Biraz su alabilir miyim?", "new_words": [
+                    {"word": "some", "meaning_tr": "biraz / bazı"},
+                    {"word": "water", "meaning_tr": "su"},
+                ]},
+                {"target": "Can I have the menu?", "tr": "Menüyü alabilir miyim?", "new_words": [{"word": "menu", "meaning_tr": "menü"}]},
+                {"target": f"Can I have a {T}?", "tr": f"Bir {W} alabilir miyim?"},
+            ],
         },
         {
             "tr": f"Sana bir {W} alayım mı?",
@@ -453,7 +387,6 @@ def _en_lesson_templates(word_tr: str, target_word: str) -> list[dict[str, Any]]
                 {"token": f"a {T}", "role_tr": "nesne", "meaning_tr": f"bir {W}"},
             ],
             "how_it_is_formed_tr": (
-                "🧠 Nasıl kuruldu?\n"
                 "Shall I…? birine teklif sunarken kullanılır.\n"
                 f"Shall + I + get + you + a {T}?\n\n"
                 "get → almak/getirmek\nyou → sana (Türkçedeki «sana» karşılığı)\n\n"
@@ -462,7 +395,23 @@ def _en_lesson_templates(word_tr: str, target_word: str) -> list[dict[str, Any]]
             "why_this_structure_tr": "Teklif: Shall I + fiil + you + şey",
             "important_note_tr": "you burada «sana» anlamını verir; atlanmaz.",
             "pattern_tr": "Shall I + fiil + you + [şey]?",
-            "pattern_examples": ["Shall I get you some water?", f"Shall I make you a {T}?"],
+            "pattern_examples": [
+                {"target": "Shall I get you some water?", "tr": "Sana biraz su getireyim mi?", "new_words": [
+                    {"word": "some", "meaning_tr": "biraz / bazı"},
+                    {"word": "water", "meaning_tr": "su"},
+                ]},
+                {"target": f"Shall I make you a {T}?", "tr": f"Sana bir {W} yapayım mı?", "new_words": [
+                    {"word": "make", "meaning_tr": "yapmak"},
+                ]},
+                {"target": "Shall I carry your bag?", "tr": "Çantanı taşıyayım mı?", "new_words": [
+                    {"word": "carry", "meaning_tr": "taşımak"},
+                    {"word": "bag", "meaning_tr": "çanta"},
+                ]},
+                {"target": "Shall I call a taxi?", "tr": "Taksi çağırayım mı?", "new_words": [
+                    {"word": "call", "meaning_tr": "aramak / çağırmak", "example_target": "I will call you.", "example_tr": "Seni arayacağım."},
+                    {"word": "taxi", "meaning_tr": "taksi"},
+                ]},
+            ],
         },
         {
             "tr": f"Sabahları {W} içmezsin, öyle değil mi?",
@@ -478,7 +427,6 @@ def _en_lesson_templates(word_tr: str, target_word: str) -> list[dict[str, Any]]
                 {"token": "do you?", "role_tr": "tag question", "meaning_tr": "değil mi?"},
             ],
             "how_it_is_formed_tr": (
-                "🧠 Nasıl kuruldu?\n"
                 "Bu tag question yapısıdır — «… değil mi?» gibi onay bekler.\n\n"
                 f"Ana cümle: You don't drink {T} in the morning\n"
                 "Tag: do you?\n\n"
@@ -488,7 +436,12 @@ def _en_lesson_templates(word_tr: str, target_word: str) -> list[dict[str, Any]]
             "why_this_structure_tr": "Konuşmacı bir şeyi biliyor varsayar ve onay ister.",
             "important_note_tr": "Tag question ileri seviye; önce basit soruları öğren.",
             "pattern_tr": "Olumsuz cümle, do/does you?",
-            "pattern_examples": ["You're coming, aren't you?", "She doesn't like it, does she?"],
+            "pattern_examples": [
+                {"target": "You're coming, aren't you?", "tr": "Geliyorsun, değil mi?", "new_words": [
+                    {"word": "coming", "meaning_tr": "gelmek"},
+                ]},
+                {"target": "She doesn't like it, does she?", "tr": "O bunu sevmiyor, değil mi?"},
+            ],
         },
     ]
 
@@ -530,7 +483,6 @@ def _rule_based_word_lesson(
                 "structure_label_tr": "",
                 "word_breakdown": [{"token": target_word, "role_tr": "kelime", "meaning_tr": word_tr}],
                 "how_it_is_formed_tr": (
-                    f"🧠 Nasıl kuruldu?\n"
                     f"Bu cümle «{tr_sent}» anlamını {LANG_NAMES.get(target_lang, target_lang)} "
                     f"dilinde «{target}» şeklinde verir.\n"
                     f"Yapı: {st} cümle tipi. {target_word} kelimesi cümlenin merkezindedir."
@@ -541,8 +493,9 @@ def _rule_based_word_lesson(
             })
 
     examples: list[dict[str, Any]] = []
+    known: set[str] = set()
     for tpl in templates:
-        ex = _enrich_example(tpl, target_lang, [target_word])
+        ex = _enrich_example(tpl, target_lang, [target_word], known)
         examples.append(ex)
     return examples
 
@@ -563,7 +516,18 @@ def generate_word_lesson(
             target_word = translate_fn(word_tr, "tr", target_lang).strip()
         except Exception:
             target_word = ""
+    if not target_word and translate_fn:
+        try:
+            target_word = translate_fn(word_tr, "tr", target_lang).strip()
+        except Exception:
+            target_word = word_tr
+    target_word = safe_str(target_word).strip() or word_tr
 
+    if target_lang == "en":
+        tw_info = get_word("en", target_word)
+        register_word("en", target_word, tw_info["pronunciation_tr"], tw_info.get("ipa", ""))
+
+    known_words = {target_word.lower()}
     examples: list[dict[str, Any]] = []
 
     if llm_available():
@@ -574,14 +538,14 @@ def generate_word_lesson(
             for ex in raw_examples:
                 if not isinstance(ex, dict):
                     continue
-                enriched = _enrich_example(ex, target_lang, [target_word or word_tr])
+                enriched = _enrich_example(ex, target_lang, [target_word], known_words)
                 if _validate_example(enriched):
                     examples.append(enriched)
             if examples and not _dedupe_explanations(examples):
-                examples = []  # kalite düşük — kural tabanına düş
+                examples = []
 
     if len(examples) < 5:
-        rule_examples = _rule_based_word_lesson(word_tr, target_word or word_tr, target_lang, translate_fn)
+        rule_examples = _rule_based_word_lesson(word_tr, target_word, target_lang, translate_fn)
         seen = {_norm(ex.get("tr")) for ex in examples}
         for ex in rule_examples:
             if _norm(ex.get("tr")) not in seen:
@@ -590,23 +554,21 @@ def generate_word_lesson(
             if len(examples) >= 8:
                 break
 
-    if not target_word and translate_fn:
-        try:
-            target_word = translate_fn(word_tr, "tr", target_lang)
-        except Exception:
-            target_word = word_tr
+    tw_pron = get_word(target_lang, target_word)
 
     return {
         "ok": True,
         "word_tr": word_tr,
         "target_lang": target_lang,
         "target_word": target_word,
+        "pronunciation_tr": tw_pron["pronunciation_tr"],
+        "ipa": tw_pron.get("ipa", ""),
         "word_explanation_tr": (
             f"«{word_tr}» kelimesi {lang_name} dilinde «{target_word}» karşılığına gelir. "
             "Aşağıdaki cümlelerde farklı gramer yapılarını öğreneceksin."
         ),
         "usage": {
-            "noun_tr": f"İsim: {target_word}",
+            "noun_tr": f"Günlük {lang_name} dilinde «{target_word}» çoğunlukla isim olarak kullanılır.",
             "patterns": [f"I love {target_word}", f"Do you want {target_word}?"] if target_lang == "en" else [target_word],
             "common_mistakes_tr": "Kelime sırasını Türkçe gibi kurma; her cümle tipinin kendi yapısı var.",
         },
@@ -630,15 +592,20 @@ def _analyze_sentence_structured(
     parsed = _llm_json(system, "Return JSON only.", max_tokens=900)
     if not parsed or not parsed.get("target_sentence"):
         return None
-    how = safe_str(parsed.get("how_it_is_formed_tr")).strip()
+    how = strip_teaching_header(safe_str(parsed.get("how_it_is_formed_tr")).strip())
     if _is_generic_explanation(how):
         return None
     target = safe_str(parsed["target_sentence"]).strip()
     bundle = _pronunciation_bundle(target, target_lang)
     parsed["target_sentence"] = target
-    parsed["pronunciation_tr"] = parsed.get("pronunciation_tr") or bundle["pronunciation_tr"]
-    parsed["ipa"] = parsed.get("ipa") or bundle["ipa"]
-    parsed["word_pronunciations"] = parsed.get("word_pronunciations") or bundle["word_pronunciations"]
+    parsed["how_it_is_formed_tr"] = how
+    parsed["pronunciation_tr"] = bundle["pronunciation_tr"]
+    parsed["ipa"] = bundle.get("ipa") or parsed.get("ipa") or ""
+    parsed["word_pronunciations"] = bundle["word_pronunciations"]
+    focus = [w.get("token", "") for w in (parsed.get("word_breakdown") or []) if isinstance(w, dict)]
+    parsed["pattern_examples"] = enrich_pattern_examples(
+        parsed.get("pattern_examples") or [], target_lang, focus,
+    )
     parsed["grammar_explanation_tr"] = how
     parsed["why_tr"] = safe_str(parsed.get("why_this_structure_tr")).strip() or how
     return parsed
@@ -694,7 +661,7 @@ def analyze_sentence_for_builder(
     bundle = _pronunciation_bundle(natural, target_lang)
     pairs = analysis.get("phrase_pairs") or []
     structure = safe_str(analysis.get("important_structure_tr")).strip()
-    analysis_tr = safe_str(analysis.get("analysis_tr")).strip()
+    analysis_tr = strip_teaching_header(safe_str(analysis.get("analysis_tr")).strip())
 
     return {
         "ok": True,

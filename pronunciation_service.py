@@ -1,0 +1,401 @@
+"""Merkezi telaffuz sözlüğü — Cümle Kur modülü için tutarlı okunuş."""
+from __future__ import annotations
+
+import re
+from typing import Any
+
+from education_engine import _simple_en_phonetic, pronounce_text, safe_str
+
+# Oturum önbelleği: (lang, kelime) → {pronunciation_tr, ipa}
+_SESSION: dict[tuple[str, str], dict[str, str]] = {}
+
+# İngilizce temel kelime telaffuzları — ses temelli, tek standart
+EN_CANONICAL: dict[str, str] = {
+    "i": "ay",
+    "i'm": "aym",
+    "you": "yu",
+    "your": "yor",
+    "we": "vi",
+    "they": "dey",
+    "he": "hi",
+    "she": "şi",
+    "it": "it",
+    "me": "mi",
+    "my": "may",
+    "the": "dı",
+    "a": "e",
+    "an": "en",
+    "and": "end",
+    "or": "or",
+    "to": "tu",
+    "of": "ov",
+    "in": "in",
+    "on": "on",
+    "at": "et",
+    "for": "for",
+    "with": "with",
+    "do": "du",
+    "does": "daz",
+    "don't": "dont",
+    "doesn't": "dazent",
+    "did": "did",
+    "didn't": "didint",
+    "can": "ken",
+    "can't": "kant",
+    "will": "vil",
+    "won't": "vont",
+    "would": "vud",
+    "could": "kud",
+    "should": "şud",
+    "shall": "şal",
+    "have": "hev",
+    "has": "hez",
+    "had": "hed",
+    "haven't": "hevint",
+    "is": "iz",
+    "are": "ar",
+    "am": "em",
+    "was": "vaz",
+    "were": "ver",
+    "be": "bi",
+    "love": "lav",
+    "like": "layk",
+    "want": "vant",
+    "need": "nid",
+    "get": "get",
+    "make": "meyk",
+    "take": "teyk",
+    "give": "giv",
+    "go": "gou",
+    "come": "kam",
+    "call": "kol",
+    "carry": "keri",
+    "drink": "drink",
+    "eat": "iit",
+    "work": "vork",
+    "play": "pley",
+    "coffee": "kofi",
+    "tea": "ti",
+    "water": "votır",
+    "milk": "milk",
+    "bag": "beg",
+    "taxi": "tek-si",
+    "menu": "men-yu",
+    "music": "myu-zik",
+    "morning": "mor-ning",
+    "today": "tudey",
+    "every": "evri",
+    "day": "dey",
+    "some": "sam",
+    "please": "pliz",
+    "thank": "thenk",
+    "thanks": "thenks",
+    "yes": "yes",
+    "no": "nou",
+    "not": "not",
+    "very": "veri",
+    "really": "rili",
+    "good": "gud",
+    "bad": "bed",
+    "hot": "hat",
+    "cold": "kould",
+    "coming": "ka-ming",
+    "aren't": "arent",
+}
+
+EN_IPA: dict[str, str] = {
+    "i": "/aɪ/",
+    "love": "/lʌv/",
+    "like": "/laɪk/",
+    "don't": "/doʊnt/",
+    "do": "/duː/",
+    "you": "/juː/",
+    "want": "/wɒnt/",
+    "can": "/kæn/",
+    "have": "/hæv/",
+    "a": "/ə/",
+    "shall": "/ʃæl/",
+    "get": "/ɡet/",
+    "make": "/meɪk/",
+    "call": "/kɔːl/",
+    "carry": "/ˈkæri/",
+    "coffee": "/ˈkɔːfi/",
+    "water": "/ˈwɔːtər/",
+    "some": "/sʌm/",
+    "tea": "/tiː/",
+    "bag": "/bæɡ/",
+    "taxi": "/ˈtæksi/",
+    "morning": "/ˈmɔːnɪŋ/",
+    "drink": "/drɪŋk/",
+    "music": "/ˈmjuːzɪk/",
+    "menu": "/ˈmenjuː/",
+    "milk": "/mɪlk/",
+}
+
+# Kalıp örnekleri için sabit kelime anlamları
+EN_WORD_MEANINGS: dict[str, str] = {
+    "some": "biraz / bazı",
+    "water": "su",
+    "make": "yapmak",
+    "get": "almak / getirmek",
+    "call": "aramak / çağırmak",
+    "carry": "taşımak",
+    "bag": "çanta",
+    "taxi": "taksi",
+    "tea": "çay",
+    "music": "müzik",
+    "milk": "süt",
+    "menu": "menü",
+    "cold": "soğuk",
+    "morning": "sabah",
+    "coming": "gelmek (ing)",
+    "aren't": "değil mi? (tag)",
+    "doesn't": "-miyor (olumsuz)",
+}
+
+TEACHING_HEADER_RE = re.compile(
+    r"^[\s🧠]*Nasıl kuruldu\??[\s:—-]*\n?",
+    re.I,
+)
+
+
+def tokenize_en(text: str) -> list[str]:
+    return re.findall(r"[A-Za-z]+(?:'[A-Za-z]+)?", text)
+
+
+def _article_pron(next_word: str) -> str:
+    """a/an — sonraki kelimenin sesine göre."""
+    if not next_word:
+        return "e"
+    first = next_word.lower()[0]
+    if first in "aeiou":
+        return "ey"
+    return "e"
+
+
+def register_word(
+    lang: str,
+    word: str,
+    pronunciation_tr: str,
+    ipa: str = "",
+) -> None:
+    w = safe_str(word).strip()
+    p = safe_str(pronunciation_tr).strip()
+    if not w or not p:
+        return
+    _SESSION[(lang, w.lower())] = {
+        "pronunciation_tr": p,
+        "ipa": safe_str(ipa).strip(),
+    }
+
+
+def get_word(lang: str, word: str) -> dict[str, str]:
+    """Tek kelime telaffuzu — oturum → sözlük → yedek."""
+    raw = safe_str(word).strip()
+    if not raw:
+        return {"word": word, "pronunciation_tr": "", "ipa": ""}
+
+    low = raw.lower()
+    key = (lang, low)
+    if key in _SESSION:
+        cached = _SESSION[key]
+        return {"word": raw, "pronunciation_tr": cached["pronunciation_tr"], "ipa": cached.get("ipa", "")}
+
+    if lang == "en":
+        pron = EN_CANONICAL.get(low)
+        if not pron:
+            fallback = _simple_en_phonetic(raw)
+            pron = fallback.split()[0] if fallback else low
+        ipa = EN_IPA.get(low, "")
+        return {"word": raw, "pronunciation_tr": pron, "ipa": ipa}
+
+    fb = pronounce_text(raw, lang)
+    return {"word": raw, "pronunciation_tr": fb, "ipa": ""}
+
+
+def build_sentence(
+    text: str,
+    lang: str = "en",
+    focus_words: list[str] | None = None,
+) -> dict[str, Any]:
+    """Cümle telaffuzu — kelime sözlüğünden birleştirilir (LLM kullanılmaz)."""
+    text = safe_str(text).strip()
+    if not text:
+        return {"pronunciation_tr": "", "ipa": "", "word_pronunciations": []}
+
+    if lang != "en":
+        fb = pronounce_text(text, lang)
+        return {"pronunciation_tr": fb, "ipa": "", "word_pronunciations": []}
+
+    tokens = tokenize_en(text)
+    word_parts: list[dict[str, str]] = []
+    pron_words: list[str] = []
+    ipa_parts: list[str] = []
+
+    for i, tok in enumerate(tokens):
+        low = tok.lower()
+        if low == "a" and i + 1 < len(tokens):
+            pron = _article_pron(tokens[i + 1])
+        elif low == "an" and i + 1 < len(tokens):
+            pron = "en"
+        else:
+            info = get_word(lang, tok)
+            pron = info["pronunciation_tr"]
+        pron_words.append(pron)
+        info = get_word(lang, tok)
+        word_parts.append({
+            "word": tok,
+            "pronunciation_tr": pron if low in ("a", "an") else info["pronunciation_tr"],
+            "ipa": info.get("ipa", ""),
+        })
+        if info.get("ipa"):
+            ipa_parts.append(info["ipa"])
+
+    sentence_pron = " ".join(pron_words)
+    sentence_pron = (
+        sentence_pron
+        .replace("du yu", "du-yu")
+        .replace("dont layk", "dont-layk")
+        .replace("ken ay", "ken-ay")
+    )
+    if text and text[0].isupper() and sentence_pron:
+        sentence_pron = sentence_pron[0].upper() + sentence_pron[1:]
+
+    sentence_ipa = " ".join(ipa_parts) if ipa_parts else ""
+    return {
+        "pronunciation_tr": sentence_pron[:160],
+        "ipa": sentence_ipa[:120],
+        "word_pronunciations": word_parts,
+    }
+
+
+def strip_teaching_header(text: str) -> str:
+    """UI'da tekrarlanan 🧠 Nasıl kuruldu? başlığını metinden çıkar."""
+    t = safe_str(text).strip()
+    return TEACHING_HEADER_RE.sub("", t).strip()
+
+
+def word_meaning_tr(word: str) -> str:
+    return EN_WORD_MEANINGS.get(word.lower(), "")
+
+
+def detect_new_words(
+    target_sentence: str,
+    focus_words: list[str],
+    known_words: set[str] | None = None,
+) -> list[dict[str, str]]:
+    """Cümledeki odak dışı önemli kelimeleri bul."""
+    known = {w.lower() for w in (known_words or set())}
+    known.update(w.lower() for w in focus_words)
+    # Temel gramer kelimeleri — açıklama gerektirmez
+    skip = {
+        "i", "you", "we", "they", "he", "she", "it", "a", "an", "the",
+        "do", "does", "did", "can", "will", "would", "shall", "is", "are",
+        "am", "was", "were", "in", "on", "at", "to", "of", "for", "with",
+        "don't", "doesn't", "didn't", "not", "the", "and", "or",
+    }
+    tokens = tokenize_en(target_sentence)
+    result: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for tok in tokens:
+        low = tok.lower()
+        if low in skip or low in known or low in seen:
+            continue
+        meaning = word_meaning_tr(low)
+        if not meaning and low not in EN_CANONICAL:
+            continue
+        if not meaning:
+            meaning = EN_WORD_MEANINGS.get(low, "")
+        if not meaning:
+            continue
+        info = get_word("en", tok)
+        result.append({
+            "word": tok,
+            "meaning_tr": meaning,
+            "pronunciation_tr": info["pronunciation_tr"],
+            "ipa": info.get("ipa", ""),
+        })
+        seen.add(low)
+    return result[:6]
+
+
+def enrich_pattern_card(
+    card: dict[str, Any] | str,
+    lang: str,
+    focus_words: list[str],
+    known_words: set[str] | None = None,
+) -> dict[str, Any]:
+    """Kalıp örneğini mini öğrenme kartına dönüştür."""
+    if isinstance(card, str):
+        card = {"target": card.strip()}
+    if not isinstance(card, dict):
+        return {"target": safe_str(card)}
+
+    target = safe_str(card.get("target")).strip()
+    if not target:
+        return dict(card)
+
+    bundle = build_sentence(target, lang, focus_words)
+    out: dict[str, Any] = {
+        "target": target,
+        "tr": safe_str(card.get("tr")).strip(),
+        "pronunciation_tr": bundle["pronunciation_tr"],
+        "ipa": bundle.get("ipa") or "",
+        "word_pronunciations": bundle.get("word_pronunciations") or [],
+    }
+
+    new_words = card.get("new_words")
+    if isinstance(new_words, list) and new_words:
+        enriched_nw: list[dict[str, str]] = []
+        for nw in new_words:
+            if not isinstance(nw, dict):
+                continue
+            w = safe_str(nw.get("word")).strip()
+            if not w:
+                continue
+            info = get_word(lang, w)
+            enriched_nw.append({
+                "word": w,
+                "meaning_tr": safe_str(nw.get("meaning_tr")).strip() or word_meaning_tr(w),
+                "pronunciation_tr": info["pronunciation_tr"],
+                "ipa": info.get("ipa", ""),
+                "example_target": safe_str(nw.get("example_target")).strip(),
+                "example_tr": safe_str(nw.get("example_tr")).strip(),
+            })
+        out["new_words"] = enriched_nw
+    else:
+        out["new_words"] = detect_new_words(target, focus_words, known_words)
+
+    return out
+
+
+def enrich_pattern_examples(
+    examples: list[Any],
+    lang: str,
+    focus_words: list[str],
+    known_words: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for ex in (examples or [])[:4]:
+        card = enrich_pattern_card(ex, lang, focus_words, known_words)
+        if card.get("target"):
+            result.append(card)
+    return result
+
+
+def apply_pronunciation_to_example(
+    ex: dict[str, Any],
+    lang: str,
+    focus_words: list[str] | None = None,
+) -> dict[str, Any]:
+    """Örnek cümleye merkezi telaffuz uygula — LLM değerlerinin üzerine yazar."""
+    target = safe_str(ex.get("target")).strip()
+    if not target:
+        return ex
+    bundle = build_sentence(target, lang, focus_words)
+    ex["pronunciation_tr"] = bundle["pronunciation_tr"]
+    ex["ipa"] = bundle.get("ipa") or ex.get("ipa") or ""
+    ex["word_pronunciations"] = bundle["word_pronunciations"]
+    if ex.get("how_it_is_formed_tr"):
+        ex["how_it_is_formed_tr"] = strip_teaching_header(ex["how_it_is_formed_tr"])
+    return ex

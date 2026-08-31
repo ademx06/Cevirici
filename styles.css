@@ -2591,8 +2591,89 @@ body {
 
 .mod-pattern-examples {
   margin: 8px 0 0;
-  padding-left: 18px;
+  padding-left: 0;
+  list-style: none;
   color: #FCD34D;
+}
+
+.mod-pattern-card {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(15,23,42,0.5);
+  border: 1px solid rgba(251,191,36,0.15);
+}
+
+.mod-pattern-card .mod-pron-row {
+  margin-top: 6px;
+}
+
+.mod-listen-sm {
+  margin-top: 8px;
+  font-size: 12px;
+  padding: 6px 10px;
+}
+
+.mod-new-words {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #CBD5E1;
+}
+
+.mod-new-words strong {
+  display: block;
+  margin-bottom: 6px;
+  color: #FCD34D;
+}
+
+.mod-nw-chip {
+  display: inline-block;
+  margin: 4px 6px 0 0;
+  padding: 4px 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(148,163,184,0.3);
+  background: rgba(30,41,59,0.6);
+  color: #E2E8F0;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.mod-word-popup-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(0,0,0,0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.mod-word-popup {
+  background: #0F172A;
+  border: 1px solid rgba(148,163,184,0.25);
+  border-radius: 16px;
+  padding: 20px;
+  max-width: 340px;
+  width: 100%;
+  position: relative;
+}
+
+.mod-popup-close {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  background: none;
+  border: none;
+  color: #94A3B8;
+  font-size: 22px;
+  cursor: pointer;
+}
+
+.mod-popup-example {
+  margin-top: 8px;
+  font-size: 13px;
+  color: #CBD5E1;
 }
 
 .mod-pron-note {

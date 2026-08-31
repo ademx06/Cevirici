@@ -87,9 +87,26 @@
     }).join('')}</ul>`;
   }
 
-  function renderPatternBlock(ex) {
+  function renderPatternBlock(ex, lang) {
     if (!ex.pattern_tr && !(ex.pattern_examples || []).length) return '';
-    const examples = (ex.pattern_examples || []).map((p) => `<li>${esc(p)}</li>`).join('');
+    const examples = (ex.pattern_examples || []).map((p, i) => {
+      if (typeof p === 'string') {
+        return `<li>${esc(p)}</li>`;
+      }
+      const cardId = `pat-${i}`;
+      const nw = (p.new_words || []).map((w) => `
+        <button type="button" class="mod-nw-chip builder-word-chip" data-word="${esc(w.word)}" data-meaning="${esc(w.meaning_tr || '')}" data-pron="${esc(w.pronunciation_tr || '')}" data-example-target="${esc(w.example_target || '')}" data-example-tr="${esc(w.example_tr || '')}" data-lang="${lang}">
+          ${esc(w.word)} → ${esc(w.meaning_tr || '')}
+        </button>`).join('');
+      return `
+        <li class="mod-pattern-card">
+          <div class="mod-card-line mod-card-target"><span class="mod-flag">🇬🇧</span>${esc(p.target)}</div>
+          ${p.tr ? `<div class="mod-card-line mod-card-tr"><span class="mod-flag">🇹🇷</span>${esc(p.tr)}</div>` : ''}
+          ${p.pronunciation_tr ? `<div class="mod-pron-row"><span class="mod-pron-label">🗣️ Okunuş</span><span class="mod-pron-value">${esc(p.pronunciation_tr)}</span></div>` : ''}
+          <button type="button" class="mod-listen-btn builder-listen mod-listen-sm" data-text="${esc(p.target)}" data-lang="${lang}">🔊 Dinle</button>
+          ${nw ? `<div class="mod-new-words"><strong>📖 Yeni kelimeler</strong>${nw}</div>` : ''}
+        </li>`;
+    }).join('');
     return `
       <div class="mod-pattern">
         <strong>🎯 ${esc(ex.pattern_tr || 'Bu kalıbı unutma')}</strong>
@@ -132,7 +149,7 @@
     });
   }
 
-  function renderTeachingBlock(ex) {
+  function renderTeachingBlock(ex, lang) {
     const how = ex.how_it_is_formed_tr || ex.explanation_tr || '';
     const why = ex.why_this_structure_tr || '';
     const note = ex.important_note_tr || '';
@@ -146,7 +163,7 @@
         ${ex.structure_tr ? `<p class="mod-structure">📚 ${esc(ex.structure_tr)}</p>` : ''}
         ${label ? `<p class="mod-structure-label">${esc(label)}</p>` : ''}
         ${renderWordBreakdown(ex)}
-        ${renderPatternBlock(ex)}
+        ${renderPatternBlock(ex, lang)}
       </details>`;
   }
 
@@ -160,8 +177,41 @@
         <div class="mod-card-line mod-card-target"><span class="mod-flag">🌍</span>${esc(ex.target)}</div>
         <button type="button" class="mod-listen-btn builder-listen" data-text="${esc(ex.target)}" data-lang="${lang}">🔊 Cümleyi dinle</button>
         ${renderPronunciationBlock(ex, lang, cardId)}
-        ${renderTeachingBlock(ex)}
+        ${renderTeachingBlock(ex, lang)}
       </article>`;
+  }
+
+  function bindWordChips(root, lang) {
+    root?.querySelectorAll('.builder-word-chip').forEach((btn) => {
+      btn.addEventListener('click', () => showWordPopup(btn, lang));
+    });
+  }
+
+  function showWordPopup(btn, lang) {
+    const existing = document.querySelector('.mod-word-popup-overlay');
+    if (existing) existing.remove();
+    const word = btn.dataset.word || '';
+    const meaning = btn.dataset.meaning || '';
+    const pron = btn.dataset.pron || '';
+    const exTarget = btn.dataset.exampleTarget || '';
+    const exTr = btn.dataset.exampleTr || '';
+    const overlay = document.createElement('div');
+    overlay.className = 'mod-word-popup-overlay';
+    overlay.innerHTML = `
+      <div class="mod-word-popup" role="dialog">
+        <button type="button" class="mod-popup-close" aria-label="Kapat">×</button>
+        <h4>${esc(word)}</h4>
+        ${meaning ? `<p><strong>Türkçesi:</strong> ${esc(meaning)}</p>` : ''}
+        ${pron ? `<p><strong>Okunuş:</strong> ${esc(pron)}</p>` : ''}
+        <button type="button" class="mod-listen-btn builder-listen" data-text="${esc(word)}" data-lang="${lang}">🔊 Dinle</button>
+        ${exTarget ? `<div class="mod-popup-example"><span class="mod-flag">🇬🇧</span>${esc(exTarget)}</div>` : ''}
+        ${exTr ? `<div class="mod-popup-example"><span class="mod-flag">🇹🇷</span>${esc(exTr)}</div>` : ''}
+      </div>`;
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay || e.target.closest('.mod-popup-close')) overlay.remove();
+    });
+    document.body.appendChild(overlay);
+    bindListenButtons(overlay);
   }
 
   function bindListenButtons(root) {
@@ -183,13 +233,13 @@
         <div class="mod-hero-icon">☕</div>
         <div>
           <h2>${esc(data.word_tr)}</h2>
-          <p class="mod-hero-sub">${esc(data.target_word)}</p>
+          <p class="mod-hero-sub">${esc(data.target_word)}${data.pronunciation_tr ? ` · 🗣️ ${esc(data.pronunciation_tr)}` : ''}</p>
         </div>
       </div>
       ${data.word_explanation_tr ? `<p class="mod-lead">${esc(data.word_explanation_tr)}</p>` : ''}
       <div class="mod-info-card">
         <h3>Kelime kullanımı</h3>
-        ${usage.noun_tr ? `<p><strong>İsim:</strong> ${esc(usage.noun_tr)}</p>` : ''}
+        ${usage.noun_tr ? `<p>${esc(usage.noun_tr)}</p>` : ''}
         ${usage.verb_tr ? `<p><strong>Fiil:</strong> ${esc(usage.verb_tr)}</p>` : ''}
         ${usage.formal_tr ? `<p><strong>Resmi:</strong> ${esc(usage.formal_tr)}</p>` : ''}
         ${usage.informal_tr ? `<p><strong>Samimi:</strong> ${esc(usage.informal_tr)}</p>` : ''}
@@ -202,6 +252,7 @@
     box.querySelector('#saveWordBtn')?.addEventListener('click', saveCurrentWord);
     bindListenButtons(box);
     bindIpaToggles(box);
+    bindWordChips(box, lang);
     $('modScroll')?.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
@@ -210,6 +261,8 @@
     const saved = LS.saveWord({
       word_tr: currentWordLesson.word_tr,
       target_word: currentWordLesson.target_word,
+      pronunciation_tr: currentWordLesson.pronunciation_tr,
+      ipa: currentWordLesson.ipa,
       target_lang: currentWordLesson.target_lang,
       word_explanation_tr: currentWordLesson.word_explanation_tr,
       usage: currentWordLesson.usage,
@@ -238,12 +291,13 @@
         <button type="button" class="mod-listen-btn builder-listen" data-text="${esc(data.target_sentence)}" data-lang="${data.target_lang}">🔊 Cümleyi dinle</button>
         ${renderPronunciationBlock(data, data.target_lang, cardId)}
         ${chunks ? `<div class="mod-chunks"><h4>Telaffuz parçaları</h4>${chunks}</div>` : ''}
-        ${renderTeachingBlock(data)}
+        ${renderTeachingBlock(data, data.target_lang)}
       </article>
       <button type="button" id="saveSentenceBtn" class="mod-action-btn mod-action-save">⭐ Kaydet</button>`;
     box.querySelector('#saveSentenceBtn')?.addEventListener('click', saveCurrentSentence);
     bindListenButtons(box);
     bindIpaToggles(box);
+    bindWordChips(box, data.target_lang);
     $('modScroll')?.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
