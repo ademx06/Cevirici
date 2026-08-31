@@ -1114,8 +1114,21 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    from telegram_bot import start_telegram_bot, _find_tunnel_url, send_telegram, _link_message, _load_env as _tg_env
+
     print(f"Serving {ROOT} on port {PORT}")
     print("Whisper modeli yükleniyor...")
     get_whisper()
+    _tg_env()
+    url = _find_tunnel_url()
+    if url:
+        with open(os.path.join(ROOT, "PUBLIC_URL.txt"), "w", encoding="utf-8") as f:
+            f.write(url + "\n")
+    bot = start_telegram_bot()
+    if bot:
+        print("Telegram bot aktif — /link ile adres alınır")
+        chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
+        if chat_id and url:
+            send_telegram(chat_id, _link_message(url))
     print("Hazır.")
     HTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
