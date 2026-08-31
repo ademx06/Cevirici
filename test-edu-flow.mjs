@@ -86,6 +86,7 @@ async function run(label, corrupt) {
     'yardım ben bugün işe gideceğim',
     'I went to work today',
     'I will go to work today',
+    "I don't understand",
     'How is the weather?',
   ];
   for (const t of steps) {
