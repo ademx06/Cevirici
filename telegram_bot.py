@@ -3,16 +3,15 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import threading
 import time
 from pathlib import Path
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+from public_url import persist_public_url, resolve_public_url
+
 ROOT = Path(__file__).resolve().parent
-URL_FILE = ROOT / "PUBLIC_URL.txt"
-TUNNEL_LOG = Path("/tmp/cloudflared-live.log")
 ENV_FILE = ROOT / ".env"
 
 LINK_CMDS = frozenset({"/start", "/link", "/adres", "start", "link", "adres", "başlat"})
@@ -32,17 +31,7 @@ def _load_env() -> None:
 
 
 def _find_tunnel_url() -> str:
-    if URL_FILE.is_file():
-        u = URL_FILE.read_text(encoding="utf-8").strip()
-        if u.startswith("https://"):
-            return u
-    for log in (TUNNEL_LOG, Path("/tmp/sesli-cevirmen-tunnel.log"), Path("/tmp/cloudflared-edu.log")):
-        if not log.is_file():
-            continue
-        m = re.findall(r"https://[a-z0-9-]+\.trycloudflare\.com", log.read_text(encoding="utf-8", errors="ignore"))
-        if m:
-            return m[-1]
-    return ""
+    return resolve_public_url()
 
 
 def _link_message(url: str) -> str:
@@ -83,7 +72,7 @@ def _handle_message(chat_id: int, text: str) -> None:
     if cmd in LINK_CMDS or (text or "").strip().lower() in LINK_CMDS:
         url = _find_tunnel_url()
         if url:
-            URL_FILE.write_text(url + "\n", encoding="utf-8")
+            persist_public_url(url)
         send_telegram(chat_id, _link_message(url))
     elif cmd in ("/help", "help", "yardım", "/yardım"):
         send_telegram(

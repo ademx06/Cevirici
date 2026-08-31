@@ -2,6 +2,12 @@
 
 Safari için sesli çeviri + dil eğitimi.
 
+## 7/24 sabit adres (GitHub + Render) — önerilen
+
+Mac gerekmez. GitHub’a kod, Render’da ücretsiz barındırma:
+
+**[docs/GITHUB-DEPLOY.md](docs/GITHUB-DEPLOY.md)** ← adım adım iPhone rehberi
+
 ## Kendin çalıştır (Mac)
 
 ```bash

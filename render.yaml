@@ -1,0 +1,22 @@
+# Render Blueprint — GitHub repo bağlandıktan sonra "New Blueprint" ile kurulur.
+# https://dashboard.render.com/blueprints
+
+services:
+  - type: web
+    name: sesli-cevirmen
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/status
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: WHISPER_MODEL
+        value: tiny
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL
+        value: qwen/qwen3.8-27b
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false

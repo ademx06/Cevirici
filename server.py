@@ -18,7 +18,8 @@ from education_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-PORT = 8780
+PORT = int(os.environ.get("PORT", "8780"))
+WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "base")
 EDU_STATE_MARKER = b"\n--EDU_STATE_END--\n"
 
 UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15"
@@ -176,7 +177,7 @@ def get_whisper():
     global _whisper_model
     if _whisper_model is None:
         from faster_whisper import WhisperModel
-        _whisper_model = WhisperModel("base", device="cpu", compute_type="int8")
+        _whisper_model = WhisperModel(WHISPER_MODEL, device="cpu", compute_type="int8")
     return _whisper_model
 
 
@@ -1114,16 +1115,28 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    from telegram_bot import start_telegram_bot, _find_tunnel_url, send_telegram, _link_message, _load_env as _tg_env
+    import threading
+
+    from public_url import persist_public_url, resolve_public_url
+    from telegram_bot import start_telegram_bot, send_telegram, _link_message, _load_env as _tg_env
 
     print(f"Serving {ROOT} on port {PORT}")
-    print("Whisper modeli yükleniyor...")
-    get_whisper()
+
+    def _warm_whisper() -> None:
+        print(f"Whisper modeli yükleniyor ({WHISPER_MODEL})…")
+        try:
+            get_whisper()
+            print("Whisper hazır.")
+        except Exception as exc:
+            print(f"Whisper yüklenemedi (STT kısıtlı çalışabilir): {exc}")
+
+    threading.Thread(target=_warm_whisper, name="whisper-warmup", daemon=True).start()
+
     _tg_env()
-    url = _find_tunnel_url()
+    url = resolve_public_url()
     if url:
-        with open(os.path.join(ROOT, "PUBLIC_URL.txt"), "w", encoding="utf-8") as f:
-            f.write(url + "\n")
+        persist_public_url(url)
+        print(f"Genel adres: {url}")
     bot = start_telegram_bot()
     if bot:
         print("Telegram bot aktif — /link ile adres alınır")
