@@ -71,18 +71,20 @@ CONVERSATION HISTORY (teacher = you, user = student):
 LAST THING YOU (teacher) SAID:
 "{last_teacher}"
 
-STUDENT JUST SAID ({input_lang}):
+STUDENT JUST SAID ({input_lang}) — raw speech-to-text, may contain errors:
 "{user_text}"
+
+SPEECH RECOGNITION NOTE: Input is from automatic STT. Common errors: "I will"→past tense intent, "slipping"→"sleeping", "ayran"/"iron"→"I run", broken grammar ("I sleeping", "I go work"). ALWAYS infer what the student MEANT from context and your last question — never take garbled text literally if context suggests otherwise.
 
 YOUR JOB — think like a real human tutor, NOT a dictionary:
 1. Infer what the student MEANT from context, even if they said one word ("Sleeping"), wrong grammar ("I sleeping"), STT errors ("Slipping"), or Turkish.
 2. Never reply with random unrelated topics. Always respond to what they meant.
 3. teacher_en: natural {lang_name} reply (2-4 sentences). Continue the conversation. End with a relevant question.
-4. teacher_tr: Turkish explanation for the student — what you understood, any correction, key vocabulary. Be warm and clear.
-5. If input was incomplete or wrong but you understood intent: gently offer the full sentence ("Did you mean: ...?") inside teacher_en AND teacher_tr, set suggested_practice to that sentence.
-6. If student spoke Turkish: acknowledge meaning in teacher_tr, encourage answering in {lang_name}, continue in {lang_name} in teacher_en.
-7. correction_level: 1 = acceptable/good try, 2 = minor fix worth noting, 3 = student should repeat corrected sentence.
-8. Do NOT invent facts about the student. Stay on topic from the conversation.
+4. teacher_tr: Turkish explanation — what you understood, the correction if any, and why. Be warm and clear like a real teacher.
+5. If grammar or vocabulary is wrong: set correction_level 2 or 3, give correct_phrase with the full natural sentence, explain the mistake briefly in teacher_tr.
+6. If input was incomplete but intent is clear: offer "Did you mean: ...?" in teacher_en, set suggested_practice to the full correct sentence.
+7. If student spoke Turkish: acknowledge in teacher_tr, teach the {lang_name} equivalent, encourage answering in {lang_name}.
+8. Praise ONLY when the sentence is actually correct or a good try — never praise wrong answers as correct.
 
 Return ONLY valid JSON with these keys:
 {{
@@ -856,28 +858,24 @@ def _is_yardim_request(text: str) -> bool:
 
 
 def _normalize_stt_text(text: str) -> str:
-    """Ses tanıma hatalarını düzelt (ay book → a book vb.)."""
+    """Ses tanıma hatalarını düzelt — doğru cümleleri bozma."""
     t = text.strip()
+    if not t:
+        return t
+    tl = t.lower()
+    # Tek kelime / bariz STT hataları
+    single_fixes = {
+        "slipping": "sleeping", "slipin": "sleeping", "sleepin": "sleeping",
+        "ayran": "I run", "iron": "I run", "airen": "I run",
+        "eye run": "I run", "ay run": "I run", "hey run": "I run",
+        "ay book": "a book", "i book": "I read a book",
+    }
+    if tl in single_fixes:
+        return single_fixes[tl]
     fixes = (
-        (r"\bay book\b", "a book"),
-        (r"\bi book\b", "I read a book"),
-        (r"\bread book\b", "read a book"),
-        (r"\bi read book\b", "I read a book"),
-        (r"\bi went park\b", "I went to the park"),
-        (r"\bi go work\b", "I go to work"),
-        (r"\bi am run\b", "I am run"),  # keep for learner detection, don't auto-fix
-        (r"\bi run\b", "I ran"),
-        (r"\bi am walk\b", "I walked"),
-        (r"\bi am read\b", "I read a book"),
-        (r"\bi am go\b", "I went"),
-        (r"\bi will\b", "I run"),
-        (r"\beye run\b", "I run"),
-        (r"\b(i wool|i wall|i well|ay run|hey run)\b", "I run"),
-        (r"\b(slipping|slipin|slip)\b", "sleeping"),
+        (r"\bslipping\b", "sleeping"),
+        (r"\bslipin\b", "sleeping"),
         (r"\bsleepin\b", "sleeping"),
-        (r"\bayran\b", "I run"),
-        (r"\biron\b", "I run"),
-        (r"\bairen\b", "I run"),
         (r"\btoday i\b", "today I"),
     )
     for pat, rep in fixes:

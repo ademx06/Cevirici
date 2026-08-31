@@ -120,6 +120,48 @@ function sanitizeHistory(raw) {
   }).filter(Boolean).slice(0, 24);
 }
 
+function sanitizeChatMsg(m) {
+  if (!m || typeof m !== 'object' || Array.isArray(m)) return null;
+  const role = m.role === 'user' ? 'user' : 'teacher';
+  if (role === 'user') {
+    const text = safeStr(m.text).slice(0, 500);
+    return text ? { role, text, lang: safeStr(m.lang || S.learnLang), time: safeStr(m.time) } : null;
+  }
+  const cd = m.correctionDetail;
+  const correctionDetail = cd && typeof cd === 'object' && !Array.isArray(cd)
+    ? {
+        userSaid: safeStr(cd.userSaid),
+        correctEn: safeStr(cd.correctEn),
+        explainTr: safeStr(cd.explainTr),
+        explainEn: safeStr(cd.explainEn),
+      }
+    : null;
+  const nw = m.newWord;
+  const newWord = nw && typeof nw === 'object' && !Array.isArray(nw) && nw.word
+    ? { word: safeStr(nw.word), meaningTr: safeStr(nw.meaningTr) }
+    : null;
+  return {
+    role: 'teacher',
+    teacher: safeStr(m.teacher || m.teacherEn),
+    teacherEn: safeStr(m.teacherEn || m.teacher),
+    teacherTr: safeStr(m.teacherTr || m.explain),
+    explain: safeStr(m.explain || m.teacherTr),
+    correction: safeStr(m.correction),
+    correctionLevel: Number(m.correctionLevel) || 1,
+    correctionDetail,
+    userSaid: safeStr(m.userSaid),
+    targetLang: safeStr(m.targetLang || S.learnLang),
+    audio: typeof m.audio === 'string' && m.audio ? m.audio : null,
+    type: safeStr(m.type),
+    newWord,
+    time: safeStr(m.time),
+  };
+}
+
+function sanitizeMsgs(raw) {
+  return ensureArray(raw).map(sanitizeChatMsg).filter(Boolean).slice(-80);
+}
+
 function chatMsgForStorage(m) {
   if (!m || typeof m !== 'object') return null;
   const { audio, ...rest } = m;
@@ -171,7 +213,7 @@ function loadHistory() {
 
 function saveChat() {
   try {
-    const slim = ensureArray(S.msgs).slice(-80).map(chatMsgForStorage).filter(Boolean);
+    const slim = sanitizeMsgs(S.msgs).map(chatMsgForStorage).filter(Boolean);
     localStorage.setItem(CHAT_KEY, JSON.stringify(slim));
   } catch { /* ignore */ }
 }
@@ -180,7 +222,7 @@ function loadChat() {
   try {
     const raw = localStorage.getItem(CHAT_KEY);
     if (!raw) return [];
-    return ensureArray(JSON.parse(raw)).filter((m) => m && typeof m === 'object');
+    return sanitizeMsgs(JSON.parse(raw));
   } catch { /* ignore */ }
   return [];
 }
@@ -340,11 +382,12 @@ function updatePersonalLesson(lesson) {
 function showMotivation(text) {
   const el = $('motivationBanner');
   if (!el) return;
-  if (!text) {
+  const msg = safeStr(text);
+  if (!msg) {
     el.classList.add('hidden');
     return;
   }
-  el.textContent = text;
+  el.textContent = msg;
   el.classList.remove('hidden');
 }
 
@@ -423,7 +466,7 @@ function renderCorrectionCard(detail) {
 function render() {
   const el = $('messages');
   if (!el) return;
-  if (!Array.isArray(S.msgs)) S.msgs = [];
+  S.msgs = sanitizeMsgs(S.msgs);
   if (!S.msgs.length) {
     el.innerHTML = `<div class="chat-welcome">
       <div class="chat-welcome-avatar">🤖</div>
@@ -434,8 +477,9 @@ function render() {
     return;
   }
   safeClass('clearBtn', 'remove', 'hidden');
-  const lg = getLang(S.learnLang);
   el.innerHTML = S.msgs.map((m, i) => {
+    try {
+    const lg = getLang(S.learnLang);
     const time = m.time ? `<span class="chat-time">${m.time}</span>` : '';
     if (m.role === 'user') {
       return `<div class="chat-row chat-row-user">
@@ -455,7 +499,7 @@ function render() {
         explainTr: m.explain,
       });
     }
-    const vocab = m.newWord && typeof m.newWord === 'object' && m.newWord.word
+    const vocab = m.newWord && m.newWord.word
       ? `<div class="chat-vocab">📚 <strong>${esc(safeStr(m.newWord.word))}</strong> = ${esc(safeStr(m.newWord.meaningTr))}</div>` : '';
     return `<div class="chat-row chat-row-teacher">
         <div class="chat-avatar">🤖</div>
@@ -466,12 +510,17 @@ function render() {
           ${corr}${vocab}
           ${m.audio ? `<button type="button" class="replay-btn chat-replay" data-idx="${i}">🔊 Dinle</button>` : ''}
         </div></div>`;
+    } catch {
+      return '';
+    }
   }).join('');
   el.querySelectorAll('.chat-replay').forEach((btn) => {
     btn.onclick = (e) => {
       e.preventDefault();
       unlockAudioSync();
-      playB64(S.msgs[parseInt(btn.dataset.idx, 10)].audio);
+      const idx = parseInt(btn.dataset.idx, 10);
+      const msg = S.msgs[idx];
+      if (msg?.audio) playB64(msg.audio);
     };
   });
   requestAnimationFrame(() => {
@@ -499,6 +548,44 @@ function stopTts() {
   audio.pause();
   audio.currentTime = 0;
   if (S.uiState === 'SPEAKING') setUiState('IDLE');
+}
+
+async function playTeacherTts(d) {
+  if (!d || typeof d !== 'object') return;
+  const phrase = safeStr(d.speak_text || d.teacher_en || d.teacher_text || d.robot_target).slice(0, 500);
+  if (!phrase) return;
+  const lang = safeStr(d.target_lang || S.learnLang);
+  const slow = !!d.speak_slow;
+  try {
+    const params = new URLSearchParams({ q: phrase, tl: lang });
+    if (slow) params.set('slow', '1');
+    const r = await fetch(`/api/tts?${params}`);
+    if (!r.ok) return;
+    const blob = await r.blob();
+    const buf = await blob.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    let bin = '';
+    const chunk = 8192;
+    for (let i = 0; i < bytes.length; i += chunk) {
+      bin += String.fromCharCode(...bytes.subarray(i, i + chunk));
+    }
+    const b64 = btoa(bin);
+    S.lastAudio = b64;
+    stopTts();
+    setUiState('SPEAKING');
+    const u = URL.createObjectURL(blob);
+    audio.volume = 1;
+    audio.src = u;
+    const done = () => {
+      URL.revokeObjectURL(u);
+      if (!S.holdActive && !isRecording() && S.busyCount === 0) setUiState('IDLE');
+    };
+    audio.onended = done;
+    audio.onerror = done;
+    try { await audio.play(); } catch { done(); }
+  } catch {
+    if (!S.holdActive && !isRecording() && S.busyCount === 0) setUiState('IDLE');
+  }
 }
 
 async function playB64(b64) {
@@ -587,7 +674,11 @@ function handleEducationResult(d) {
     appendTeacherMsg(d);
     hideTyping();
     render();
-    if (typeof d.audio === 'string' && d.audio) playB64(d.audio);
+    if (typeof d.audio === 'string' && d.audio) {
+      playB64(d.audio);
+    } else {
+      playTeacherTts(d);
+    }
   } catch (e) {
     hideTyping();
     showErr(safeErrMsg(e) || 'Mesaj gösterilemedi');
@@ -763,6 +854,7 @@ async function loadLesson(id) {
     saveChat();
     render();
     if (d.audio) playB64(d.audio);
+    else playTeacherTts({ speak_text: d.robot_target, target_lang: d.target_lang || S.learnLang });
   } catch (e) {
     showErr(safeErrMsg(e) || 'Ders yüklenemedi');
   } finally {

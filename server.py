@@ -87,11 +87,11 @@ def edge_tts(text: str, lang: str, rate: str = "+0%") -> bytes:
 
 def synthesize(text: str, lang: str, slow: bool = False) -> bytes:
     if slow:
-        return edge_tts(text, lang, rate="-25%")
+        return edge_tts(text, lang, rate="-15%")
     data = google_tts(text, lang)
     if data:
         return data
-    return edge_tts(text, lang)
+    return edge_tts(text, lang, rate="+18%")
 
 
 def google_translate(text: str, from_lang: str, to_lang: str) -> str | None:
@@ -590,8 +590,6 @@ def transcribe_education(
             )
             if text:
                 candidates.append((text, detected, score))
-            if lang == primary and detected == "en" and score >= 55:
-                break
 
         if not candidates:
             raise ValueError("speech not recognized")
@@ -786,8 +784,6 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_json_error(422, self.api_error_message(e))
 
     def handle_process(self, params):
-        import base64
-
         my = (params.get("my") or ["tr"])[0]
         other = (params.get("other") or ["en"])[0]
         last_from = (params.get("last") or [""])[0].strip() or None
@@ -802,13 +798,11 @@ class Handler(SimpleHTTPRequestHandler):
             original, from_lang = transcribe_dual(data, my, other, last_from)
             to_lang = other if from_lang == my else my
             translated = translate_text(original, from_lang, to_lang)
-            audio = synthesize(translated[:500], to_lang)
             body = json.dumps({
                 "original": original,
                 "translated": translated,
                 "from": from_lang,
                 "to": to_lang,
-                "audio": base64.b64encode(audio).decode("ascii"),
             }).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -848,15 +842,8 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_json_error(422, self.api_error_message(e))
 
     def _education_tts(self, result: dict, lang: str) -> dict:
-        import base64
-
-        speak = (result.get("speak_text") or result.get("teacher_text") or "")[:500]
-        slow = bool(result.get("speak_slow"))
-        if speak:
-            audio = synthesize(speak, lang, slow=slow)
-            result["audio"] = base64.b64encode(audio).decode("ascii")
-        else:
-            result["audio"] = ""
+        """Metin hemen döner; ses istemci /api/tts ile arka planda alır (daha hızlı)."""
+        result["audio"] = ""
         return result
 
     def _read_json_body(self) -> dict:
@@ -1082,11 +1069,12 @@ class Handler(SimpleHTTPRequestHandler):
     def handle_tts(self, params):
         text = (params.get("q") or [""])[0].strip()
         lang = (params.get("tl") or ["tr"])[0].strip()
+        slow = (params.get("slow") or ["0"])[0].lower() in ("1", "true", "yes")
         if not text:
             self.send_error(400, "q required")
             return
         try:
-            data = synthesize(text[:500], lang)
+            data = synthesize(text[:500], lang, slow=slow)
             self.send_response(200)
             self.send_header("Content-Type", "audio/mpeg")
             self.send_header("Content-Length", str(len(data)))

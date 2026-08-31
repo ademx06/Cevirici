@@ -200,10 +200,40 @@ async function processAudio(blob) {
 function handleResult(d) {
   S.lastFrom = d.from;
   S.msgs.unshift({
-    orig: d.original, trans: d.translated, from: d.from, to: d.to, audio: d.audio || null,
+    orig: d.original, trans: d.translated, from: d.from, to: d.to, audio: null,
   });
   render();
-  if (d.audio) playB64(d.audio);
+  fetchTranslateTts(d.translated, d.to, 0);
+}
+
+async function fetchTranslateTts(text, lang, msgIndex) {
+  const phrase = (text || '').trim().slice(0, 500);
+  if (!phrase) return;
+  try {
+    const r = await fetch(`/api/tts?${new URLSearchParams({ q: phrase, tl: lang })}`);
+    if (!r.ok) return;
+    const blob = await r.blob();
+    const buf = await blob.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    let bin = '';
+    const chunk = 8192;
+    for (let i = 0; i < bytes.length; i += chunk) {
+      bin += String.fromCharCode(...bytes.subarray(i, i + chunk));
+    }
+    const b64 = btoa(bin);
+    if (S.msgs[msgIndex]) {
+      S.msgs[msgIndex].audio = b64;
+      render();
+    }
+    stopTts();
+    const u = URL.createObjectURL(blob);
+    audio.volume = 1;
+    audio.src = u;
+    const done = () => URL.revokeObjectURL(u);
+    audio.onended = done;
+    audio.onerror = done;
+    await audio.play();
+  } catch { /* ignore */ }
 }
 
 function pickMime() {
