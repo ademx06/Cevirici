@@ -68,6 +68,8 @@ const S = {
   lastUserLang: 'tr',
 };
 
+let mic;
+
 const VOICE_FETCH_MS = 55000;
 const TTS_PLAY_MS = 12000;
 const EN_TTS_MAX = 320;
@@ -322,7 +324,7 @@ function clearInterim() {
 }
 
 function isRecording() {
-  return S.recorder?.state === 'recording';
+  return mic ? mic.isRecording() : S.recorder?.state === 'recording';
 }
 
 function showTranslating() {
@@ -373,19 +375,11 @@ function releaseStream() {
 }
 
 function releaseMic() {
-  clearTimeout(S.stopTimer);
-  clearTimeout(S.safetyTimer);
-  S.stopTimer = null;
-  S.safetyTimer = null;
-  if (S.recorder) {
-    const rec = S.recorder;
-    if (rec.state === 'recording') {
-      try { rec.stop(); } catch { cleanupRecorder(); }
-    } else {
-      cleanupRecorder();
-    }
+  if (mic) mic.releaseMic();
+  else {
+    cleanupRecorder();
+    releaseStream();
   }
-  releaseStream();
 }
 
 function forceFinishRecording() {
@@ -406,8 +400,7 @@ function forceUnlockMic(reason) {
   S.holdActive = false;
   clearTimeout(S.processWatchdog);
   S.processWatchdog = null;
-  cleanupRecorder();
-  releaseStream();
+  releaseMic();
   stopTts();
   resetIdle();
   if (reason) showErr(reason);
@@ -1021,6 +1014,70 @@ async function processEducationVoice(blob) {
   return d;
 }
 
+mic = MicHold.create({
+  state: S,
+  tailMs: TAIL_MS,
+  minHoldMs: MIN_HOLD_MS,
+  minBlobBytes: MIN_BLOB_BYTES,
+  micOpenMs: MIC_OPEN_MS,
+  micOpts: MIC_OPTS,
+  onHideError: hideErr,
+  onSpeaking: () => {
+    hideErr();
+    showSpeaking();
+    unlockAudioSync();
+    stopTts();
+  },
+  onProcessing: showTranslating,
+  onIdle: () => {
+    if (S.busyCount === 0) resetIdle();
+  },
+  onError: showErr,
+  isBusy: () => S.busyCount > 0,
+  canBegin: () => {
+    if (S.busyCount > 0 && S.busySince) {
+      const stale = Date.now() - S.busySince > STALE_BUSY_MS;
+      if (!stale) {
+        showErr('Önceki yanıt bekleniyor…');
+        return false;
+      }
+      forceUnlockMic(null);
+    }
+    return true;
+  },
+  beforeBegin: async () => {
+    if (S.greetingBusy && S.greetingAbort) {
+      S.greetingAbort.abort();
+      S.greetingBusy = false;
+      S.greetingAbort = null;
+      hideTyping();
+    }
+  },
+  onBlob: (blob) => {
+    S.busyCount += 1;
+    S.busySince = Date.now();
+    showTranslating();
+    armProcessWatchdog();
+    processEducationVoice(blob)
+      .then(async (d) => {
+        try {
+          await handleEducationResult(d);
+        } catch {
+          hideTyping();
+          try { await handleEducationResult(d); } catch { resetIdle(); }
+        }
+      })
+      .catch((e) => showErr(safeErrMsg(e) || 'Duyamadım — tekrar dene'))
+      .finally(() => {
+        clearTimeout(S.processWatchdog);
+        S.processWatchdog = null;
+        S.busyCount = Math.max(0, S.busyCount - 1);
+        if (S.busyCount === 0) S.busySince = 0;
+        if (!S.holdActive && !mic.isRecording() && S.busyCount === 0) resetIdle();
+      });
+  },
+});
+
 async function fetchLessonPlan() {
   try {
     const params = new URLSearchParams({ profile: JSON.stringify(compactProfileForApi()) });
@@ -1177,210 +1234,6 @@ function showHistoryModal() {
   safeClass('historyModal', 'remove', 'hidden');
 }
 
-function pickMime() {
-  if (typeof MediaRecorder === 'undefined') return '';
-  for (const m of ['audio/mp4', 'audio/aac', 'audio/webm;codecs=opus', 'audio/webm']) {
-    if (MediaRecorder.isTypeSupported(m)) return m;
-  }
-  return '';
-}
-
-async function openFreshMic() {
-  if (S.stream) {
-    const live = S.stream.getTracks().every((t) => t.readyState === 'live');
-    if (live) return S.stream;
-  }
-  releaseMic();
-  await new Promise((r) => setTimeout(r, 50));
-  const micPromise = navigator.mediaDevices.getUserMedia(MIC_OPTS);
-  const timeout = new Promise((_, reject) => {
-    setTimeout(() => reject(new Error('Mikrofon açılamadı — tekrar dene')), MIC_OPEN_MS);
-  });
-  S.stream = await Promise.race([micPromise, timeout]);
-  return S.stream;
-}
-
-function startRecorder(gen) {
-  const mime = pickMime();
-  S.chunks = [];
-  S.stopHandled = false;
-
-  S.recorder = mime
-    ? new MediaRecorder(S.stream, { mimeType: mime, audioBitsPerSecond: 192000 })
-    : new MediaRecorder(S.stream);
-
-  S.recorder.ondataavailable = (e) => {
-    if (e.data?.size > 0) S.chunks.push(e.data);
-  };
-
-  S.recorder.onstop = () => {
-    if (S.stopHandled) return;
-    S.stopHandled = true;
-    clearTimeout(S.stopTimer);
-    clearTimeout(S.safetyTimer);
-    S.stopTimer = null;
-    S.safetyTimer = null;
-
-    const mimeType = S.recorder?.mimeType || mime || 'audio/mp4';
-    const chunks = S.chunks.slice();
-    const pressMs = S.pressMs || 0;
-    S.chunks = [];
-    cleanupRecorder();
-    // Mikrofon akışını açık tut — iOS'ta tekrar tekrar açmayı önler
-
-    if (pressMs < MIN_HOLD_MS) {
-      if (!S.holdActive && S.busyCount === 0) resetIdle();
-      return;
-    }
-
-    const blob = new Blob(chunks, { type: mimeType });
-    if (blob.size < MIN_BLOB_BYTES) {
-      if (!S.holdActive && S.busyCount === 0) resetIdle();
-      return;
-    }
-
-    S.busyCount += 1;
-    S.busySince = Date.now();
-    showTranslating();
-    armProcessWatchdog();
-
-    processEducationVoice(blob)
-      .then(async (d) => {
-        try {
-          await handleEducationResult(d);
-        } catch {
-          hideTyping();
-          try { await handleEducationResult(d); } catch { resetIdle(); }
-        }
-      })
-      .catch((e) => showErr(safeErrMsg(e) || 'Duyamadım — tekrar dene'))
-      .finally(() => {
-        clearTimeout(S.processWatchdog);
-        S.processWatchdog = null;
-        S.busyCount = Math.max(0, S.busyCount - 1);
-        if (S.busyCount === 0) S.busySince = 0;
-        if (!S.holdActive && !isRecording() && S.busyCount === 0) resetIdle();
-      });
-  };
-
-  try {
-    S.recorder.start(100);
-  } catch (e) {
-    S.recorder = null;
-    throw e;
-  }
-
-  if (!S.holdActive || S.holdGen !== gen) finishRecording();
-}
-
-function finishRecording() {
-  if (!isRecording()) {
-    if (!S.holdActive && S.busyCount === 0) resetIdle();
-    return;
-  }
-  clearTimeout(S.stopTimer);
-  S.stopTimer = setTimeout(() => {
-    if (isRecording()) {
-      try {
-        S.recorder.requestData();
-        S.recorder.stop();
-      } catch {
-        cleanupRecorder();
-        releaseStream();
-        if (!S.holdActive && S.busyCount === 0) resetIdle();
-      }
-    }
-  }, TAIL_MS);
-}
-
-async function beginHold() {
-  const gen = ++S.holdGen;
-
-  if (S.greetingBusy && S.greetingAbort) {
-    S.greetingAbort.abort();
-    S.greetingBusy = false;
-    S.greetingAbort = null;
-    hideTyping();
-  }
-
-  if (S.busyCount > 0 && S.busySince) {
-    const stale = Date.now() - S.busySince > STALE_BUSY_MS;
-    if (!stale) {
-      showErr('Önceki yanıt bekleniyor…');
-      return;
-    }
-    forceUnlockMic(null);
-  }
-
-  S.holdActive = true;
-  S.fingerDownAt = Date.now();
-  hideErr();
-  showSpeaking();
-  unlockAudioSync();
-  stopTts();
-
-  if (!navigator.mediaDevices?.getUserMedia) {
-    showErr('Mikrofon için Safari gerekli');
-    resetIdle();
-    return;
-  }
-
-  if (isRecording()) return;
-
-  try {
-    await openFreshMic();
-    if (!S.holdActive || S.holdGen !== gen) {
-      releaseMic();
-      resetIdle();
-      return;
-    }
-    startRecorder(gen);
-  } catch {
-    releaseMic();
-    showErr('Mikrofon izni gerekli. Ayarlar → Safari → Mikrofon');
-    resetIdle();
-  }
-}
-
-function endHold() {
-  if (S.fingerDownAt) S.pressMs = Date.now() - S.fingerDownAt;
-  S.holdActive = false;
-
-  if (!isRecording()) {
-    resetIdle();
-    return;
-  }
-
-  showTranslating();
-
-  clearTimeout(S.safetyTimer);
-  S.safetyTimer = setTimeout(() => {
-    cleanupRecorder();
-    releaseStream();
-    if (S.busyCount === 0) resetIdle();
-  }, 5000);
-
-  finishRecording();
-}
-
-function bindHold(el) {
-  const down = (e) => { e.preventDefault(); beginHold(); };
-  const up = (e) => { e.preventDefault(); endHold(); };
-
-  el.addEventListener('contextmenu', (e) => e.preventDefault());
-  el.addEventListener('touchstart', (e) => {
-    S.usedTouch = true;
-    down(e);
-  }, { passive: false });
-  el.addEventListener('touchend', up, { passive: false });
-  el.addEventListener('touchcancel', up, { passive: false });
-  el.addEventListener('mousedown', (e) => { if (!S.usedTouch) down(e); });
-  el.addEventListener('mouseup', (e) => { if (!S.usedTouch) up(e); });
-  el.addEventListener('mouseleave', (e) => {
-    if (S.usedTouch || !isRecording()) return;
-    up(e);
-  });
-}
 
 function syncLearnLang() {
   const lg = getLang(S.learnLang);
@@ -1526,7 +1379,7 @@ if (reportBackdrop) reportBackdrop.addEventListener('click', () => safeClass('re
 if (historyBackdrop) historyBackdrop.addEventListener('click', () => safeClass('historyModal', 'add', 'hidden'));
 
 const micBtn = $('micBtn');
-if (micBtn) bindHold(micBtn);
+if (micBtn) mic.bindHold(micBtn);
 
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') {
