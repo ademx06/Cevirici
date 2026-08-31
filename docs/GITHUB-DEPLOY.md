@@ -10,17 +10,17 @@ Sonuç: **`https://sesli-cevirmen-xxxx.onrender.com`** gibi **değişmeyen** bir
 
 Repo henüz yoksa (iPhone Safari veya bilgisayar):
 
-1. [github.com/new](https://github.com/new) → repo adı: **`sesli-cevirmen-ios`** → **Create repository**
-2. Cursor agent veya bilgisayarda proje klasöründe:
+1. GitHub hesabın: **ademix06**
+2. [github.com/new](https://github.com/new) → repo adı: **`symmetrical-guacamole`** → **Create repository** (boş repo, README ekleme)
+3. Cursor agent’a “push et” de — veya bilgisayarda:
 
 ```bash
 cd sesli-cevirmen-ios
-git checkout -b main
-git remote add origin https://github.com/KULLANICI_ADIN/sesli-cevirmen-ios.git
+git remote add origin https://github.com/ademix06/symmetrical-guacamole.git
 git push -u origin main
 ```
 
-`KULLANICI_ADIN` yerine kendi GitHub kullanıcı adınızı yazın.
+Repo adresi: **https://github.com/ademix06/symmetrical-guacamole**
 
 > Repo zaten varsa sadece `git push origin main` yeterli.
 
