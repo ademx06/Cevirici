@@ -98,27 +98,29 @@
       Öğretmen yazıyor...
     </div>
 
-    <section class="edu-composer">
-      <input id="textInput" type="text" enterkeyhint="send" autocomplete="off"
-        placeholder="Mesaj yaz veya mikrofonu kullan..." maxlength="500">
-      <button id="sendBtn" class="send-btn" type="button" aria-label="Gönder">➤</button>
-    </section>
+    <div class="edu-bottom-dock">
+      <section class="edu-composer">
+        <input id="textInput" type="text" enterkeyhint="send" autocomplete="off"
+          placeholder="Mesaj yaz veya mikrofonu kullan..." maxlength="500">
+        <button id="sendBtn" class="send-btn" type="button" aria-label="Gönder">➤</button>
+      </section>
 
-    <section class="edu-voice-controls">
-      <button type="button" id="speedNormal" class="voice-ctrl active">🔊 Normal</button>
-      <button type="button" id="speedSlow" class="voice-ctrl">🐢 Yavaş</button>
-      <button type="button" id="repeatBtn" class="voice-ctrl">🔁 Tekrar</button>
-    </section>
+      <section class="edu-voice-controls">
+        <button type="button" id="speedNormal" class="voice-ctrl active">🔊 Normal</button>
+        <button type="button" id="speedSlow" class="voice-ctrl">🐢 Yavaş</button>
+        <button type="button" id="repeatBtn" class="voice-ctrl">🔁 Tekrar</button>
+      </section>
 
-    <section class="controls edu-mic-section">
-      <button id="micBtn" class="mic-btn mic-btn-edu" type="button">
-        <span class="mic-icon">🎤</span>
-        <span class="mic-text">
-          <strong id="micTitle">Basılı Tut ve Konuş</strong>
-          <small id="conversationSubtitle">Sesli cevap ver</small>
-        </span>
-      </button>
-    </section>
+      <section class="controls edu-mic-section">
+        <button id="micBtn" class="mic-btn mic-btn-edu" type="button">
+          <span class="mic-icon">🎤</span>
+          <span class="mic-text">
+            <strong id="micTitle">Basılı Tut ve Konuş</strong>
+            <small id="conversationSubtitle">Sesli cevap ver</small>
+          </span>
+        </button>
+      </section>
+    </div>
   </div>
 
   <div id="reportModal" class="edu-modal hidden">
@@ -154,10 +156,10 @@
     </div>
   </div>
 
-  <footer class="phone-footer phone-footer-compact">
+  <footer class="phone-footer phone-footer-compact edu-page-footer">
     <a href="mobil.html">📱 Adres &amp; yardım</a>
   </footer>
 
-  <script src="education.js?v=31"></script>
+  <script src="education.js?v=32"></script>
 </body>
 </html>

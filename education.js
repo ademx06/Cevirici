@@ -695,7 +695,7 @@ const SKIP_TTS_TYPES = new Set(['intent_guess', 'practice_retry']);
 
 function englishTextForTts(d) {
   let text = safeStr(d.teacher_en || d.teacher_text || d.robot_target || '');
-  text = text.replace(/[\U0001F300-\U0001FAFF\U00002700-\U000027BF\u2600-\u26FF\uFE0F]+/gu, ' ');
+  text = text.replace(/[\u{1F300}-\u{1FAFF}\u{02700}-\u{027BF}\u2600-\u26FF\uFE0F]+/gu, ' ');
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
   const conv = lines.filter((l) => !/^(🎯|📌|📖|🧩|✅|💡|🔄|❌|🤔)/.test(l));
   text = (conv.length ? conv.join(' ') : lines.join(' ')).replace(/\s+/g, ' ').trim();
