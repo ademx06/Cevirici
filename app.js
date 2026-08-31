@@ -109,6 +109,7 @@ function render() {
       <div class="bubble-divider"></div>
       <div class="bubble-label">${t.flag} ${t.name} 🔊</div>
       <div class="bubble-translated">${m.trans}</div>
+      ${m.phonetic ? `<div class="bubble-phonetic">🔊 ${m.phonetic}</div>` : ''}
       ${m.audio ? `<button type="button" class="replay-btn" data-idx="${i}">🔊 Tekrar dinle</button>` : ''}</article>`;
   }).join('');
   el.querySelectorAll('.replay-btn').forEach((btn) => {
@@ -192,10 +193,22 @@ async function fetchTranslateText(text, from, to) {
   return d.text || '';
 }
 
+async function fetchPronunciation(text, lang) {
+  const phrase = (text || '').trim();
+  if (!phrase || lang === 'tr') return '';
+  try {
+    const r = await fetch(`/api/pronounce?${new URLSearchParams({ q: phrase.slice(0, 300), lang })}`);
+    const d = await r.json().catch(() => ({}));
+    return d.phonetic || '';
+  } catch {
+    return '';
+  }
+}
+
 async function processAudio(blob) {
   const stt = await fetchListen(blob, S.my, S.other, S.lastFrom);
   const msg = {
-    orig: stt.original, trans: '…', from: stt.from, to: stt.to, audio: null,
+    orig: stt.original, trans: '…', from: stt.from, to: stt.to, audio: null, phonetic: '',
   };
   S.lastFrom = stt.from;
   S.msgs.unshift(msg);
@@ -209,6 +222,12 @@ async function processAudio(blob) {
     render();
     setStatus('Çeviri hazır', false);
     void fetchTranslateTts(translated, stt.to, idx);
+    void fetchPronunciation(translated, stt.to).then((ph) => {
+      if (S.msgs[idx] && ph) {
+        S.msgs[idx].phonetic = ph;
+        render();
+      }
+    });
   }
   return { original: stt.original, translated, from: stt.from, to: stt.to };
 }

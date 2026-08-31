@@ -552,6 +552,10 @@ function renderCorrectionCard(detail) {
   }
   if (correct) {
     parts.push(`<div class="corr-row corr-right"><span>✅ Doğrusu</span><p>${esc(correct)}</p></div>`);
+    const ph = safeStr(detail.phoneticEn);
+    if (ph) {
+      parts.push(`<div class="corr-row corr-phonetic"><span>🔊 Okunuş</span><p>${esc(ph)}</p></div>`);
+    }
     const correctTr = safeStr(detail.correctTr);
     if (correctTr) {
       parts.push(`<div class="corr-row corr-tr-meaning"><span>🇹🇷 Türkçesi</span><p>${esc(correctTr)}</p></div>`);
@@ -608,7 +612,7 @@ function render() {
     const vocab = m.newWord && m.newWord.word
       ? `<div class="chat-vocab">📚 <strong>${esc(safeStr(m.newWord.word))}</strong> = ${esc(safeStr(m.newWord.meaningTr))}</div>` : '';
     const enBlock = teacherEn
-      ? `<div class="chat-lang-block chat-en ${isTeaching ? 'chat-en-compact' : ''}"><span>${lg.flag} ${isTeaching ? 'Devam (EN)' : lg.name}</span><p>${esc(teacherEn).replace(/\n/g, '<br>')}</p></div>`
+      ? `<div class="chat-lang-block chat-en ${isTeaching ? 'chat-en-compact' : ''}"><span>${lg.flag} ${isTeaching ? 'Devam (EN)' : lg.name}</span><p>${esc(teacherEn).replace(/\n/g, '<br>')}</p>${m.phoneticEn ? `<p class="chat-phonetic">🔊 ${esc(m.phoneticEn)}</p>` : ''}</div>`
       : '';
     const trBlock = teacherTr && !isTeaching
       ? `<div class="chat-lang-block chat-tr"><span>🇹🇷 Türkçe</span><p>${esc(teacherTr).replace(/\n/g, '<br>')}</p></div>`
@@ -631,7 +635,17 @@ function render() {
       e.preventDefault();
       unlockAudioSync();
       const msg = S.msgs[parseInt(btn.dataset.idx, 10)];
-      if (msg) playTeacherAudio({ speak_tr: msg.speakTr, correction_level: msg.correctionLevel, type: msg.type, teacher_en: msg.teacherEn, teacher_tr: msg.teacherTr, explain_tr: msg.explain });
+      if (msg) playTeacherAudio({
+        speak_tr: msg.speakTr,
+        speak_text: msg.speakText || msg.teacherEn,
+        help_tts_pairs: msg.helpTtsPairs,
+        correction_level: msg.correctionLevel,
+        type: msg.type,
+        teacher_en: msg.teacherEn,
+        teacher_tr: msg.teacherTr,
+        explain_tr: msg.explain,
+        speak_tr_first: msg.type === 'confusion_help',
+      });
     };
   });
   requestAnimationFrame(() => {
@@ -711,6 +725,16 @@ function turkishHelpForTts(d) {
   return trTextForTts(d.teacher_tr || d.explain_tr || '').slice(0, TR_TTS_MAX);
 }
 
+async function playHelpTts(d) {
+  const en = safeStr(d.speak_text).trim();
+  if (en) await fetchAndPlayTts(en, S.learnLang, S.speakSlow);
+  const pairs = Array.isArray(d.help_tts_pairs) ? d.help_tts_pairs : [];
+  for (const p of pairs.slice(0, 8)) {
+    if (p?.tr) await fetchAndPlayTts(safeStr(p.tr), 'tr', S.speakSlow);
+    if (p?.en) await fetchAndPlayTts(safeStr(p.en), S.learnLang, S.speakSlow);
+  }
+}
+
 async function playTeacherAudio(d) {
   if (!d || typeof d !== 'object') return;
   const level = Number(d.correction_level) || 1;
@@ -727,8 +751,14 @@ async function playTeacherAudio(d) {
       }
     }
     if (TR_HELP_TYPES.has(type)) {
-      const tr = turkishHelpForTts(d);
-      if (tr) await fetchAndPlayTts(tr, 'tr', S.speakSlow);
+      if (type === 'confusion_help') {
+        const tr = safeStr(d.speak_tr).trim();
+        if (tr && d.speak_tr_first) await fetchAndPlayTts(tr.slice(0, TR_TTS_MAX), 'tr', S.speakSlow);
+        const en = safeStr(d.speak_text).trim();
+        if (en) await fetchAndPlayTts(en, S.learnLang, S.speakSlow);
+        return;
+      }
+      await playHelpTts(d);
       return;
     }
     if (SKIP_TTS_TYPES.has(type)) return;
@@ -824,6 +854,7 @@ function shouldShowReplay(d) {
   const level = Number(d.correction_level) || 1;
   if (level >= 2 && safeStr(d.speak_tr).trim()) return true;
   const type = safeStr(d.type);
+  if (TR_HELP_TYPES.has(type) && (safeStr(d.speak_text).trim() || (d.help_tts_pairs || []).length)) return true;
   if (TR_HELP_TYPES.has(type) && turkishHelpForTts(d)) return true;
   if (!SKIP_TTS_TYPES.has(type) && englishTextForTts(d)) return true;
   return false;
@@ -853,6 +884,9 @@ function appendTeacherMsg(d) {
     userSaid: safeStr(d.user_text || ''),
     targetLang: safeStr(d.target_lang || S.learnLang),
     speakTr: safeStr(d.speak_tr || ''),
+    speakText: safeStr(d.speak_text || ''),
+    phoneticEn: safeStr(d.phonetic_en || ''),
+    helpTtsPairs: Array.isArray(d.help_tts_pairs) ? d.help_tts_pairs : [],
     type: safeStr(d.type),
     newWord: d.new_word && typeof d.new_word === 'object' && !Array.isArray(d.new_word) && d.new_word.word
       ? { word: safeStr(d.new_word.word), meaningTr: safeStr(d.new_word.meaningTr) }

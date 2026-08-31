@@ -15,6 +15,7 @@ from tutor import get_lesson, tutor_reply
 from education_engine import (
     process_turn, greeting, session_report, daily_lesson, default_profile,
     finalize_session, weekly_progress, merge_profile, llm_available, ai_provider_info,
+    pronounce_text,
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -834,6 +835,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self.handle_tts(parse_qs(parsed.query))
         if parsed.path == "/api/translate":
             return self.handle_translate(parse_qs(parsed.query))
+        if parsed.path == "/api/pronounce":
+            return self.handle_pronounce(parse_qs(parsed.query))
         if parsed.path == "/api/tutor/lesson":
             return self.handle_tutor_lesson(parse_qs(parsed.query))
         if parsed.path == "/api/education/greeting":
@@ -1238,6 +1241,23 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             translated = translate_text(text, from_lang, to_lang)
             body = json.dumps({"text": translated}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        except Exception as e:
+            self.send_json_error(422, self.api_error_message(e))
+
+    def handle_pronounce(self, params):
+        text = (params.get("q") or [""])[0].strip()
+        lang = (params.get("lang") or params.get("tl") or ["en"])[0]
+        if not text:
+            self.send_json_error(400, "Metin gerekli")
+            return
+        try:
+            phonetic = pronounce_text(text, lang)
+            body = json.dumps({"phonetic": phonetic}).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))

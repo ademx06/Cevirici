@@ -252,6 +252,14 @@ body {
   line-height: 1.5;
 }
 
+.bubble-phonetic {
+  margin-top: 6px;
+  color: #94A3B8;
+  font-size: 13px;
+  font-style: italic;
+  line-height: 1.4;
+}
+
 .controls {
   flex-shrink: 0;
   position: sticky;
@@ -1627,6 +1635,14 @@ body {
   color: #F1F5F9;
 }
 
+.chat-phonetic {
+  margin-top: 6px;
+  color: #94A3B8;
+  font-size: 12px;
+  font-style: italic;
+  line-height: 1.35;
+}
+
 .chat-tr span {
   color: #A7F3D0;
 }
@@ -1713,6 +1729,15 @@ body {
 
 .corr-tr-meaning span {
   color: #7DD3FC;
+}
+
+.corr-phonetic {
+  background: rgba(148,163,184,0.1);
+  color: #CBD5E1;
+}
+
+.corr-phonetic span {
+  color: #94A3B8;
 }
 
 .corr-tip {

@@ -54,11 +54,12 @@ SYSTEM_PROMPT = """You are a professional personal language tutor for a Turkish-
 Speak primarily in the TARGET LANGUAGE (English etc.) for natural conversation.
 The student's native language is Turkish — provide Turkish explanations for errors and grammar.
 Do not behave like a translation app during conversation.
-Maintain natural conversation and drive it forward with follow-up questions.
-Adapt to the user's level. Correct important mistakes clearly.
-When correcting: show wrong sentence, correct sentence, brief Turkish explanation, then continue.
-Behave like a patient human teacher sitting across from the student.
-Keep target-language responses concise (2-4 sentences). Always end with a question when appropriate.
+You are sitting across from the student having a real conversation — like a friendly human, not a robot.
+ALWAYS respond to what they just said (answer their question, react to their news, acknowledge their feeling).
+Then ask ONE natural follow-up question to keep the dialogue flowing.
+Adapt to the user's level. Correct important mistakes clearly, then continue chatting.
+When correcting: show wrong sentence, correct sentence, brief Turkish explanation, then continue the conversation.
+Keep target-language responses concise (2-4 sentences). Almost every turn MUST end with a question.
 Wait for the user to respond — do not answer your own questions."""
 
 AI_TUTOR_JSON_PROMPT = """You are an expert personal language tutor. The student is Turkish; target language is {lang_name} ({target_lang}). Level: {level}.
@@ -76,6 +77,13 @@ STUDENT JUST SAID ({input_lang}) — raw speech-to-text, may contain errors:
 
 SPEECH RECOGNITION NOTE: Input is from automatic STT. Common errors: "I will"→past tense intent, "slipping"→"sleeping", "ayran"/"iron"→"I run", broken grammar ("I sleeping", "I go work"). ALWAYS infer what the student MEANT from context and your last question — never take garbled text literally if context suggests otherwise.
 
+CONVERSATION STYLE — talk like a real person across the table:
+1. First REACT to what they said: answer their question, comment on their day/plan/feeling, agree or empathize.
+2. Then ask ONE fresh follow-up question (different from your last question) to keep the chat going.
+3. Never ignore their message and jump to a random topic. Never lecture unless correcting.
+4. If they ask "how are you?" — answer briefly, then ask about THEM.
+5. teacher_en: natural {lang_name} reply (2-4 sentences). MUST end with a question (?) except goodbye.
+
 YOUR JOB — think like a real human tutor, NOT a dictionary:
 1. Infer what the student MEANT from context, even if they said one word ("Sleeping"), wrong grammar ("I sleeping"), STT errors ("Slipping"), or Turkish.
 2. Never reply with random unrelated topics. Always respond to what they meant.
@@ -87,11 +95,13 @@ YOUR JOB — think like a real human tutor, NOT a dictionary:
 6. grammar_tr, word_breakdown_tr, speak_tr: speak_tr = ONLY when correction_level >= 2: 1-2 SHORT Turkish sentences about the REAL mistake (max ~25 words). null when correction_level is 1.
 7. When correcting a REAL mistake: correction_level 2 or 3, correct_phrase required. The correction must relate to what they actually said wrong.
 8. Praise ONLY when actually correct.
+9. phonetic_en: Turkish-style phonetic spelling of the main {lang_name} sentence in teacher_en (Latin letters, how a Turk would read it aloud). null if not useful.
 
 Return ONLY valid JSON with these keys:
 {{
   "teacher_en": "string",
   "teacher_tr": "string",
+  "phonetic_en": "string or null",
   "correction_level": 1,
   "correct_phrase": "string or null",
   "suggested_practice": "string or null",
@@ -1799,6 +1809,61 @@ def llm_available() -> bool:
     return _active_llm_provider() is not None
 
 
+def pronounce_text(text: str, lang: str = "en") -> str:
+    """Turkish-style phonetic spelling for foreign text (display + fallback TTS hint)."""
+    text = safe_str(text).strip()
+    if not text or lang == "tr":
+        return ""
+    lang_name = LANG_NAMES.get(lang, lang)
+    if llm_available():
+        raw = _groq_chat(
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        "You help Turkish speakers learn pronunciation. "
+                        "Reply with ONLY simple Turkish-style phonetic spelling in Latin letters. "
+                        "No IPA, no quotes, no explanation. One line max."
+                    ),
+                },
+                {"role": "user", "content": f"{lang_name} text:\n{text[:200]}"},
+            ],
+            max_tokens=80,
+        )
+        if raw:
+            line = raw.strip().strip('"').split("\n")[0].strip()
+            if line and len(line) > 2:
+                return line[:120]
+    if lang == "en":
+        return _simple_en_phonetic(text)
+    return ""
+
+
+def _simple_en_phonetic(text: str) -> str:
+    t = re.sub(r"[^\w\s'-]", "", text.lower())
+    repl = [
+        (r"\btion\b", "şın"), (r"\bough\b", "of"), (r"ph", "f"), (r"wh", "v"),
+        (r"th", "t"), (r"sh", "ş"), (r"ch", "ç"), (r"oo", "u"), (r"ee", "i"),
+        (r"ea", "i"), (r"ou", "au"), (r"ow", "au"),
+    ]
+    for pat, rep in repl:
+        t = re.sub(pat, rep, t)
+    return re.sub(r"\s+", " ", t).strip()[:120]
+
+
+def _parse_vocab_tts_pairs(vocab_tr: str) -> list[dict[str, str]]:
+    pairs: list[dict[str, str]] = []
+    for line in safe_str(vocab_tr).split("\n"):
+        m = re.search(r'"([^"]+)"\s*→\s*([^—\n]+)', line)
+        if not m:
+            continue
+        tr_w = m.group(1).strip()
+        en_w = re.split(r"\s*—", m.group(2).strip())[0].strip().strip('"').strip("'")
+        if tr_w and en_w and len(en_w) < 40:
+            pairs.append({"tr": tr_w, "en": en_w})
+    return pairs[:10]
+
+
 def ai_provider_info() -> dict[str, str | None]:
     p = _active_llm_provider()
     labels = {
@@ -2031,6 +2096,7 @@ def _try_ai_tutor_turn(
     word_breakdown_tr = safe_str(parsed.get("word_breakdown_tr")).strip()
     speak_tr = safe_str(parsed.get("speak_tr")).strip()
     inferred = safe_str(parsed.get("inferred_meaning")).strip()
+    phonetic_en = safe_str(parsed.get("phonetic_en")).strip() or pronounce_text(teacher_en, target_lang)
 
     profile_patch: dict[str, Any] = {}
     if corr_level >= 2 and correct_phrase:
@@ -2066,6 +2132,7 @@ def _try_ai_tutor_turn(
         grammar_tr=grammar_tr or None,
         word_breakdown_tr=word_breakdown_tr or None,
         speak_tr_first=corr_level >= 2,
+        phonetic_en=phonetic_en,
         correction_detail={
             "userSaid": user_text,
             "correctEn": correct_phrase,
@@ -2318,12 +2385,18 @@ def _help_mode(
         "pendingPracticePhrase": translated,
         "pendingPracticeTr": phrase_tr,
     }
-    return _pack(
+    vocab_tr = _vocab_breakdown_tr(phrase_tr, translate_fn)
+    result = _pack(
         profile, delta, teacher_en, teacher_tr, None, 1, "help",
         waiting=True, user_text=user_text, teacher_en=teacher_en, speak_text=translated,
         speak_tr="",
         speak_tr_first=False,
+        phonetic_en=pronounce_text(translated, target_lang),
+        translate_fn=translate_fn,
+        target_lang=target_lang,
     )
+    result["help_tts_pairs"] = _parse_vocab_tts_pairs(vocab_tr)
+    return result
 
 
 def _is_confusion_request(text: str) -> bool:
@@ -2386,12 +2459,17 @@ def _confusion_help_mode(
     display_en = last_teacher or pending or teacher_en
 
     merged = merge_profile(profile, {**session_delta, **clear})
-    return _pack(
+    speak_en = pending or last_teacher or ""
+    result = _pack(
         merged, {**session_delta, **clear},
         display_en, teacher_tr, None, 1, "confusion_help",
         waiting=True, user_text=user_text, teacher_en=display_en,
-        speak_tr="", speak_tr_first=False,
+        speak_text=speak_en,
+        speak_tr=safe_str(profile.get("pendingPracticeTr")).strip()[:120],
+        speak_tr_first=True,
+        phonetic_en=pronounce_text(speak_en, target_lang) if speak_en else "",
     )
+    return result
 
 
 def _yardim_help_mode(
@@ -2490,6 +2568,7 @@ def greeting(
     result = _pack(
         profile, delta, teacher_en, teacher_tr, None, 1, "greeting",
         waiting=True, teacher_en=teacher_en, speak_text=text_en,
+        phonetic_en=pronounce_text(text_en.split("\n")[0], lang),
     )
     result["daily_lesson"] = daily_lesson(profile)
     result["motivation"] = motiv
@@ -2883,6 +2962,7 @@ def _pack(
     speak_tr_first: bool | None = None,
     translate_fn: Callable[[str, str, str], str] | None = None,
     target_lang: str = "en",
+    phonetic_en: str | None = None,
 ) -> dict:
     p = merge_profile(profile, delta)
     en = teacher_en or teacher
@@ -2916,6 +2996,12 @@ def _pack(
                 correction_detail = {**correction_detail, "correctTr": correct_tr}
                 if corr_level >= 2 and not explicit:
                     str_speak = f"Doğrusu: {correct_tr}"[:220]
+                ph = pronounce_text(en_fix, target_lang)
+                if ph:
+                    correction_detail = {**correction_detail, "phoneticEn": ph}
+    ph_main = safe_str(phonetic_en).strip()
+    if not ph_main and en and target_lang != "tr":
+        ph_main = pronounce_text(en.split("\n")[0], target_lang)
     return {
         "type": msg_type,
         "user_text": user_text,
@@ -2939,6 +3025,7 @@ def _pack(
         "grammar_tr": gtr,
         "word_breakdown_tr": wtr,
         "speak_tr_first": tr_first,
+        "phonetic_en": ph_main,
     }
 
 
