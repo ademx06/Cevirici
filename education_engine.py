@@ -80,11 +80,19 @@ YOUR JOB — think like a real human tutor, NOT a dictionary:
 1. Infer what the student MEANT from context, even if they said one word ("Sleeping"), wrong grammar ("I sleeping"), STT errors ("Slipping"), or Turkish.
 2. Never reply with random unrelated topics. Always respond to what they meant.
 3. teacher_en: natural {lang_name} reply (2-4 sentences). Continue the conversation. End with a relevant question.
-4. teacher_tr: Turkish explanation — what you understood, the correction if any, and why. Be warm and clear like a real teacher.
-5. If grammar or vocabulary is wrong: set correction_level 2 or 3, give correct_phrase with the full natural sentence, explain the mistake briefly in teacher_tr.
-6. If input was incomplete but intent is clear: offer "Did you mean: ...?" in teacher_en, set suggested_practice to the full correct sentence.
-7. If student spoke Turkish: acknowledge in teacher_tr, teach the {lang_name} equivalent, encourage answering in {lang_name}.
-8. Praise ONLY when the sentence is actually correct or a good try — never praise wrong answers as correct.
+4. teacher_tr: Turkish teaching block — MUST use these sections when correcting (correction_level >= 2):
+   🤔 Sanırım bunu demek istedin: (what you understood)
+   📖 Kelimeler: (each key word = Turkish meaning + short usage, e.g. "go = gitmek, to work = işe")
+   🧩 Cümle yapısı: (subject + verb + object in Turkish, e.g. "I + will + go + to work = Ben + işe + gideceğim")
+   ✅ Doğrusu: (correct English sentence + Turkish meaning)
+   💡 Neden: (brief grammar reason in Turkish)
+5. grammar_tr: One clear paragraph — ONLY the 🧩 Cümle yapısı part (for display + audio).
+6. word_breakdown_tr: ONLY the 📖 Kelimeler part — one line per word.
+7. speak_tr: Natural spoken Turkish (NO emoji, 3-5 sentences) read aloud to the student. Summarize: what they meant, word tips, correct form. REQUIRED when correction_level >= 2.
+8. If grammar or vocabulary is wrong: set correction_level 2 or 3, give correct_phrase with the full natural sentence.
+9. If input was incomplete but intent is clear: offer "Did you mean: ...?" in teacher_en, set suggested_practice to the full correct sentence, speak_tr must explain in Turkish.
+10. If student spoke Turkish: acknowledge in teacher_tr, teach the {lang_name} equivalent with word breakdown, encourage answering in {lang_name}.
+11. Praise ONLY when the sentence is actually correct — never praise wrong answers as correct.
 
 Return ONLY valid JSON with these keys:
 {{
@@ -93,6 +101,9 @@ Return ONLY valid JSON with these keys:
   "correction_level": 1,
   "correct_phrase": "string or null",
   "suggested_practice": "string or null",
+  "grammar_tr": "Turkish sentence structure explanation or null",
+  "word_breakdown_tr": "Turkish word meanings one per line or null",
+  "speak_tr": "Turkish text for audio (no emoji) or null",
   "category": "string or null",
   "inferred_meaning": "brief English summary of what student meant"
 }}
@@ -668,6 +679,12 @@ def _build_conversation_teach(
                     teach_tr_parts.append(f"🇹🇷 Anlamı: {tr_sug}")
             except Exception:
                 pass
+        word_help = _build_intent_word_help(suggested, "")
+        if word_help:
+            teach_tr_parts.insert(-2, f"📖 Kelimeler:\n{word_help}")
+        struct = grammar_breakdown(suggested, "A1")
+        if struct:
+            teach_tr_parts.insert(-2, f"🧩 Cümle yapısı:\n{struct}")
     teach_tr_parts.append("🔄 Şimdi doğru cümleyi söyle, sonra sohbete devam ederiz.")
 
     teach_en_parts = [
@@ -1325,6 +1342,13 @@ def _intent_clarify_mode(
     return _pack(
         profile, delta, teacher_en, teacher_tr, None, 1, "intent_guess",
         waiting=True, user_text=shown, teacher_en=teacher_en, speak_text=inferred,
+        speak_tr_first=True,
+        correction_detail={
+            "userSaid": shown,
+            "correctEn": inferred,
+            "explainTr": teacher_tr,
+            "inferredMeaning": meaning_tr or reason_tr,
+        },
     )
 
 
@@ -1897,6 +1921,10 @@ def _try_ai_tutor_turn(
     correct_phrase = safe_str(parsed.get("correct_phrase")).strip() or None
     suggested = safe_str(parsed.get("suggested_practice")).strip() or correct_phrase
     category = safe_str(parsed.get("category")).strip() or None
+    grammar_tr = safe_str(parsed.get("grammar_tr")).strip()
+    word_breakdown_tr = safe_str(parsed.get("word_breakdown_tr")).strip()
+    speak_tr = safe_str(parsed.get("speak_tr")).strip()
+    inferred = safe_str(parsed.get("inferred_meaning")).strip()
 
     profile_patch: dict[str, Any] = {}
     if corr_level >= 2 and correct_phrase:
@@ -1928,13 +1956,19 @@ def _try_ai_tutor_turn(
         merged, delta, teacher_en, teacher_tr, correct_phrase, corr_level, msg_type,
         waiting=True, user_text=user_text, speak_slow=speak_slow,
         teacher_en=teacher_en, speak_text=suggested or teacher_en,
+        speak_tr=speak_tr or None,
+        grammar_tr=grammar_tr or None,
+        word_breakdown_tr=word_breakdown_tr or None,
+        speak_tr_first=corr_level >= 2,
         correction_detail={
             "userSaid": user_text,
             "correctEn": correct_phrase,
             "explainTr": teacher_tr,
+            "grammarTr": grammar_tr,
+            "wordBreakdown": word_breakdown_tr,
             "category": category,
             "level": corr_level,
-            "inferredMeaning": parsed.get("inferred_meaning"),
+            "inferredMeaning": inferred or None,
         },
     )
     result["ai_powered"] = True
@@ -2179,6 +2213,7 @@ def _help_mode(
     return _pack(
         profile, delta, teacher_en, teacher_tr, None, 1, "help",
         waiting=True, user_text=user_text, teacher_en=teacher_en, speak_text=translated,
+        speak_tr_first=True,
     )
 
 
@@ -2475,6 +2510,8 @@ def process_turn(
         "correction" if correction_level >= 2 else "conversation",
         waiting=True, user_text=user_text, speak_slow=speak_slow,
         teacher_en=teacher_en,
+        speak_text=correct_phrase if correction_level >= 3 and correct_phrase else teacher_en,
+        speak_tr_first=correction_level >= 2,
         correction_detail={
             "userSaid": user_text,
             "correctEn": correct_phrase,
@@ -2501,18 +2538,71 @@ def process_turn(
     return result
 
 
+def _strip_for_tts(text: str) -> str:
+    if not text:
+        return ""
+    t = re.sub(r"[\U0001F300-\U0001FAFF\U00002700-\U000027BF\u2600-\u26FF\uFE0F]+", " ", text)
+    t = re.sub(r"\s+", " ", t).strip()
+    return t
+
+
+def _build_speak_tr(
+    explain_tr: str,
+    grammar_tr: str = "",
+    word_breakdown_tr: str = "",
+    corr_level: int = 1,
+    inferred: str = "",
+) -> str:
+    """Düzeltme/yardım için Türkçe sesli özet."""
+    if corr_level < 2 and not grammar_tr and not word_breakdown_tr:
+        return ""
+    parts: list[str] = []
+    if inferred:
+        parts.append(f"Sanırım bunu demek istedin: {inferred}")
+    core = _strip_for_tts(explain_tr)
+    if core:
+        parts.append(core[:400])
+    if word_breakdown_tr:
+        parts.append(_strip_for_tts(word_breakdown_tr)[:250])
+    if grammar_tr:
+        parts.append(_strip_for_tts(grammar_tr)[:250])
+    return " ".join(p for p in parts if p)[:650]
+
+
 def _pack(
     profile: dict, delta: dict, teacher: str, explain_tr: str | None,
     correction: str | None, corr_level: int, msg_type: str,
     waiting: bool = True, user_text: str = "", speak_slow: bool = False,
     teacher_en: str | None = None, speak_text: str | None = None,
     correction_detail: dict | None = None,
+    speak_tr: str | None = None,
+    grammar_tr: str | None = None,
+    word_breakdown_tr: str | None = None,
+    speak_tr_first: bool | None = None,
 ) -> dict:
     p = merge_profile(profile, delta)
     en = teacher_en or teacher
     p["lastTeacherText"] = en
     p["waitingForUser"] = waiting
     speak = speak_text or (correction if corr_level >= 3 and correction else en)
+    gtr = safe_str(grammar_tr or "")
+    wtr = safe_str(word_breakdown_tr or "")
+    inferred = ""
+    if correction_detail and correction_detail.get("inferredMeaning"):
+        inferred = safe_str(correction_detail.get("inferredMeaning"))
+    str_speak = _strip_for_tts(safe_str(speak_tr or "")) or _build_speak_tr(
+        explain_tr or "", gtr, wtr, corr_level, inferred,
+    )
+    tr_first = speak_tr_first if speak_tr_first is not None else (
+        corr_level >= 2 and bool(str_speak)
+    )
+    if not str_speak and tr_first and explain_tr:
+        str_speak = _strip_for_tts(explain_tr)[:650]
+    if correction_detail is not None:
+        if gtr:
+            correction_detail = {**correction_detail, "grammarTr": gtr}
+        if wtr:
+            correction_detail = {**correction_detail, "wordBreakdown": wtr}
     return {
         "type": msg_type,
         "user_text": user_text,
@@ -2532,6 +2622,10 @@ def _pack(
         "waiting_for_user": waiting,
         "speak_text": speak,
         "speak_slow": speak_slow,
+        "speak_tr": str_speak,
+        "grammar_tr": gtr,
+        "word_breakdown_tr": wtr,
+        "speak_tr_first": tr_first,
     }
 
 

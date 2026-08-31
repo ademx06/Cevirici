@@ -134,6 +134,9 @@ function sanitizeChatMsg(m) {
         correctEn: safeStr(cd.correctEn),
         explainTr: safeStr(cd.explainTr),
         explainEn: safeStr(cd.explainEn),
+        grammarTr: safeStr(cd.grammarTr),
+        wordBreakdown: safeStr(cd.wordBreakdown),
+        inferredMeaning: safeStr(cd.inferredMeaning),
       }
     : null;
   const nw = m.newWord;
@@ -449,14 +452,23 @@ function renderSessionLog(log) {
 function renderCorrectionCard(detail) {
   if (!detail) return '';
   const parts = [];
+  if (detail.inferredMeaning) {
+    parts.push(`<div class="corr-row corr-tip"><span>🤔 Sanırım bunu demek istedin</span><p>${esc(detail.inferredMeaning)}</p></div>`);
+  }
   if (detail.userSaid) {
     parts.push(`<div class="corr-row corr-wrong"><span>❌ Senin cümlen</span><p>${esc(detail.userSaid)}</p></div>`);
+  }
+  if (detail.wordBreakdown) {
+    parts.push(`<div class="corr-row corr-words"><span>📖 Kelimeler</span><p>${esc(detail.wordBreakdown).replace(/\n/g, '<br>')}</p></div>`);
+  }
+  if (detail.grammarTr) {
+    parts.push(`<div class="corr-row corr-structure"><span>🧩 Cümle yapısı</span><p>${esc(detail.grammarTr).replace(/\n/g, '<br>')}</p></div>`);
   }
   if (detail.correctEn) {
     parts.push(`<div class="corr-row corr-right"><span>✅ Doğrusu (EN)</span><p>${esc(detail.correctEn)}</p></div>`);
   }
   if (detail.explainTr) {
-    parts.push(`<div class="corr-row corr-tip"><span>💡 Türkçe</span><p>${esc(detail.explainTr)}</p></div>`);
+    parts.push(`<div class="corr-row corr-tip"><span>💡 Türkçe açıklama</span><p>${esc(detail.explainTr).replace(/\n/g, '<br>')}</p></div>`);
   } else if (detail.explainEn) {
     parts.push(`<div class="corr-row corr-tip"><span>💡 Açıklama</span><p>${esc(detail.explainEn)}</p></div>`);
   }
@@ -550,40 +562,49 @@ function stopTts() {
   if (S.uiState === 'SPEAKING') setUiState('IDLE');
 }
 
-async function playTeacherTts(d) {
-  if (!d || typeof d !== 'object') return;
-  const phrase = safeStr(d.speak_text || d.teacher_en || d.teacher_text || d.robot_target).slice(0, 500);
-  if (!phrase) return;
-  const lang = safeStr(d.target_lang || S.learnLang);
-  const slow = !!d.speak_slow;
-  try {
-    const params = new URLSearchParams({ q: phrase, tl: lang });
-    if (slow) params.set('slow', '1');
-    const r = await fetch(`/api/tts?${params}`);
-    if (!r.ok) return;
-    const blob = await r.blob();
-    const buf = await blob.arrayBuffer();
-    const bytes = new Uint8Array(buf);
-    let bin = '';
-    const chunk = 8192;
-    for (let i = 0; i < bytes.length; i += chunk) {
-      bin += String.fromCharCode(...bytes.subarray(i, i + chunk));
-    }
-    const b64 = btoa(bin);
-    S.lastAudio = b64;
-    stopTts();
-    setUiState('SPEAKING');
-    const u = URL.createObjectURL(blob);
-    audio.volume = 1;
-    audio.src = u;
+async function fetchAndPlayTts(phrase, lang, slow = false) {
+  const text = safeStr(phrase).slice(0, 600);
+  if (!text) return;
+  const params = new URLSearchParams({ q: text, tl: lang });
+  if (slow) params.set('slow', '1');
+  const r = await fetch(`/api/tts?${params}`);
+  if (!r.ok) return;
+  const blob = await r.blob();
+  const u = URL.createObjectURL(blob);
+  stopTts();
+  setUiState('SPEAKING');
+  audio.volume = 1;
+  audio.src = u;
+  await new Promise((resolve) => {
     const done = () => {
       URL.revokeObjectURL(u);
-      if (!S.holdActive && !isRecording() && S.busyCount === 0) setUiState('IDLE');
+      resolve();
     };
     audio.onended = done;
     audio.onerror = done;
-    try { await audio.play(); } catch { done(); }
-  } catch {
+    audio.play().catch(done);
+  });
+}
+
+const TR_FIRST_TYPES = new Set(['help', 'coach_tr', 'ai_intent', 'ai_correction', 'intent_guess', 'correction']);
+
+async function playTeacherTts(d) {
+  if (!d || typeof d !== 'object') return;
+  const corrLevel = Number(d.correction_level) || 1;
+  const speakTr = safeStr(d.speak_tr || '');
+  const speakEn = safeStr(d.speak_text || d.teacher_en || d.teacher_text || d.robot_target).slice(0, 500);
+  const slow = !!d.speak_slow;
+  const trFirst = d.speak_tr_first || corrLevel >= 2 || TR_FIRST_TYPES.has(safeStr(d.type));
+
+  try {
+    if (trFirst && speakTr) {
+      await fetchAndPlayTts(speakTr, 'tr', true);
+    }
+    if (speakEn) {
+      await fetchAndPlayTts(speakEn, safeStr(d.target_lang || S.learnLang), slow);
+    }
+  } catch { /* ignore */ }
+  finally {
     if (!S.holdActive && !isRecording() && S.busyCount === 0) setUiState('IDLE');
   }
 }

@@ -1625,7 +1625,11 @@ body {
   text-transform: uppercase;
 }
 
-.corr-row p {
+.corr-row.corr-words p,
+.corr-row.corr-structure p {
+  white-space: pre-wrap;
+  line-height: 1.45;
+}
   margin: 0;
   white-space: pre-wrap;
 }
