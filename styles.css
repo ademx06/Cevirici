@@ -2475,3 +2475,134 @@ body {
   padding-bottom: 8px;
 }
 
+.mod-detail-pre {
+  white-space: pre-wrap;
+  line-height: 1.55;
+}
+
+.mod-detail-why {
+  color: #94A3B8;
+  font-size: 13px;
+  margin: 8px 0;
+}
+
+.mod-structure-label {
+  font-size: 12px;
+  color: #64748B;
+  margin: 4px 0 8px;
+}
+
+.mod-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: rgba(167,139,250,0.15);
+  color: #C4B5FD;
+  margin-bottom: 8px;
+}
+
+.mod-pron-block {
+  background: rgba(255,255,255,0.03);
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin: 8px 0;
+}
+
+.mod-pron-row {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+
+.mod-pron-label {
+  font-size: 12px;
+  color: #64748B;
+  flex-shrink: 0;
+}
+
+.mod-pron-value {
+  font-size: 15px;
+  color: #A78BFA;
+  font-style: italic;
+}
+
+.mod-ipa-row {
+  font-size: 12px;
+  color: #64748B;
+  margin-top: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.mod-ipa-toggle {
+  margin-top: 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: transparent;
+  color: #94A3B8;
+  font-size: 12px;
+}
+
+.mod-word-pron-list {
+  margin-top: 8px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  padding-top: 6px;
+}
+
+.mod-word-pron {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 4px 0;
+  font-size: 13px;
+  flex-wrap: wrap;
+}
+
+.mod-word-pron-en {
+  font-weight: 600;
+  color: #38BDF8;
+  min-width: 48px;
+}
+
+.mod-word-pron-tr {
+  color: #A78BFA;
+  font-style: italic;
+}
+
+.mod-word-pron-ipa {
+  font-size: 11px;
+  color: #64748B;
+  font-family: ui-monospace, monospace;
+}
+
+.mod-pattern {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(251,191,36,0.08);
+  border: 1px solid rgba(251,191,36,0.2);
+  font-size: 13px;
+}
+
+.mod-pattern-examples {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: #FCD34D;
+}
+
+.mod-pron-note {
+  font-size: 12px;
+  color: #94A3B8;
+  font-style: italic;
+  margin-top: 8px;
+}
+
+.hidden {
+  display: none !important;
+}
+

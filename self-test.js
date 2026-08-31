@@ -195,12 +195,13 @@
         <span>Cümle ${scoreIcon(result.sentence_ok)}</span>
         <span>Gramer ${scoreIcon(result.grammar_ok)}</span>
         <span>Kelime ${scoreIcon(result.vocabulary_ok)}</span>
-        <span>Telaffuz ${scoreIcon(result.pronunciation_ok)}</span>
+        <span>Telaffuz ${result.pronunciation_ok === null || result.pronunciation_ok === undefined ? '⚠️' : scoreIcon(result.pronunciation_ok)}</span>
         <span>Doğallık ${scoreIcon(result.naturalness_ok)}</span>
       </div>
       ${result.feedback_tr ? `<p class="mod-detail-text">${esc(result.feedback_tr)}</p>` : ''}
       ${result.why_tr ? `<p class="mod-warn">${esc(result.why_tr)}</p>` : ''}
       ${result.tense_note_tr ? `<p class="mod-warn">${esc(result.tense_note_tr)}</p>` : ''}
+      ${result.pronunciation_note_tr ? `<p class="mod-pron-note">${esc(result.pronunciation_note_tr)}</p>` : ''}
       ${pronIssues ? `<ul class="mod-parts">${pronIssues}</ul>` : ''}`;
 
     LS.recordPractice(S.tab, S.current.id, result);

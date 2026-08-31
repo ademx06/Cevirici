@@ -77,22 +77,90 @@
     try { await audio.play(); } catch { /* ignore */ }
   }
 
+  function renderWordBreakdown(ex) {
+    const items = ex.word_breakdown || ex.parts || [];
+    if (!items.length) return '';
+    return `<ul class="mod-parts">${items.map((p) => {
+      const tok = p.token || p.tr || '';
+      const role = p.role_tr ? `<small>${esc(p.role_tr)}</small>` : '';
+      return `<li><span class="mod-part-tr">${esc(tok)}</span>${role}<span class="mod-part-mean">${esc(p.meaning_tr || '')}</span></li>`;
+    }).join('')}</ul>`;
+  }
+
+  function renderPatternBlock(ex) {
+    if (!ex.pattern_tr && !(ex.pattern_examples || []).length) return '';
+    const examples = (ex.pattern_examples || []).map((p) => `<li>${esc(p)}</li>`).join('');
+    return `
+      <div class="mod-pattern">
+        <strong>🎯 ${esc(ex.pattern_tr || 'Bu kalıbı unutma')}</strong>
+        ${examples ? `<ul class="mod-pattern-examples">${examples}</ul>` : ''}
+      </div>`;
+  }
+
+  function renderPronunciationBlock(ex, lang, cardId) {
+    const ipa = ex.ipa || '';
+    const words = ex.word_pronunciations || [];
+    const wordRows = words.map((w) => `
+      <div class="mod-word-pron">
+        <span class="mod-word-pron-en">${esc(w.word)}</span>
+        <span class="mod-word-pron-tr">${esc(w.pronunciation_tr)}</span>
+        ${w.ipa ? `<span class="mod-word-pron-ipa hidden" data-ipa-for="${cardId}">${esc(w.ipa)}</span>` : ''}
+      </div>`).join('');
+    return `
+      <div class="mod-pron-block">
+        <div class="mod-pron-row">
+          <span class="mod-pron-label">🗣️ Okunuş</span>
+          <span class="mod-pron-value">${esc(ex.pronunciation_tr || '')}</span>
+        </div>
+        ${ipa ? `<div class="mod-ipa-row hidden" data-ipa-panel="${cardId}"><span class="mod-ipa-label">IPA</span> ${esc(ipa)}</div>` : ''}
+        ${wordRows ? `<div class="mod-word-pron-list">${wordRows}</div>` : ''}
+        ${ipa ? `<button type="button" class="mod-ipa-toggle" data-ipa-toggle="${cardId}">IPA göster</button>` : ''}
+      </div>`;
+  }
+
+  function bindIpaToggles(root) {
+    root?.querySelectorAll('.mod-ipa-toggle').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.ipaToggle;
+        const panel = root.querySelector(`[data-ipa-panel="${id}"]`);
+        const wordIpas = root.querySelectorAll(`[data-ipa-for="${id}"]`);
+        const show = panel?.classList.contains('hidden');
+        panel?.classList.toggle('hidden', !show);
+        wordIpas.forEach((el) => el.classList.toggle('hidden', !show));
+        btn.textContent = show ? 'IPA gizle' : 'IPA göster';
+      });
+    });
+  }
+
+  function renderTeachingBlock(ex) {
+    const how = ex.how_it_is_formed_tr || ex.explanation_tr || '';
+    const why = ex.why_this_structure_tr || '';
+    const note = ex.important_note_tr || '';
+    const label = ex.structure_label_tr || '';
+    return `
+      <details class="mod-details" open>
+        <summary>🧠 Nasıl kuruldu?</summary>
+        <div class="mod-detail-text mod-detail-pre">${esc(how)}</div>
+        ${why ? `<p class="mod-detail-why">${esc(why)}</p>` : ''}
+        ${note ? `<p class="mod-warn">${esc(note)}</p>` : ''}
+        ${ex.structure_tr ? `<p class="mod-structure">📚 ${esc(ex.structure_tr)}</p>` : ''}
+        ${label ? `<p class="mod-structure-label">${esc(label)}</p>` : ''}
+        ${renderWordBreakdown(ex)}
+        ${renderPatternBlock(ex)}
+      </details>`;
+  }
+
   function renderExampleCard(ex, lang, idx) {
-    const parts = (ex.parts || []).map(
-      (p) => `<li><span class="mod-part-tr">${esc(p.tr)}</span><span class="mod-part-mean">${esc(p.meaning_tr)}</span></li>`,
-    ).join('');
+    const cardId = `ex-${idx}`;
+    const typeBadge = ex.sentence_type ? `<span class="mod-badge">${esc(ex.sentence_type)}</span>` : '';
     return `
       <article class="mod-card" data-idx="${idx}">
+        ${typeBadge}
         <div class="mod-card-line mod-card-tr"><span class="mod-flag">🇹🇷</span>${esc(ex.tr)}</div>
         <div class="mod-card-line mod-card-target"><span class="mod-flag">🌍</span>${esc(ex.target)}</div>
-        <button type="button" class="mod-listen-btn builder-listen" data-text="${esc(ex.target)}" data-lang="${lang}">🔊 Dinle</button>
-        <div class="mod-pron">${esc(ex.pronunciation_tr || '')}</div>
-        <details class="mod-details">
-          <summary>Nasıl kuruldu?</summary>
-          <p class="mod-detail-text">${esc(ex.explanation_tr || '')}</p>
-          ${ex.structure_tr ? `<p class="mod-structure">${esc(ex.structure_tr)}</p>` : ''}
-          ${parts ? `<ul class="mod-parts">${parts}</ul>` : ''}
-        </details>
+        <button type="button" class="mod-listen-btn builder-listen" data-text="${esc(ex.target)}" data-lang="${lang}">🔊 Cümleyi dinle</button>
+        ${renderPronunciationBlock(ex, lang, cardId)}
+        ${renderTeachingBlock(ex)}
       </article>`;
   }
 
@@ -133,6 +201,7 @@
       <button type="button" id="saveWordBtn" class="mod-action-btn mod-action-save">⭐ Öğrendiklerime Ekle</button>`;
     box.querySelector('#saveWordBtn')?.addEventListener('click', saveCurrentWord);
     bindListenButtons(box);
+    bindIpaToggles(box);
     $('modScroll')?.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
@@ -154,11 +223,9 @@
     const box = $('sentenceResult');
     if (!box || !data?.ok) return;
     currentSentence = data;
-    const pairs = (data.phrase_pairs || []).map(
-      (p) => `<li><span class="mod-part-tr">${esc(p.tr)}</span><span class="mod-part-mean">${esc(p.en)}</span></li>`,
-    ).join('');
+    const cardId = 'sent-0';
     const chunks = (data.pronunciation_chunks || []).map(
-      (c) => `<div class="mod-chunk"><span>${esc(c.target)}</span><em>${esc(c.pronunciation_tr)}</em></div>`,
+      (c) => `<div class="mod-chunk"><span>${esc(c.target)}</span><em>${esc(c.pronunciation_tr)}</em>${c.ipa ? `<small class="mod-chunk-ipa hidden" data-ipa-for="${cardId}">${esc(c.ipa)}</small>` : ''}</div>`,
     ).join('');
     box.innerHTML = `
       <div class="mod-hero mod-hero-blue">
@@ -168,19 +235,15 @@
       <article class="mod-card mod-card-featured">
         <div class="mod-card-line mod-card-tr"><span class="mod-flag">🇹🇷</span>${esc(data.tr_sentence)}</div>
         <div class="mod-card-line mod-card-target"><span class="mod-flag">🌍</span>${esc(data.target_sentence)}</div>
-        <button type="button" class="mod-listen-btn builder-listen" data-text="${esc(data.target_sentence)}" data-lang="${data.target_lang}">🔊 Dinle</button>
-        <div class="mod-pron">${esc(data.pronunciation_tr || '')}</div>
-        ${chunks ? `<div class="mod-chunks"><h4>Telaffuz</h4>${chunks}</div>` : ''}
-        <details class="mod-details" open>
-          <summary>Cümle nasıl kuruldu?</summary>
-          <p class="mod-detail-text">${esc(data.grammar_explanation_tr || data.why_tr || '')}</p>
-          ${data.structure_tr ? `<p class="mod-structure">${esc(data.structure_tr)}</p>` : ''}
-          ${pairs ? `<ul class="mod-parts">${pairs}</ul>` : ''}
-        </details>
+        <button type="button" class="mod-listen-btn builder-listen" data-text="${esc(data.target_sentence)}" data-lang="${data.target_lang}">🔊 Cümleyi dinle</button>
+        ${renderPronunciationBlock(data, data.target_lang, cardId)}
+        ${chunks ? `<div class="mod-chunks"><h4>Telaffuz parçaları</h4>${chunks}</div>` : ''}
+        ${renderTeachingBlock(data)}
       </article>
       <button type="button" id="saveSentenceBtn" class="mod-action-btn mod-action-save">⭐ Kaydet</button>`;
     box.querySelector('#saveSentenceBtn')?.addEventListener('click', saveCurrentSentence);
     bindListenButtons(box);
+    bindIpaToggles(box);
     $('modScroll')?.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
@@ -191,6 +254,9 @@
       target_sentence: currentSentence.target_sentence,
       target_lang: currentSentence.target_lang,
       pronunciation_tr: currentSentence.pronunciation_tr,
+      ipa: currentSentence.ipa,
+      word_pronunciations: currentSentence.word_pronunciations,
+      how_it_is_formed_tr: currentSentence.how_it_is_formed_tr,
       grammar_explanation_tr: currentSentence.grammar_explanation_tr,
       structure_tr: currentSentence.structure_tr,
       phrase_pairs: currentSentence.phrase_pairs,
