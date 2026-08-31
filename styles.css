@@ -1706,6 +1706,15 @@ body {
   color: #86EFAC;
 }
 
+.corr-tr-meaning {
+  background: rgba(56,189,248,0.1);
+  color: #BAE6FD;
+}
+
+.corr-tr-meaning span {
+  color: #7DD3FC;
+}
+
 .corr-tip {
   background: rgba(251,191,36,0.1);
   color: #FDE68A;

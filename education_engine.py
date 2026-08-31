@@ -1449,6 +1449,8 @@ def _intent_clarify_mode(
             "explainTr": teacher_tr,
             "inferredMeaning": meaning_tr or reason_tr,
         },
+        translate_fn=translate_fn,
+        target_lang=target_lang,
     )
 
 
@@ -2074,6 +2076,8 @@ def _try_ai_tutor_turn(
             "level": corr_level,
             "inferredMeaning": inferred or None,
         } if corr_level >= 2 else None,
+        translate_fn=translate_fn,
+        target_lang=target_lang,
     )
     result["ai_powered"] = True
     return result
@@ -2723,6 +2727,8 @@ def process_turn(
             "category": category,
             "level": correction_level,
         } if correction_level >= 2 else None,
+        translate_fn=translate_fn,
+        target_lang=target_lang,
     )
     if new_word_card:
         result["new_word"] = {
@@ -2860,6 +2866,8 @@ def _wrong_practice_after_help(
             "explainTr": teacher_tr,
             "inferredMeaning": meaning_tr,
         },
+        translate_fn=translate_fn,
+        target_lang=target_lang,
     )
 
 
@@ -2873,6 +2881,8 @@ def _pack(
     grammar_tr: str | None = None,
     word_breakdown_tr: str | None = None,
     speak_tr_first: bool | None = None,
+    translate_fn: Callable[[str, str, str], str] | None = None,
+    target_lang: str = "en",
 ) -> dict:
     p = merge_profile(profile, delta)
     en = teacher_en or teacher
@@ -2899,6 +2909,13 @@ def _pack(
             correction_detail = {**correction_detail, "grammarTr": gtr}
         if wtr:
             correction_detail = {**correction_detail, "wordBreakdown": wtr}
+        en_fix = safe_str(correction_detail.get("correctEn") or correction).strip()
+        if en_fix and translate_fn:
+            correct_tr = _to_tr(en_fix, translate_fn, target_lang)
+            if correct_tr:
+                correction_detail = {**correction_detail, "correctTr": correct_tr}
+                if corr_level >= 2 and not explicit:
+                    str_speak = f"Doğrusu: {correct_tr}"[:220]
     return {
         "type": msg_type,
         "user_text": user_text,

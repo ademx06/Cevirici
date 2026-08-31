@@ -814,6 +814,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self.handle_stt(parse_qs(parsed.query))
         if parsed.path == "/api/process":
             return self.handle_process(parse_qs(parsed.query))
+        if parsed.path == "/api/listen":
+            return self.handle_listen(parse_qs(parsed.query))
         if parsed.path == "/api/tutor":
             return self.handle_tutor(parse_qs(parsed.query))
         if parsed.path == "/api/education/voice":
@@ -883,6 +885,34 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             text, _, _ = transcribe_audio(data, lang)
             body = json.dumps({"text": text}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        except Exception as e:
+            self.send_json_error(422, self.api_error_message(e))
+
+    def handle_listen(self, params):
+        """STT only — çeviri modunda metni hemen göstermek için (çeviri ayrı istek)."""
+        my = (params.get("my") or ["tr"])[0]
+        other = (params.get("other") or ["en"])[0]
+        last_from = (params.get("last") or [""])[0].strip() or None
+        if last_from not in (my, other):
+            last_from = None
+        length = int(self.headers.get("Content-Length", 0))
+        if length <= 0:
+            self.send_error(400, "empty body")
+            return
+        data = self.rfile.read(length)
+        try:
+            original, from_lang = transcribe_dual(data, my, other, last_from)
+            to_lang = other if from_lang == my else my
+            body = json.dumps({
+                "original": original,
+                "from": from_lang,
+                "to": to_lang,
+            }).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))

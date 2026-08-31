@@ -196,11 +196,11 @@ async function playB64(b64) {
   }
 }
 
-async function processAudio(blob) {
+async function fetchListen(blob, my, other, last) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 45000);
   try {
-    const r = await fetch(`/api/process?${new URLSearchParams({ my: S.my, other: S.other, last: S.lastFrom })}`, {
+    const r = await fetch(`/api/listen?${new URLSearchParams({ my, other, last: last || '' })}`, {
       method: 'POST',
       body: blob,
       headers: { 'Content-Type': blob.type || 'audio/mp4' },
@@ -218,7 +218,36 @@ async function processAudio(blob) {
   }
 }
 
+async function fetchTranslateText(text, from, to) {
+  const r = await fetch(`/api/translate?${new URLSearchParams({ q: text, from, to })}`);
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || 'Çeviri başarısız');
+  return d.text || '';
+}
+
+async function processAudio(blob) {
+  const stt = await fetchListen(blob, S.my, S.other, S.lastFrom);
+  const msg = {
+    orig: stt.original, trans: '…', from: stt.from, to: stt.to, audio: null,
+  };
+  S.lastFrom = stt.from;
+  S.msgs.unshift(msg);
+  render();
+  clearInterim();
+  setStatus('Çevriliyor...', true);
+  const translated = await fetchTranslateText(stt.original, stt.from, stt.to);
+  const idx = S.msgs.indexOf(msg);
+  if (idx >= 0) {
+    S.msgs[idx].trans = translated;
+    render();
+    setStatus('Çeviri hazır', false);
+    void fetchTranslateTts(translated, stt.to, idx);
+  }
+  return { original: stt.original, translated, from: stt.from, to: stt.to };
+}
+
 function handleResult(d) {
+  if (S.msgs[0]?.orig === d.original) return;
   S.lastFrom = d.from;
   S.msgs.unshift({
     orig: d.original, trans: d.translated, from: d.from, to: d.to, audio: null,
