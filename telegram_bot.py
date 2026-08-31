@@ -42,8 +42,8 @@ def _link_message(url: str) -> str:
         )
     return (
         f"📱 Güncel link:\n\n{url}\n\n"
-        f"🎓 Eğitim:\n{url}/education.html?v=35\n\n"
-        f"🌍 Çeviri:\n{url}/translate.html\n\n"
+        f"🎓 Eğitim:\n{url}/education.html?v=36\n\n"
+        f"🌍 Çeviri:\n{url}/translate.html?v=52\n\n"
         "💡 Link değişince buraya /link yaz — yeni adresi gönderirim."
     )
 
