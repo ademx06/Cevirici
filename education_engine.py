@@ -216,9 +216,18 @@ VOCAB_LIBRARY: dict[str, list[dict[str, str]]] = {
 }
 
 HELP_RE = re.compile(
-    r"(^\s*yardım\b|nasıl\s+(?:söylerim|derim|denir)|ingilizcede|ne\s+demek|çevirir\s+misin|"
+    r"(^\s*yardım\b|nasıl\s+(?:söylerim|derim|denir|söyleyeceğim)|ingilizcede|ne\s+demek|çevirir\s+misin|"
     r"kısmını\s+söyle(?:y)?emiyorum|how\s+do\s+i\s+say|what\s+is\s+.+\s+in\s+english|"
-    r"bunu\s+nasıl\s+söylerim|anlatır\s+mısın)",
+    r"bunu\s+nasıl\s+söylerim|anlatır\s+mısın|ne\s+söyleyeceğimi|cümleyi\s+nasıl\s+kur)",
+    re.I,
+)
+
+HOW_TO_SAY_STUCK_RE = re.compile(
+    r"(nasıl\s+söyleyeceğim(?:i)?\s+bilmiyorum|ne\s+söyleyeceğimi\s+bilmiyorum|"
+    r"ne\s+demem\s+lazım|ne\s+desem\s+bilemedim|nasıl\s+söylesem\s+bilemedim|"
+    r"cümleyi\s+nasıl\s+kur(?:acağım|abilirim|arım)|nasıl\s+söyleyebilirim|"
+    r"söyleyemiyorum\s*$|don'?t\s+know\s+how\s+to\s+say|don'?t\s+know\s+what\s+to\s+say|"
+    r"i\s+don'?t\s+know\s+(?:how|what)\s+(?:to\s+)?say|how\s+(?:can|do|should)\s+i\s+say\s+(?:this|it))",
     re.I,
 )
 
@@ -985,6 +994,153 @@ def _recent_user_texts(history: list[dict], n: int = 4) -> list[str]:
 
 def _is_yardim_request(text: str) -> bool:
     return bool(YARDIM_PREFIX_RE.search(text))
+
+
+def _is_how_to_say_stuck(text: str) -> bool:
+    """Öğrenci ne söyleyeceğini / nasıl kuracağını bilmiyor."""
+    t = text.strip()
+    if not t:
+        return False
+    if HOW_TO_SAY_STUCK_RE.search(t):
+        return True
+    low = t.lower()
+    if re.search(r"nasıl\s+söyleyeceğim|ne\s+söyleyeceğim|cümleyi\s+nasıl", low):
+        if re.search(r"bilmiyorum|bilemedim|bilemiyorum|kararsız|yardım", low):
+            return True
+    return False
+
+
+def _build_how_to_say_examples(
+    teacher_q: str,
+    target_lang: str,
+    translate_fn: Callable[[str, str, str], str] | None,
+) -> list[tuple[str, str]]:
+    """Son soruya göre söyleyebileceği örnek cümleler."""
+    tq = teacher_q.lower()
+    time_word = "yesterday" if "yesterday" in tq else "today"
+    defaults_tr = {
+        "I was tired today.": "Bugün yorgundum.",
+        "I went to work today.": "Bugün işe gittim.",
+        "I stayed at home today.": "Bugün evde kaldım.",
+        "I read a book today.": "Bugün kitap okudum.",
+    }
+
+    if _is_daily_activity_question(tq) or re.search(
+        r"what did you do|what do you do|how was your day|tell me about your day", tq,
+    ):
+        candidates = [
+            (f"I was tired {time_word}.", defaults_tr["I was tired today."]),
+            (f"I went to work {time_word}.", defaults_tr["I went to work today."]),
+            (f"I stayed at home {time_word}.", defaults_tr["I stayed at home today."]),
+            (f"I read a book {time_word}.", defaults_tr["I read a book today."]),
+            ("It was good, thanks.", "İyiydi, teşekkürler."),
+        ]
+    elif re.search(r"book|read|reading", tq):
+        candidates = [
+            ("Yes, I like reading books.", "Evet, kitap okumayı seviyorum."),
+            ("I read a book today.", "Bugün bir kitap okudum."),
+            ("My favorite book is Harry Potter.", "En sevdiğim kitap Harry Potter."),
+        ]
+    elif re.search(r"how are you|how do you feel|how'?s it going", tq):
+        candidates = [
+            ("I'm fine, thanks. And you?", "İyiyim, teşekkürler. Sen nasılsın?"),
+            ("I'm good.", "İyiyim."),
+            ("I'm a bit tired today.", "Bugün biraz yorgunum."),
+        ]
+    elif re.search(r"what are you|what will you|plan|going to do", tq):
+        candidates = [
+            ("I'm going to work tomorrow.", "Yarın işe gideceğim."),
+            ("I will stay at home.", "Evde kalacağım."),
+            ("I want to rest.", "Dinlenmek istiyorum."),
+        ]
+    elif re.search(r"understand|mean", tq):
+        candidates = [
+            ("Yes, I understand.", "Evet, anlıyorum."),
+            ("No, I don't understand.", "Hayır, anlamıyorum."),
+            ("Can you explain again?", "Tekrar açıklar mısın?"),
+        ]
+    else:
+        candidates = [
+            ("Yes.", "Evet."),
+            ("No, not really.", "Hayır, pek sayılmaz."),
+            ("I think so.", "Sanırım öyle."),
+            ("Can you repeat, please?", "Tekrar eder misin?"),
+        ]
+
+    out: list[tuple[str, str]] = []
+    for en, tr_default in candidates[:5]:
+        tr = tr_default
+        if translate_fn:
+            tr = _to_tr(en, translate_fn, target_lang) or tr_default
+        out.append((en, tr))
+    return out
+
+
+def _how_to_say_help_mode(
+    user_text: str,
+    target_lang: str,
+    profile: dict,
+    session_delta: dict,
+    translate_fn: Callable[[str, str, str], str] | None,
+    history: list[dict],
+) -> dict[str, Any]:
+    """Ne söyleyeceğini / nasıl kuracağını bilmiyor — bağlama göre örnek cümleler."""
+    lang_name = LANG_NAMES.get(target_lang, target_lang)
+    last_teacher = profile.get("lastTeacherText") or _last_teacher_question(history, profile) or ""
+    examples = _build_how_to_say_examples(last_teacher, target_lang, translate_fn)
+
+    parts = ["🤔 Anladım — ne söyleyeceğini bulmak zor olabilir.\n"]
+    if last_teacher:
+        parts.append(f"💬 Son {lang_name} sorum:\n\"{last_teacher}\"")
+        if translate_fn:
+            tr_q = _to_tr(last_teacher, translate_fn, target_lang)
+            if tr_q:
+                parts.append(f"🇹🇷 {tr_q}")
+        parts.append("")
+
+    parts.append("📝 Söyleyebileceğin örnek cümleler:\n")
+    for i, (en, tr) in enumerate(examples[:4], 1):
+        parts.append(f"{i}️⃣ \"{en}\"\n   🇹🇷 {tr}")
+
+    parts.append(
+        "\n🧩 Cümle nasıl kurulur?\n"
+        "• Özne (I) + fiil (am/was/went/read/like...) + detay\n"
+        "• Zaman kelimesi genelde sonda: today, yesterday, tomorrow\n"
+        "• Örnek kalıp: I + was/went/read + today"
+    )
+    parts.append(
+        "\n\n💡 Kendi cümleni kurmak için Türkçe yaz:\n"
+        "\"yardım ben bugün işe gittim\" — sana özel cümle kurarım.\n\n"
+        "🔄 Yukarıdan birini dene veya yardım ile kendi cümleni sor!"
+    )
+
+    teacher_tr = "\n".join(parts)
+    first_en = examples[0][0] if examples else ""
+    clear = {
+        "pendingPracticePhrase": None,
+        "pendingPracticeTr": None,
+        "pendingIntentConfirm": None,
+        "pendingIntentUserSaid": None,
+        "pendingIntentReason": None,
+    }
+    delta = {
+        **session_delta,
+        **clear,
+        "lastTeacherText": first_en or last_teacher,
+    }
+    merged = merge_profile(profile, delta)
+    result = _pack(
+        merged, delta, first_en, teacher_tr, None, 1, "help",
+        waiting=True, user_text=user_text, teacher_en=first_en,
+        speak_text=first_en,
+        speak_tr="",
+        speak_tr_first=False,
+        phonetic_en=_simple_en_phonetic(first_en) if first_en else "",
+        translate_fn=translate_fn,
+        target_lang=target_lang,
+    )
+    result["help_tts_pairs"] = [{"tr": tr, "en": en} for en, tr in examples[:4]]
+    return result
 
 
 def _normalize_stt_text(text: str) -> str:
@@ -2835,6 +2991,14 @@ def process_turn(
     # Anlamadım / don't understand — pratik beklerken bile önce açıkla
     if _is_confusion_request(user_text):
         result = _confusion_help_mode(
+            user_text, target_lang, profile, session_delta, translate_fn, history,
+        )
+        result["weekly_progress"] = weekly_progress(result["profile"])
+        return result
+
+    # Nasıl söyleyeceğimi bilmiyorum — örnek cümleler ve kalıp
+    if _is_how_to_say_stuck(user_text):
+        result = _how_to_say_help_mode(
             user_text, target_lang, profile, session_delta, translate_fn, history,
         )
         result["weekly_progress"] = weekly_progress(result["profile"])
