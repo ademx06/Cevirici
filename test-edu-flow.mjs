@@ -21,7 +21,7 @@ function setupDom(corrupt = false) {
         { role: 'teacher', teacherEn: 123, teacherTr: null, audio: 'x'.repeat(5000) },
       ]),
     };
-    const html = fs.readFileSync('education.html', 'utf8').replace('education.js?v=10', 'education.js');
+    const html = fs.readFileSync('education.html', 'utf8').replace('education.js?v=11', 'education.js');
     const dom = new JSDOM(html, {
       url: `${BASE}/education.html`,
       runScripts: 'dangerously',
@@ -45,7 +45,7 @@ function setupDom(corrupt = false) {
     return dom;
   }
 
-  const html = fs.readFileSync('education.html', 'utf8').replace('education.js?v=10', 'education.js');
+  const html = fs.readFileSync('education.html', 'utf8').replace('education.js?v=11', 'education.js');
   return new JSDOM(html, {
     url: `${BASE}/education.html`,
     runScripts: 'dangerously',
@@ -70,10 +70,12 @@ async function sendAndWait(dom, text) {
   const send = win.document.getElementById('sendBtn');
   input.value = text;
   send.click();
-  await new Promise((r) => setTimeout(r, 1500));
+  await new Promise((r) => setTimeout(r, 2000));
+  const status = win.document.getElementById('statusText')?.textContent?.trim() || '';
   const errEl = win.document.getElementById('errorBox');
-  const err = errEl && !errEl.classList.contains('hidden') ? errEl.textContent.trim() : '';
-  return err;
+  const errVisible = errEl && !errEl.classList.contains('hidden');
+  const err = errVisible ? errEl.textContent.trim() : '';
+  return err || (status.includes('Hata') ? status : '');
 }
 
 async function run(label, corrupt) {
@@ -83,6 +85,7 @@ async function run(label, corrupt) {
     'Hello, how are you?',
     'yardım ben bugün işe gideceğim',
     'I went to work today',
+    'I will go to work today',
     'How is the weather?',
   ];
   for (const t of steps) {

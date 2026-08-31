@@ -59,6 +59,7 @@ const S = {
   lastAudio: null,
   greetingLoaded: false,
   sessionSaved: false,
+  softMsgTimer: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -252,14 +253,17 @@ function setUiState(name) {
 }
 
 function showErr(t) {
-  const msg = t || 'Bir hata oluştu — tekrar dene';
-  safeText('errorBox', msg);
-  const box = $('errorBox');
-  if (box) {
-    box.className = 'error-box';
-    box.classList.remove('hidden');
-  }
-  setUiState('ERROR');
+  // Kırmızı hata kutusu yok — yalnızca durum çubuğunda kısa bilgi
+  const msg = safeStr(t).slice(0, 120) || 'Tekrar dene';
+  safeText('statusText', msg);
+  hideErr();
+  if (S.uiState !== 'SPEAKING' && S.uiState !== 'RECORDING') setUiState('IDLE');
+  clearTimeout(S.softMsgTimer);
+  S.softMsgTimer = setTimeout(() => {
+    if (S.busyCount === 0 && !isRecording() && !S.holdActive) {
+      safeText('statusText', 'Hazır');
+    }
+  }, 4500);
 }
 
 function hideErr() {
@@ -537,9 +541,9 @@ function render() {
     const trBlock = teacherTr && !isTeaching
       ? `<div class="chat-lang-block chat-tr"><span>🇹🇷 Türkçe</span><p>${esc(teacherTr).replace(/\n/g, '<br>')}</p></div>`
       : '';
-    const replayBtn = (m.speakTr || (isTeaching && teacherTr))
+    const replayBtn = shouldPlayCorrectionTts({ correction_level: m.correctionLevel, speak_tr: m.speakTr, teacher_tr: m.teacherTr })
       ? `<button type="button" class="replay-btn chat-replay" data-idx="${i}">🔊 Türkçe dinle</button>`
-      : (teacherEn ? `<button type="button" class="replay-btn chat-replay-en" data-idx="${i}">🔊 EN dinle</button>` : '');
+      : '';
     return `<div class="chat-row chat-row-teacher">
         <div class="chat-avatar">🤖</div>
         <div class="chat-bubble chat-bubble-teacher ${isTeaching ? 'chat-bubble-teaching' : ''}">
@@ -555,15 +559,7 @@ function render() {
       e.preventDefault();
       unlockAudioSync();
       const msg = S.msgs[parseInt(btn.dataset.idx, 10)];
-      if (msg) playTeacherTts({ speak_tr: msg.speakTr || msg.teacherTr, speak_tr_first: true, correction_level: msg.correctionLevel || 2 });
-    };
-  });
-  el.querySelectorAll('.chat-replay-en').forEach((btn) => {
-    btn.onclick = (e) => {
-      e.preventDefault();
-      unlockAudioSync();
-      const msg = S.msgs[parseInt(btn.dataset.idx, 10)];
-      if (msg) fetchAndPlayTts(msg.teacherEn || msg.teacher, S.learnLang, false);
+      if (msg) playTeacherTts({ speak_tr: msg.speakTr || msg.teacherTr, correction_level: msg.correctionLevel || 2 });
     };
   });
   requestAnimationFrame(() => {
@@ -620,18 +616,16 @@ async function fetchAndPlayTts(phrase, lang, slow = false) {
   });
 }
 
-const TR_FIRST_TYPES = new Set(['help', 'coach_tr', 'ai_intent', 'ai_correction', 'intent_guess', 'correction']);
+const TR_FIRST_TYPES = new Set(['help', 'coach_tr', 'ai_intent', 'ai_correction', 'intent_guess', 'correction', 'practice_retry']);
 
 async function playTeacherTts(d) {
   if (!d || typeof d !== 'object') return;
-  const corrLevel = Number(d.correction_level) || 1;
-  const needsTr = d.speak_tr_first || corrLevel >= 2 || TR_FIRST_TYPES.has(safeStr(d.type));
-  const speakTr = safeStr(d.speak_tr || (needsTr ? d.teacher_tr : '')).slice(0, 550);
+  if (!shouldPlayCorrectionTts(d)) return;
+  const speakTr = trTextForTts(d.speak_tr || d.teacher_tr || '');
+  if (!speakTr) return;
 
   try {
-    if (speakTr && needsTr) {
-      await fetchAndPlayTts(speakTr, 'tr', false);
-    }
+    await fetchAndPlayTts(speakTr, 'tr', false);
   } catch { /* ignore */ }
   finally {
     if (!S.holdActive && !isRecording() && S.busyCount === 0) setUiState('IDLE');
@@ -674,10 +668,56 @@ function chatTime() {
   return new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
 }
 
+function compactProfileForApi() {
+  const p = normalizeProfile(S.profile || {});
+  return {
+    targetLang: safeStr(p.targetLang || S.learnLang),
+    currentLevel: safeStr(p.currentLevel || 'A1'),
+    pendingPracticePhrase: p.pendingPracticePhrase ? safeStr(p.pendingPracticePhrase) : null,
+    pendingPracticeTr: p.pendingPracticeTr ? safeStr(p.pendingPracticeTr) : null,
+    lastTeacherText: safeStr(p.lastTeacherText).slice(0, 400),
+    totalSentences: Number(p.totalSentences) || 0,
+    correctSentences: Number(p.correctSentences) || 0,
+    totalCorrections: Number(p.totalCorrections) || 0,
+    sessionCorrections: Number(p.sessionCorrections) || 0,
+    todayMinutes: Number(p.todayMinutes) || 0,
+    dailyGoalMinutes: Number(p.dailyGoalMinutes) || 10,
+    weakAreas: ensureArray(p.weakAreas).slice(0, 6).map(safeStr),
+    strongAreas: ensureArray(p.strongAreas).slice(0, 4).map(safeStr),
+    grammarErrors: ensureArray(p.grammarErrors).slice(0, 15).filter((e) => e && typeof e === 'object'),
+    srsItems: ensureArray(p.srsItems).slice(0, 10).filter((e) => e && typeof e === 'object'),
+    vocabularyBank: ensureArray(p.vocabularyBank).slice(0, 20).filter((e) => e && typeof e === 'object'),
+    dailyStats: ensureArray(p.dailyStats).slice(0, 7).filter((e) => e && typeof e === 'object'),
+    sessionLog: ensureArray(p.sessionLog).slice(0, 10).filter((e) => e && typeof e === 'object'),
+    newWords: ensureArray(p.newWords).slice(0, 20).map(safeStr),
+    pendingSrsId: p.pendingSrsId ? safeStr(p.pendingSrsId) : null,
+    pendingVocabWord: p.pendingVocabWord ? safeStr(p.pendingVocabWord) : null,
+  };
+}
+
+function trTextForTts(raw) {
+  const text = safeStr(raw);
+  if (!text) return '';
+  const lines = text.split(/\n+/).map((l) => l.trim()).filter(Boolean);
+  const trLines = lines.filter((line) => {
+    const cleaned = line.replace(/"[^"]*"/g, '').replace(/'[^']*'/g, '').trim();
+    if (!cleaned) return false;
+    if (/[ğüşıöçĞÜŞİÖÇ]/.test(cleaned)) return true;
+    return /\b(sanırım|demek|istedin|doğru|yanlış|kelime|cümle|fiil|neden|malısın|henüz|tam|olmadı|beklenen|tekrar|dene|açıklama|yapısı|anlamı|hata|düzeltme|türkçe|ipucu|yüksek|sesle|doğrusu|demeye|çalıştın|tabii|öğrenelim|küçük|gramer|şimdi|sonra|lütfen|unutma)\b/i.test(cleaned);
+  });
+  const joined = trLines.join(' ').replace(/"[^"]*"/g, '').replace(/'[^']*'/g, '');
+  return joined.replace(/\s+/g, ' ').trim().slice(0, 500);
+}
+
+function shouldPlayCorrectionTts(d) {
+  if (!d || typeof d !== 'object') return false;
+  return Number(d.correction_level) >= 2;
+}
+
 function appendUserMsg(text, lang) {
-  S.msgs.push({ role: 'user', text, lang: lang || S.learnLang, time: chatTime() });
+  S.msgs.push({ role: 'user', text: safeStr(text).slice(0, 500), lang: lang || S.learnLang, time: chatTime() });
   saveChat();
-  pushHistory('user', text);
+  pushHistory('user', safeStr(text));
 }
 
 function appendTeacherMsg(d) {
@@ -727,16 +767,21 @@ function handleEducationResult(d) {
     if (d.user_text) appendUserMsg(safeStr(d.user_text), d.user_lang);
     appendTeacherMsg(d);
     hideTyping();
-    render();
-    const corrLevel = Number(d.correction_level) || 1;
-    const needsTrAudio = corrLevel >= 2 || TR_FIRST_TYPES.has(safeStr(d.type)) || d.speak_tr_first;
-    if (needsTrAudio && (d.speak_tr || d.teacher_tr)) {
+    try {
+      render();
+    } catch {
+      S.msgs = sanitizeMsgs(S.msgs);
+      try { render(); } catch { /* ignore */ }
+    }
+    if (shouldPlayCorrectionTts(d)) {
       playTeacherTts(d);
     }
-  } catch (e) {
+  } catch {
     hideTyping();
-    console.error(e);
-    showErr('Mesaj işlenemedi — tekrar dene veya Veriyi sıfırla');
+    try {
+      S.msgs = sanitizeMsgs(S.msgs);
+      render();
+    } catch { /* ignore */ }
   }
 }
 
@@ -753,7 +798,7 @@ async function processEducationChat(text) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       text,
-      profile: S.profile,
+      profile: compactProfileForApi(),
       history: sanitizeHistory(S.history),
       roleplay: S.roleplay || null,
       speak_slow: S.speakSlow,
@@ -788,20 +833,8 @@ async function sendTextMessage() {
 }
 
 function compactStateForVoice() {
-  const p = S.profile || {};
   return {
-    profile: {
-      targetLang: p.targetLang || S.learnLang,
-      currentLevel: p.currentLevel,
-      pendingPracticePhrase: p.pendingPracticePhrase || null,
-      pendingPracticeTr: p.pendingPracticeTr || null,
-      lastTeacherText: safeStr(p.lastTeacherText).slice(0, 400),
-      totalSentences: p.totalSentences,
-      correctSentences: p.correctSentences,
-      weakAreas: ensureArray(p.weakAreas).slice(0, 6),
-      pendingSrsId: p.pendingSrsId || null,
-      pendingVocabWord: p.pendingVocabWord || null,
-    },
+    profile: compactProfileForApi(),
     history: sanitizeHistory(S.history).slice(0, 8),
     roleplay: S.roleplay || null,
     speak_slow: S.speakSlow,
@@ -829,7 +862,12 @@ async function parseVoiceResponse(r) {
 }
 
 async function processEducationVoice(blob) {
-  const stateJson = JSON.stringify(compactStateForVoice());
+  let stateJson = '{}';
+  try {
+    stateJson = JSON.stringify(compactStateForVoice());
+  } catch {
+    stateJson = JSON.stringify({ profile: { targetLang: S.learnLang }, history: [], last_lang: S.learnLang });
+  }
   const qs = new URLSearchParams({ lang: S.learnLang });
   const headers = {
     'Content-Type': blob.type || 'audio/mp4',
@@ -854,7 +892,7 @@ async function processEducationVoice(blob) {
 
 async function fetchLessonPlan() {
   try {
-    const params = new URLSearchParams({ profile: JSON.stringify(S.profile || {}) });
+    const params = new URLSearchParams({ profile: JSON.stringify(compactProfileForApi()) });
     const r = await fetch(`/api/education/lesson-plan?${params}`);
     const d = await r.json().catch(() => ({}));
     if (r.ok) updatePersonalLesson(d);
@@ -908,8 +946,6 @@ async function loadLesson(id) {
     });
     saveChat();
     render();
-    if (d.audio) playB64(d.audio);
-    else playTeacherTts({ speak_text: d.robot_target, target_lang: d.target_lang || S.learnLang });
   } catch (e) {
     showErr(safeErrMsg(e) || 'Ders yüklenemedi');
   } finally {
@@ -1063,9 +1099,9 @@ function startRecorder(gen) {
       .then((d) => {
         try {
           handleEducationResult(d);
-        } catch (e) {
+        } catch {
           hideTyping();
-          showErr(safeErrMsg(e) || 'Mesaj işlenemedi');
+          try { handleEducationResult({ ...d, profile: compactProfileForApi() }); } catch { resetIdle(); }
         }
       })
       .catch((e) => showErr(safeErrMsg(e) || 'Duyamadım — tekrar dene'))

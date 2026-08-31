@@ -715,24 +715,47 @@ def _content_tokens(s: str) -> set[str]:
     return {w for w in _token_set(s) if w not in _PRACTICE_STOP}
 
 
+_PRACTICE_PAST = frozenset({
+    "went", "was", "were", "did", "had", "ran", "walked", "worked", "read", "played", "got",
+    "ate", "drank", "slept", "came", "took", "made", "said", "told", "saw", "bought",
+})
+_PRACTICE_FUTURE = frozenset({"will", "ll", "going", "gonna", "shall"})
+
+
 def _practice_phrase_match(user: str, pending: str) -> bool:
-    """Pratik cümlesi eşleşmesi — 'book' ile 'eat lunch' ASLA eşleşmesin."""
+    """Pratik cümlesi eşleşmesi — 'I went' ≠ 'I will go' (gevşek eşleşme yasak)."""
     if not user or not pending:
         return False
-    if _norm(user) == _norm(pending):
+    nu, np = _norm(user), _norm(pending)
+    if nu == np:
         return True
-    cu, cp = _content_tokens(user), _content_tokens(pending)
-    if not cp:
-        return _norm(user) == _norm(pending)
-    if not cu:
+    tu, tp = _token_set(user), _token_set(pending)
+    if not tp or not tu:
         return False
-    # Ana kelimeler tam eşleşmeli (book ≠ eat, lunch)
-    if cu == cp:
+    if tu == tp:
         return True
-    if cp <= cu:
-        return True
-    overlap = len(cu & cp) / len(cp)
-    return overlap >= 0.9
+    # Gelecek zaman beklenirken geçmiş zaman kabul etme
+    pending_future = bool(tp & _PRACTICE_FUTURE) or "going to" in np or "gonna" in np
+    user_past = bool(tu & _PRACTICE_PAST)
+    if pending_future and user_past:
+        return False
+    # Tüm kelimeler üzerinden overlap
+    overlap = len(tu & tp) / max(len(tp), 1)
+    user_future = bool(tu & _PRACTICE_FUTURE) or "going" in tu
+    if pending_future and user_future:
+        # "I will go…" ≈ "I'm going to go…"
+        skip = _PRACTICE_FUTURE | {"going", "am", "are", "is", "be", "to", "gonna"}
+        cu = {w for w in tu if w not in skip}
+        cp = {w for w in tp if w not in skip}
+        if cp and len(cu & cp) / len(cp) >= 0.75:
+            return True
+    if overlap < 0.78:
+        return False
+    cu, cp = _content_tokens(user), _content_tokens(pending)
+    if cp and cu:
+        if len(cu & cp) / len(cp) < 0.75:
+            return False
+    return True
 
 
 def _phrase_similar(a: str, b: str) -> bool:
@@ -1336,7 +1359,8 @@ def _intent_clarify_mode(
     return _pack(
         profile, delta, teacher_en, teacher_tr, None, 1, "intent_guess",
         waiting=True, user_text=shown, teacher_en=teacher_en, speak_text=inferred,
-        speak_tr_first=True,
+        speak_tr="",
+        speak_tr_first=False,
         correction_detail={
             "userSaid": shown,
             "correctEn": inferred,
@@ -2207,7 +2231,8 @@ def _help_mode(
     return _pack(
         profile, delta, teacher_en, teacher_tr, None, 1, "help",
         waiting=True, user_text=user_text, teacher_en=teacher_en, speak_text=translated,
-        speak_tr_first=True,
+        speak_tr="",
+        speak_tr_first=False,
     )
 
 
@@ -2387,8 +2412,23 @@ def process_turn(
         if resumed:
             resumed["weekly_progress"] = weekly_progress(resumed["profile"])
             return resumed
+        wrong = _wrong_practice_after_help(
+            user_text, target_lang, profile, session_delta, translate_fn,
+        )
+        if wrong:
+            wrong["weekly_progress"] = weekly_progress(wrong["profile"])
+            return wrong
 
-    # AI öğretmen — ana beyin (pending pratik varken yanlış cümleyi de düzgün ele alır)
+    # Pratik beklenirken AI'ya gitme — kontrollü yardım/pratik yolu
+    if profile.get("pendingPracticePhrase"):
+        fallback = _wrong_practice_after_help(
+            user_text, target_lang, profile, session_delta, translate_fn,
+        )
+        if fallback:
+            fallback["weekly_progress"] = weekly_progress(fallback["profile"])
+            return fallback
+
+    # AI öğretmen — ana beyin
     ai_result = _try_ai_tutor_turn(
         original_text, user_lang, target_lang, history, profile,
         session_delta, roleplay, speak_slow, translate_fn,
@@ -2540,6 +2580,41 @@ def _strip_for_tts(text: str) -> str:
     return t
 
 
+def _turkish_tts_text(text: str) -> str:
+    """TTS için yalnızca Türkçe içerik — İngilizce cümleleri çıkar."""
+    if not text:
+        return ""
+    text = _strip_for_tts(text)
+    tr_lines: list[str] = []
+    for line in re.split(r"[\n.]+", text):
+        line = line.strip()
+        if not line:
+            continue
+        line = re.sub(r'"[^"]*"', "", line)
+        line = re.sub(r"'[^']*'", "", line).strip()
+        if not line:
+            continue
+        has_tr = bool(re.search(r"[ğüşıöçĞÜŞİÖÇ]", line))
+        en_words = len(re.findall(r"\b[a-zA-Z]{3,}\b", line))
+        tr_hint = bool(re.search(
+            r"\b(sanırım|demek|istedin|doğru|yanlış|kelime|cümle|fiil|neden|malısın|"
+            r"değil|için|gibi|olarak|henüz|beklenen|tekrar|dene|açıklama|yapısı|anlamı|"
+            r"demeye|çalıştın|hata|düzeltme|sen|ben|biz|bugün|işe|gitmek|koşmak|okumak|"
+            r"uyumak|yorgun|tam|olmadı|beklenen|yüksek|sesle|sohbet|devam|harika|tabii|"
+            r"öğrenelim|küçük|gramer|türkçe|ipucu|neden|olarak|şimdi|sonra|bir|çok|"
+            r"evet|hayır|merhaba|lütfen|unutma|unut|demeli|söyle|söylemeli)\b",
+            line,
+            re.I,
+        ))
+        if has_tr or tr_hint:
+            tr_lines.append(line)
+        elif en_words <= 2:
+            tr_lines.append(line)
+    out = " ".join(tr_lines)
+    out = re.sub(r"\s+", " ", out).strip()
+    return out[:550]
+
+
 def _build_speak_tr(
     explain_tr: str,
     grammar_tr: str = "",
@@ -2560,7 +2635,60 @@ def _build_speak_tr(
         parts.append(_strip_for_tts(word_breakdown_tr)[:250])
     if grammar_tr:
         parts.append(_strip_for_tts(grammar_tr)[:250])
-    return " ".join(p for p in parts if p)[:650]
+    return _turkish_tts_text(" ".join(p for p in parts if p))
+
+
+def _wrong_practice_after_help(
+    user_text: str,
+    target_lang: str,
+    profile: dict,
+    session_delta: dict,
+    translate_fn: Callable[[str, str, str], str] | None,
+) -> dict[str, Any] | None:
+    """Yardım sonrası yanlış pratik — kontrollü düzeltme."""
+    pending = safe_str(profile.get("pendingPracticePhrase")).strip()
+    pending_tr = safe_str(profile.get("pendingPracticeTr")).strip()
+    if not pending:
+        return None
+    if _practice_phrase_match(user_text, pending):
+        return None
+    if pending_tr and _practice_phrase_match(user_text, pending_tr):
+        return None
+
+    meaning_tr = pending_tr or ""
+    if translate_fn and pending:
+        try:
+            meaning_tr = translate_fn(pending, target_lang, "tr") or meaning_tr
+        except Exception:
+            pass
+
+    teacher_tr = (
+        f"Henüz tam olmadı.\n\n"
+        f"Sen dedin: \"{user_text.strip()}\"\n\n"
+        f"Beklenen cümle: \"{pending}\"\n"
+        f"Türkçesi: {meaning_tr}\n\n"
+        f"Tekrar dene — yüksek sesle doğru cümleyi söyle."
+    )
+    speak_tr = (
+        f"Henüz tam olmadı. Doğrusu: {meaning_tr}. Tekrar dene."
+    )
+    teacher_en = (
+        f"Not quite yet. You said: \"{user_text.strip()}\"\n\n"
+        f"Try again: \"{pending}\"\n\n"
+        f"Say it out loud — I'm listening!"
+    )
+    merged = merge_profile(profile, session_delta)
+    return _pack(
+        merged, session_delta, teacher_en, teacher_tr, pending, 2, "practice_retry",
+        waiting=True, user_text=user_text, teacher_en=teacher_en, speak_text=pending,
+        speak_tr=speak_tr, speak_tr_first=True,
+        correction_detail={
+            "userSaid": user_text,
+            "correctEn": pending,
+            "explainTr": teacher_tr,
+            "inferredMeaning": meaning_tr,
+        },
+    )
 
 
 def _pack(
@@ -2584,14 +2712,14 @@ def _pack(
     inferred = ""
     if correction_detail and correction_detail.get("inferredMeaning"):
         inferred = safe_str(correction_detail.get("inferredMeaning"))
-    str_speak = _strip_for_tts(safe_str(speak_tr or "")) or _build_speak_tr(
-        explain_tr or "", gtr, wtr, corr_level, inferred,
+    str_speak = _turkish_tts_text(
+        _strip_for_tts(safe_str(speak_tr or "")) or _build_speak_tr(
+            explain_tr or "", gtr, wtr, corr_level, inferred,
+        )
     )
     tr_first = speak_tr_first if speak_tr_first is not None else (
         corr_level >= 2 and bool(str_speak)
     )
-    if not str_speak and tr_first and explain_tr:
-        str_speak = _strip_for_tts(explain_tr)[:650]
     if correction_detail is not None:
         if gtr:
             correction_detail = {**correction_detail, "grammarTr": gtr}
