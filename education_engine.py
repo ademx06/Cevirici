@@ -1360,12 +1360,17 @@ def _infer_meant_sentence(user_text: str, teacher_q: str) -> tuple[str | None, s
     Kırık/eksik cümleden niyeti tahmin et.
     Returns (inferred_en, reason_tr) or (None, None).
     """
+    ul = user_text.lower().strip()
+    tq = teacher_q.lower()
+    if re.search(r"\b(yes|yeah|yep)\b.*\b(understand|understood)\b", ul):
+        return "Yes, I understand.", "Evet, anlıyorum demeye çalışmış olabilirsin."
+    if re.search(r"\b(yes|yeah|yep)\b.*\b(like|love|enjoy)\b.*\b(book|books|reading|read)\b", ul):
+        return "Yes, I like reading books.", "Evet, kitap okumayı seviyorum demeye çalışmış olabilirsin."
+
     activity = _infer_from_activity_token(user_text, teacher_q)
     if activity[0]:
         return activity
 
-    ul = user_text.lower().strip()
-    tq = teacher_q.lower()
     daily = _is_daily_activity_question(tq)
     time_word = "yesterday" if "yesterday" in tq else "today"
     mode = _question_time_mode(teacher_q)
