@@ -80,12 +80,12 @@ YOUR JOB — think like a real human tutor, NOT a dictionary:
 1. Infer what the student MEANT from context, even if they said one word ("Sleeping"), wrong grammar ("I sleeping"), STT errors ("Slipping"), or Turkish.
 2. Never reply with random unrelated topics. Always respond to what they meant.
 3. teacher_en: natural {lang_name} reply (2-4 sentences). Continue the conversation. End with a relevant question.
-4. teacher_tr: Turkish teaching ONLY (for on-screen + audio). Use sections when correcting:
+4. teacher_tr: Turkish on-screen help ONLY — short, for reading. Use sections when correcting:
    🤔 Sanırım bunu demek istedin / 📖 Kelimeler / 🧩 Cümle yapısı / ✅ Doğrusu / 💡 Neden
    Keep it concise — max 6-8 lines total.
-5. teacher_en: SHORT English only — the correct phrase + one follow-up question. Do NOT repeat the Turkish explanation in English.
-6. grammar_tr, word_breakdown_tr, speak_tr: speak_tr = ONLY when correction_level >= 2: 1-2 SHORT Turkish sentences about the mistake (max ~25 words). Never repeat full teacher_tr. null when correction_level is 1.
-7. When correcting: correction_level 2 or 3, correct_phrase required.
+5. Do NOT invent grammar mistakes. If the student says thanks, okay, nice, yes, welcome — correction_level MUST be 1. Continue the chat warmly.
+6. grammar_tr, word_breakdown_tr, speak_tr: speak_tr = ONLY when correction_level >= 2: 1-2 SHORT Turkish sentences about the REAL mistake (max ~25 words). null when correction_level is 1.
+7. When correcting a REAL mistake: correction_level 2 or 3, correct_phrase required. The correction must relate to what they actually said wrong.
 8. Praise ONLY when actually correct.
 
 Return ONLY valid JSON with these keys:
@@ -105,6 +105,7 @@ Return ONLY valid JSON with these keys:
 CRITICAL RULES:
 - Always quote the student's EXACT words when referring to what they said.
 - NEVER claim they said a different sentence than they actually said.
+- NEVER correct polite phrases: "thank you", "nice", "okay", "yes", "good", "welcome" — correction_level 1, just continue chatting.
 - If PENDING PRACTICE is set and student said something different, explain the difference gently — do NOT praise wrong answers as correct.
 - For A1 beginners: simple words, one idea at a time, warm tone, always teach through the conversation."""
 
@@ -289,6 +290,44 @@ CONFUSION_RE = re.compile(
     r"pardon|excuse\s+me\?)(?:\s|$|[.!?,])",
     re.I,
 )
+
+_POLITE_WORDS = frozenset({
+    "yes", "yeah", "yep", "yup", "ok", "okay", "nice", "good", "great", "fine", "sure",
+    "thanks", "thank", "you", "welcome", "please", "no", "well", "alright", "right",
+    "cool", "awesome", "perfect", "lovely", "dear", "sorry", "excuse", "me",
+})
+
+
+def _is_polite_acknowledgment(text: str) -> bool:
+    """Teşekkür, tamam, güzel — gramer hatası sayma."""
+    t = text.strip().lower()
+    if not t:
+        return False
+    if re.search(
+        r"\b(thank you|thanks|thank|you're welcome|you are welcome|no problem|"
+        r"sounds good|that's nice|that is nice|that's ok|that is ok|nice one)\b",
+        t,
+    ):
+        return True
+    words = re.findall(r"[a-z']+", t)
+    if not words or len(words) > 8:
+        return False
+    return all(w in _POLITE_WORDS for w in words)
+
+
+def _sanitize_ai_correction(user_text: str, parsed: dict) -> dict:
+    """AI bazen gereksiz düzeltme üretir — kabul/teşekkür cümlelerini temizle."""
+    if not _is_polite_acknowledgment(user_text):
+        return parsed
+    out = dict(parsed)
+    out["correction_level"] = 1
+    out["correct_phrase"] = None
+    out["suggested_practice"] = None
+    out["grammar_tr"] = None
+    out["word_breakdown_tr"] = None
+    out["speak_tr"] = None
+    out["category"] = None
+    return out
 
 
 def _now_iso() -> str:
@@ -1941,6 +1980,8 @@ def _try_ai_tutor_turn(
     if not parsed:
         return None
 
+    parsed = _sanitize_ai_correction(user_text, parsed)
+
     teacher_en = safe_str(parsed.get("teacher_en")).strip()
     teacher_tr = safe_str(parsed.get("teacher_tr")).strip()
     if not teacher_en:
@@ -1999,7 +2040,7 @@ def _try_ai_tutor_turn(
             "category": category,
             "level": corr_level,
             "inferredMeaning": inferred or None,
-        },
+        } if corr_level >= 2 else None,
     )
     result["ai_powered"] = True
     return result

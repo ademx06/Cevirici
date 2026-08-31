@@ -580,7 +580,7 @@ def transcribe_education(
             langs.append("tr")
 
         candidates: list[tuple[str, str, float]] = []
-        for lang in langs:
+        for lang in langs[:1]:
             result = stt_for_lang(wav, lang, allow_whisper=False)
             if not result or not result[0].strip():
                 continue
@@ -588,17 +588,28 @@ def transcribe_education(
             text, detected, score = _rank_education_stt(
                 raw, raw, lang, result[2], history,
             )
-            if text:
+            if text and score >= 0.75:
                 candidates.append((text, detected, score))
+                break
 
         if not candidates:
             for lang in langs:
-                result = stt_for_lang(wav, lang, allow_whisper=True)
+                result = stt_for_lang(wav, lang, allow_whisper=False)
                 if not result or not result[0].strip():
                     continue
                 raw = result[0].strip()
                 text, detected, score = _rank_education_stt(
                     raw, raw, lang, result[2], history,
+                )
+                if text:
+                    candidates.append((text, detected, score))
+
+        if not candidates:
+            result = stt_for_lang(wav, primary, allow_whisper=True)
+            if result and result[0].strip():
+                raw = result[0].strip()
+                text, detected, score = _rank_education_stt(
+                    raw, raw, primary, result[2], history,
                 )
                 if text:
                     candidates.append((text, detected, score))

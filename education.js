@@ -67,7 +67,9 @@ const S = {
 };
 
 const VOICE_FETCH_MS = 55000;
-const TTS_PLAY_MS = 15000;
+const TTS_PLAY_MS = 12000;
+const EN_TTS_MAX = 320;
+const TR_TTS_MAX = 220;
 const STALE_BUSY_MS = 18000;
 const MIC_OPEN_MS = 12000;
 
@@ -606,8 +608,8 @@ function render() {
     const trBlock = teacherTr && !isTeaching
       ? `<div class="chat-lang-block chat-tr"><span>🇹🇷 Türkçe</span><p>${esc(teacherTr).replace(/\n/g, '<br>')}</p></div>`
       : '';
-    const replayBtn = (m.speakTr && shouldPlayCorrectionTts({ correction_level: m.correctionLevel, speak_tr: m.speakTr }))
-      ? `<button type="button" class="replay-btn chat-replay" data-idx="${i}">🔊 Düzeltmeyi dinle</button>`
+    const replayBtn = shouldShowReplay({ correction_level: m.correctionLevel, speak_tr: m.speakTr, type: m.type, teacher_en: m.teacherEn, teacher_tr: m.teacherTr })
+      ? `<button type="button" class="replay-btn chat-replay" data-idx="${i}">🔊 Dinle</button>`
       : '';
     return `<div class="chat-row chat-row-teacher">
         <div class="chat-avatar">🤖</div>
@@ -624,7 +626,7 @@ function render() {
       e.preventDefault();
       unlockAudioSync();
       const msg = S.msgs[parseInt(btn.dataset.idx, 10)];
-      if (msg?.speakTr) playTeacherTts({ speak_tr: msg.speakTr, correction_level: msg.correctionLevel || 2 });
+      if (msg) playTeacherAudio({ speak_tr: msg.speakTr, correction_level: msg.correctionLevel, type: msg.type, teacher_en: msg.teacherEn, teacher_tr: msg.teacherTr, explain_tr: msg.explain });
     };
   });
   requestAnimationFrame(() => {
@@ -658,13 +660,14 @@ function stopTts() {
 }
 
 async function fetchAndPlayTts(phrase, lang, slow = false) {
-  const text = safeStr(phrase).slice(0, 600);
+  const text = safeStr(phrase).trim();
   if (!text) return;
-  const params = new URLSearchParams({ q: text, tl: lang });
+  const params = new URLSearchParams({ q: text.slice(0, 600), tl: lang });
   if (slow) params.set('slow', '1');
   const r = await fetch(`/api/tts?${params}`);
   if (!r.ok) return;
   const blob = await r.blob();
+  if (!blob.size) return;
   const u = URL.createObjectURL(blob);
   stopTts();
   setUiState('SPEAKING');
@@ -684,20 +687,51 @@ async function fetchAndPlayTts(phrase, lang, slow = false) {
   ]);
 }
 
-const TR_FIRST_TYPES = new Set(['help', 'coach_tr', 'ai_intent', 'ai_correction', 'intent_guess', 'correction', 'practice_retry']);
+const TR_HELP_TYPES = new Set(['help', 'confusion_help', 'explain_tr']);
+const SKIP_TTS_TYPES = new Set(['intent_guess', 'practice_retry']);
 
-async function playTeacherTts(d) {
+function englishTextForTts(d) {
+  let text = safeStr(d.teacher_en || d.teacher_text || d.robot_target || '');
+  text = text.replace(/[\U0001F300-\U0001FAFF\U00002700-\U000027BF\u2600-\u26FF\uFE0F]+/gu, ' ');
+  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+  const conv = lines.filter((l) => !/^(🎯|📌|📖|🧩|✅|💡|🔄|❌|🤔)/.test(l));
+  text = (conv.length ? conv.join(' ') : lines.join(' ')).replace(/\s+/g, ' ').trim();
+  const parts = text.match(/[^.!?]+[.!?]?/g) || [text];
+  return parts.slice(0, 3).join(' ').trim().slice(0, EN_TTS_MAX);
+}
+
+function turkishHelpForTts(d) {
+  const fromSpeak = trTextForTts(d.speak_tr || '');
+  if (fromSpeak) return fromSpeak.slice(0, TR_TTS_MAX);
+  return trTextForTts(d.teacher_tr || d.explain_tr || '').slice(0, TR_TTS_MAX);
+}
+
+async function playTeacherAudio(d) {
   if (!d || typeof d !== 'object') return;
-  if (!shouldPlayCorrectionTts(d)) return;
-  // Yalnızca kısa düzeltme metni — tüm açıklamayı okuma
-  const speakTr = trTextForTts(d.speak_tr || '');
-  if (!speakTr) return;
+  const level = Number(d.correction_level) || 1;
+  const type = safeStr(d.type);
 
   try {
-    await fetchAndPlayTts(speakTr, 'tr', false);
+    if (level >= 2) {
+      const corr = trTextForTts(d.speak_tr || '');
+      if (corr) {
+        await fetchAndPlayTts(corr, 'tr', S.speakSlow);
+        return;
+      }
+    }
+    if (TR_HELP_TYPES.has(type)) {
+      const tr = turkishHelpForTts(d);
+      if (tr) await fetchAndPlayTts(tr, 'tr', S.speakSlow);
+      return;
+    }
+    if (SKIP_TTS_TYPES.has(type)) return;
+    const en = englishTextForTts(d);
+    if (en) await fetchAndPlayTts(en, S.learnLang, S.speakSlow);
   } catch { /* ignore */ }
   finally {
-    if (!S.holdActive && !isRecording() && S.busyCount === 0) setUiState('IDLE');
+    if (!S.holdActive && !isRecording() && S.busyCount === 0) {
+      if (S.uiState === 'SPEAKING') setUiState('IDLE');
+    }
   }
 }
 
@@ -778,10 +812,14 @@ function trTextForTts(raw) {
   return joined.replace(/\s+/g, ' ').trim().slice(0, 500);
 }
 
-function shouldPlayCorrectionTts(d) {
-  if (!d || typeof d !== 'object') return false;
-  if (Number(d.correction_level) < 2) return false;
-  return Boolean(safeStr(d.speak_tr).trim());
+function shouldShowReplay(d) {
+  if (!d) return false;
+  const level = Number(d.correction_level) || 1;
+  if (level >= 2 && safeStr(d.speak_tr).trim()) return true;
+  const type = safeStr(d.type);
+  if (TR_HELP_TYPES.has(type) && turkishHelpForTts(d)) return true;
+  if (!SKIP_TTS_TYPES.has(type) && englishTextForTts(d)) return true;
+  return false;
 }
 
 function appendUserMsg(text, lang) {
@@ -843,8 +881,8 @@ async function handleEducationResult(d) {
       S.msgs = sanitizeMsgs(S.msgs);
       try { render(); } catch { /* ignore */ }
     }
-    if (shouldPlayCorrectionTts(d)) {
-      await playTeacherTts(d);
+    if (shouldShowReplay(d)) {
+      void playTeacherAudio(d);
     }
   } catch {
     hideTyping();
@@ -1125,8 +1163,12 @@ function pickMime() {
 }
 
 async function openFreshMic() {
+  if (S.stream) {
+    const live = S.stream.getTracks().every((t) => t.readyState === 'live');
+    if (live) return S.stream;
+  }
   releaseMic();
-  await new Promise((r) => setTimeout(r, 100));
+  await new Promise((r) => setTimeout(r, 50));
   const micPromise = navigator.mediaDevices.getUserMedia(MIC_OPTS);
   const timeout = new Promise((_, reject) => {
     setTimeout(() => reject(new Error('Mikrofon açılamadı — tekrar dene')), MIC_OPEN_MS);
@@ -1161,7 +1203,7 @@ function startRecorder(gen) {
     const pressMs = S.pressMs || 0;
     S.chunks = [];
     cleanupRecorder();
-    releaseStream();
+    // Mikrofon akışını açık tut — iOS'ta tekrar tekrar açmayı önler
 
     if (pressMs < MIN_HOLD_MS) {
       showErr('Biraz daha uzun basılı tut');
@@ -1284,13 +1326,10 @@ function endHold() {
   S.holdActive = false;
 
   if (!isRecording()) {
-    // Mikrofon hâlâ açılıyorsa beginHold kaydı başlatacak
     if (S.micOpening) return;
     if (S.busyCount === 0) resetIdle();
     return;
   }
-
-  showThinking();
 
   clearTimeout(S.safetyTimer);
   S.safetyTimer = setTimeout(() => {
