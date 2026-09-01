@@ -12,6 +12,8 @@ EMOJI_BY_WORD: dict[str, str] = {
     "kahve": "☕", "coffee": "☕", "çay": "🍵", "tea": "🍵", "cay": "🍵",
     "soda": "🥤", "gazoz": "🥤", "kola": "🥤", "cola": "🥤", "pop": "🥤",
     "su": "💧", "water": "💧", "süt": "🥛", "milk": "🥛", "juice": "🧃",
+    "maden suyu": "🫧", "maden su": "🫧", "mineral water": "🫧", "sparkling water": "🫧",
+    "club soda": "🫧", "soda water": "🫧",
     "meyve suyu": "🧃", "bira": "🍺", "beer": "🍺", "şarap": "🍷", "wine": "🍷",
     # Yiyecekler
     "mısır": "🌽", "misir": "🌽", "corn": "🌽", "sweetcorn": "🌽", "sweet corn": "🌽", "maize": "🌽",
@@ -108,6 +110,7 @@ KEYWORD_EMOJI: tuple[tuple[str, ...], str] = (
     (("çalışma masası",), "🖥️"),
     (("masa", "table"), "🍽️"),
     (("sandalye", "chair"), "💺"),
+    (("maden suyu", "maden su", "mineral water", "sparkling water", "club soda"), "🫧"),
     (("kahve", "coffee", "çay", "tea", "gazoz", "soda", "kola", "cola", "su", "water", "süt", "milk"), "🥤"),
     (("ayakkabı", "ayakkabi", "shoe", "shoes", "bot", "boot"), "👟"),
     (("araba", "car", "otomobil", "taksi", "taxi", "otobüs", "bus"), "🚗"),
@@ -131,8 +134,67 @@ def _norm(s: str) -> str:
     return re.sub(r"\s+", " ", safe_str(s).strip().lower())
 
 
+_ICON_CACHE: dict[str, str] = {}
+
+# İngilizce hedef kelimeden semantik emoji tahmini
+_TARGET_HINT_EMOJI: tuple[tuple[str, ...], str] = (
+    (("sparkling", "mineral", "soda water", "club soda"), "🫧"),
+    (("water", "juice", "lemonade", "smoothie"), "💧"),
+    (("coffee", "tea", "latte", "espresso"), "☕"),
+    (("beer", "wine", "whiskey", "vodka"), "🍷"),
+    (("bread", "cake", "cookie", "pizza", "burger"), "🍽️"),
+    (("apple", "banana", "orange", "fruit"), "🍎"),
+    (("carrot", "tomato", "vegetable", "onion"), "🥕"),
+    (("dog", "cat", "bird", "fish", "animal"), "🐾"),
+    (("phone", "computer", "laptop", "tablet"), "📱"),
+    (("book", "novel", "magazine"), "📚"),
+    (("chair", "sofa", "bed", "desk"), "🛋️"),
+    (("door", "window", "wall"), "🪟"),
+    (("car", "bus", "train", "plane", "bike"), "🚗"),
+    (("shoe", "boot", "sandal"), "👟"),
+    (("hospital", "school", "church", "museum"), "📍"),
+    (("happy", "sad", "angry", "tired"), "😊"),
+    (("music", "song", "guitar", "piano"), "🎵"),
+    (("money", "dollar", "euro", "price"), "💰"),
+    (("time", "clock", "hour", "minute"), "🕐"),
+    (("weather", "rain", "snow", "sun", "cloud"), "🌤️"),
+)
+
+
+def _infer_target_emoji(target_word: str, word_tr: str) -> str:
+    tw, wt = _norm(target_word), _norm(word_tr)
+    for hints, emoji in _TARGET_HINT_EMOJI:
+        if any(h in tw for h in hints) or any(h in wt for h in hints):
+            return emoji
+    return ""
+
+
+def _llm_resolve_emoji(word_tr: str, target_word: str) -> str:
+    """Sözlükte yoksa LLM ile tek emoji seç (önbellekli)."""
+    key = f"{_norm(word_tr)}|{_norm(target_word)}"
+    if key in _ICON_CACHE:
+        return _ICON_CACHE[key]
+    try:
+        from education_engine import _llm_json, llm_available
+        if not llm_available():
+            return ""
+        parsed = _llm_json(
+            "Pick exactly ONE emoji that best represents this vocabulary word for a language app. "
+            "Return JSON only: {\"emoji\": \"🌽\"}. No text, no explanation.",
+            f"Turkish word: {word_tr}\nEnglish word: {target_word}",
+            max_tokens=60,
+        )
+        emoji = safe_str((parsed or {}).get("emoji")).strip()
+        if emoji and emoji != "🏷️":
+            _ICON_CACHE[key] = emoji
+            return emoji
+    except Exception:
+        pass
+    return ""
+
+
 def lookup_emoji(word_tr: str, target_word: str, category: str = "general") -> str:
-    """Kelimeye en uygun emoji — sözlük → anahtar kelime → kategori → 🏷️."""
+    """Kelimeye en uygun emoji — sözlük → çıkarım → kategori → LLM → 🏷️."""
     keys: list[str] = []
     for raw in (word_tr, target_word):
         n = _norm(raw)
@@ -161,4 +223,10 @@ def lookup_emoji(word_tr: str, target_word: str, category: str = "general") -> s
     cat = _norm(category)
     if cat in CATEGORY_EMOJI:
         return CATEGORY_EMOJI[cat]
+    inferred = _infer_target_emoji(target_word, word_tr)
+    if inferred:
+        return inferred
+    llm_icon = _llm_resolve_emoji(word_tr, target_word)
+    if llm_icon:
+        return llm_icon
     return "🏷️"

@@ -488,7 +488,7 @@ EN_WORD_MEANINGS: dict[str, str] = {
     "full": "dolu",
     "careful": "dikkatli",
     "sparkling": "maden suyu (köpüklü)",
-    "mineral": "maden",
+    "mineral": "mineral (sıfat: maden suyu)",
     "club": "kulüp / club soda",
     "baking": "pişirme / yemek",
     "soft": "yumuşak / gazlı (soft drink)",

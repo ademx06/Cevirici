@@ -25,7 +25,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.09.01-v15"
+APP_VERSION = "2026.09.01-v16"
 PORT = int(os.environ.get("PORT", "8780"))
 WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "base")
 DISABLE_WHISPER = os.environ.get("DISABLE_WHISPER", "1").lower() in ("1", "true", "yes")

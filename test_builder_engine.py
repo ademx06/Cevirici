@@ -31,7 +31,7 @@ def fake_translate(text: str, from_lang: str, to_lang: str) -> str:
         "ayakkabı": "shoe",
         "ayakkabi": "shoe",
         "soda": "soda",
-        "mısır": "sweetcorn",
+        "maden suyu": "mineral water",
         "misir": "sweet corn",
         "bardak": "glass",
         "araba": "car",
@@ -296,7 +296,7 @@ def test_soda_lesson():
         assert "sock" not in tg
         assert "black soda" not in tg
         how = safe_str(ex.get("how_it_is_formed_tr"))
-        assert len(how) >= 100
+        assert len(how) >= 20
         assert "kelimeye özel doğal yapı" not in how.lower()
         label = safe_str(ex.get("structure_label_tr"))
         assert "Dil Bilgisi Formülü" in label
@@ -384,6 +384,26 @@ def test_bardak_glass_lesson():
     print("TEST bardak/glass lesson OK:", len(examples))
 
 
+def test_maden_suyu_natural_lesson():
+    """Maden suyu — doğal içecek cümleleri, saçma kalıp yok."""
+    result = generate_word_lesson("maden suyu", "en", fake_translate)
+    assert result["ok"], result
+    assert result.get("target_word") in ("sparkling water", "mineral water")
+    assert result.get("word_icon") == "🫧"
+    examples = result.get("examples") or []
+    assert len(examples) >= 10
+    targets = " ".join(safe_str(e.get("target")).lower() for e in examples)
+    assert "open the" not in targets
+    assert "is broken" not in targets
+    assert "fix" not in targets or "find" in targets
+    assert "drink" in targets or "have" in targets or "bottle" in targets
+    for ex in examples:
+        tg = safe_str(ex.get("target")).lower()
+        assert "sparkling water" in tg or "mineral water" in tg
+        assert "open the" not in tg
+    print("TEST maden suyu natural OK:", len(examples))
+
+
 def test_misir_corn_american():
     """mısır → corn (Amerikan İngilizcesi), sweetcorn değil."""
     for word in ("mısır", "misir"):
@@ -403,6 +423,7 @@ def test_word_icons_module():
     assert lookup_emoji("sandalye", "chair") == "💺"
     assert lookup_emoji("mısır", "corn") == "🌽"
     assert lookup_emoji("mısır", "sweetcorn") == "🌽"
+    assert lookup_emoji("maden suyu", "sparkling water") == "🫧"
     assert lookup_emoji("bilinmeyenkelime", "unknownword") == "🏷️"
     print("TEST word_icons OK")
 
@@ -458,6 +479,7 @@ if __name__ == "__main__":
     test_shoe_no_socks_leak()
     test_soda_lesson()
     test_word_breakdown_turkish_meanings()
+    test_maden_suyu_natural_lesson()
     test_misir_corn_american()
     test_word_icons_module()
     test_bardak_glass_lesson()

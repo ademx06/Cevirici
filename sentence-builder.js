@@ -255,10 +255,21 @@
       </details>`;
   }
 
-  function renderExampleCard(ex, lang, idx) {
+  function renderExampleCard(ex, lang, idx, compact) {
     const cardId = `ex-${idx}`;
     const typeLabel = ex.scenario_badge || ex.sentence_type_label || ex.sentence_type || '';
     const typeBadge = typeLabel ? `<span class="mod-badge">${esc(typeLabel)}</span>` : '';
+    if (compact) {
+      const pronLine = formatPronLine(ex.pronunciation_tr, ex.ipa);
+      return `
+      <article class="mod-card mod-card-compact" data-idx="${idx}">
+        ${typeBadge}
+        <div class="mod-card-line mod-card-tr"><span class="mod-flag">🇹🇷</span>${esc(ex.tr)}</div>
+        <div class="mod-card-line mod-card-target"><span class="mod-flag">🇺🇸</span>${esc(ex.target)}</div>
+        ${pronLine ? `<p class="mod-pron-inline">${pronLine}</p>` : ''}
+        <button type="button" class="mod-listen-btn builder-listen" data-text="${esc(ex.target)}" data-lang="${lang}">🔊 Dinle</button>
+      </article>`;
+    }
     const wbSimple = (ex.word_breakdown || []).length
       ? `<div class="mod-wb-simple">${(ex.word_breakdown || []).map((p) => {
           const pron = p.pronunciation_tr || p.pronunciation_hint || '';
@@ -322,9 +333,8 @@
     if (!usage || typeof usage !== 'object') return '';
     const rows = [];
     if (usage.english_variant_tr) rows.push(`<p class="mod-variant">${esc(usage.english_variant_tr)}</p>`);
-    if (usage.part_of_speech_tr) rows.push(`<p><strong>Tür:</strong> ${esc(usage.part_of_speech_tr)}</p>`);
-    if (usage.countability_tr) rows.push(`<p><strong>Sayılabilirlik:</strong> ${esc(usage.countability_tr)}</p>`);
     if (usage.meaning_tr) rows.push(`<p><strong>Anlam:</strong> ${esc(usage.meaning_tr)}</p>`);
+    if (usage.usage_notes_tr) rows.push(`<p class="mod-usage-note">${esc(usage.usage_notes_tr)}</p>`);
     if (usage.common_verbs?.length) {
       rows.push(`<div class="mod-verb-list-wrap"><strong>Yaygın fiiller</strong><ul class="mod-verb-list">${
         usage.common_verbs.map((v) => `<li>${esc(v.en)} → ${esc(v.tr || '')}</li>`).join('')
@@ -410,7 +420,7 @@
     const patterns = (usage.patterns || []).map((p) => `<li>${esc(p)}</li>`).join('');
     const usageMap = renderUsageMap(usage, lang);
     const icon = resolveWordIcon(data, data.word_icon);
-    const examples = (data.examples || []).map((ex, i) => renderExampleCard(ex, lang, i)).join('');
+    const examples = (data.examples || []).map((ex, i) => renderExampleCard(ex, lang, i, true)).join('');
     const ver = data.app_version ? `<p class="mod-version">Sürüm: ${esc(data.app_version)}</p>` : '';
     const heroPron = formatPronLine(data.pronunciation_tr, data.ipa);
     box.innerHTML = `
@@ -428,7 +438,7 @@
         ${patterns ? `<ul class="mod-tags">${patterns}</ul>` : ''}
         ${usage.common_mistakes_tr ? `<p class="mod-warn">⚠️ ${esc(usage.common_mistakes_tr)}</p>` : ''}
       </div>
-      <h3 class="mod-section-title">Örnek cümleler <small class="mod-section-hint">13 dil bilgisi kalıbı</small></h3>
+      <h3 class="mod-section-title">Örnek cümleler <small class="mod-section-hint">kelimeye özel doğal kullanım</small></h3>
       ${examples}
       ${ver}
       <button type="button" id="saveWordBtn" class="mod-action-btn mod-action-save">⭐ Öğrendiklerime Ekle</button>`;

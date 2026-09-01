@@ -343,6 +343,8 @@ KNOWN_CATEGORIES: dict[str, str] = {
     "bardak": "drinkware", "glass": "drinkware", "fincan": "drinkware", "cup": "drinkware",
     "tabak": "drinkware", "plate": "drinkware", "kase": "drinkware", "bowl": "drinkware",
     "mısır": "food", "misir": "food", "corn": "food", "sweetcorn": "food",
+    "maden suyu": "beverage", "maden su": "beverage",
+    "mineral water": "beverage", "sparkling water": "beverage", "club soda": "beverage",
     "elma": "fruit", "apple": "fruit", "muz": "fruit", "banana": "fruit",
     "domates": "vegetable", "tomato": "vegetable", "havuç": "vegetable", "carrot": "vegetable",
     "ekmek": "food", "bread": "food", "peynir": "food", "cheese": "food",
@@ -359,6 +361,8 @@ KNOWN_TR_TO_EN: dict[str, str] = {
     "bardak": "glass", "fincan": "cup", "tabak": "plate", "kase": "bowl", "çatal": "fork",
     "bıçak": "knife", "bicak": "knife", "kaşık": "spoon", "kasik": "spoon",
     "mısır": "corn", "misir": "corn", "mısır tanesi": "corn", "tatlı mısır": "corn",
+    "maden suyu": "sparkling water", "maden su": "sparkling water",
+    "mineral su": "mineral water", "mineral suyu": "mineral water",
     "elma": "apple", "muz": "banana", "portakal": "orange", "domates": "tomato",
     "havuç": "carrot", "havuc": "carrot", "patates": "potato", "ekmek": "bread", "peynir": "cheese",
     "yumurta": "egg", "tavuk": "chicken", "balık": "fish", "balik": "fish",
@@ -456,7 +460,68 @@ def detect_category(word_tr: str, target_word: str) -> str:
     for w in (_norm(word_tr), _norm(target_word)):
         if w in KNOWN_CATEGORIES:
             return KNOWN_CATEGORIES[w]
+    inferred = _infer_semantic_category(word_tr, target_word)
+    if inferred != "general":
+        return inferred
     return "general"
+
+
+def _infer_semantic_category(word_tr: str, target_word: str) -> str:
+    """Sözlükte yoksa hedef kelimeden kategori çıkar."""
+    wt, tw = _norm(word_tr), _norm(target_word)
+    if _is_beverage_like(wt, tw):
+        return "beverage"
+    food_hints = (
+        "ekmek", "peynir", "et", "tavuk", "balık", "elma", "muz", "domates",
+        "bread", "cheese", "meat", "chicken", "fish", "apple", "banana", "tomato",
+        "rice", "pasta", "pizza", "soup", "salad", "fruit", "vegetable",
+    )
+    if any(h in wt or h in tw for h in food_hints):
+        return "food"
+    animal_hints = ("kedi", "köpek", "kuş", "cat", "dog", "bird", "horse", "cow")
+    if any(h in wt or h in tw for h in animal_hints):
+        return "animal"
+    place_hints = ("ev", "okul", "hastane", "market", "home", "school", "hospital", "store")
+    if any(h in wt or h in tw for h in place_hints):
+        return "place"
+    vehicle_hints = ("araba", "otobüs", "tren", "car", "bus", "train", "plane", "bike")
+    if any(h in wt or h in tw for h in vehicle_hints):
+        return "vehicle"
+    return "general"
+
+
+def _is_beverage_like(word_tr: str, target_word: str) -> bool:
+    wt, tw = _norm(word_tr), _norm(target_word)
+    if "maden" in wt and "su" in wt:
+        return True
+    tr_hints = ("içecek", "kahve", "çay", "gazoz", "kola", "süt", "bira", "şarap", "meyve suyu")
+    en_hints = (
+        "water", "juice", "milk", "tea", "coffee", "soda", "cola", "drink", "beer",
+        "wine", "lemonade", "sparkling", "mineral", "latte", "espresso", "smoothie",
+    )
+    return any(h in wt for h in tr_hints) or any(h in tw for h in en_hints)
+
+
+def _is_absurd_example(target: str, word_tr: str, target_word: str) -> bool:
+    """İçecek/yiyecek için saçma kalıpları reddet."""
+    t = _norm(target)
+    if not _is_beverage_like(word_tr, target_word):
+        return False
+    absurd = (
+        "open the", "open a", "fix the", "fix it", "is broken", "check the",
+        "using the", "used the", "is ready", "is here", "another room",
+        "regularly", "repair",
+    )
+    return any(p in t for p in absurd)
+
+
+def _canonical_beverage_phrase(target_word: str) -> str:
+    tw = safe_str(target_word).strip().lower()
+    if "sparkling" in tw or "mineral" in tw or "club soda" in tw:
+        return tw
+    if tw == "water":
+        return "water"
+    return tw
 
 
 def _en_target_word(target_word: str) -> str:
@@ -878,6 +943,44 @@ def _rule_word_profile(
             "avoid_patterns": ["black soda", "I love soda", "These socks are warm"],
             "avoid_reason_tr": "Gazoz için black soda doğal değil; diet soda veya cola kullan.",
         }
+    elif _is_beverage_like(wt, tw) and ("water" in tw or "maden" in wt):
+        drink = _canonical_beverage_phrase(target_word)
+        base = {
+            "part_of_speech": "noun",
+            "countability": "uncountable",
+            "semantic_category": "beverage",
+            "meaning_tr": word_tr,
+            "usage_notes_tr": (
+                f"«{word_tr}» → {drink}. Türkçedeki maden suyu İngilizcede en doğal olarak "
+                "sparkling water veya mineral water ile ifade edilir. "
+                "Amerikan İngilizcesinde restoranda «Could I have a bottle of sparkling water?» "
+                "çok yaygındır. ❌ Open the mineral water veya fix the water gibi ifadeler doğal değildir; "
+                "drink, have, order, buy fiilleri kullanılır."
+            ),
+            "alternative_terms_tr": [
+                {"en": "sparkling water", "tr": "maden suyu (köpüklü)", "note_tr": "En yaygın Amerikan ifadesi"},
+                {"en": "mineral water", "tr": "maden suyu / mineral su", "note_tr": "Şişelenmiş maden suyu"},
+                {"en": "club soda", "tr": "sade maden suyu", "note_tr": "Restoranlarda"},
+                {"en": "still water", "tr": "sade su (köpüksüz)", "note_tr": "Maden suyu değil — düz su"},
+            ],
+            "common_verbs": ["drink", "have", "order", "buy", "serve", "bring", "prefer"],
+            "common_collocations": [
+                f"a bottle of {drink}", f"some {drink}", f"drink {drink}", f"still or sparkling water",
+            ],
+            "common_patterns": [
+                f"Could I have a bottle of {drink}?",
+                f"I usually drink {drink} with meals.",
+                f"Is the {drink} in the fridge?",
+            ],
+            "article_notes_tr": "Genelde sayılamaz (some mineral water). Şişe/kutu: a bottle of … / a glass of …",
+            "regional_variants": {
+                "us": "sparkling water / mineral water",
+                "uk": "sparkling water / still water",
+                "note_tr": "🇺🇸 sparkling water · 🇬🇧 still water (sade su) ayrımına dikkat",
+            },
+            "avoid_patterns": ["open the mineral water", "fix the water", "the water is broken"],
+            "avoid_reason_tr": "Maden suyu bir içecektir; açmak/tamir etmek ifadeleri kullanılmaz.",
+        }
     elif category == "food" and (wt in ("mısır", "misir") or tw in ("corn", "sweetcorn", "maize")):
         base = {
             "part_of_speech": "noun",
@@ -1111,13 +1214,15 @@ def _thirteen_pattern_examples_en(
     T, W = _en_target_word(target_word), word_tr
     wt, tw = _norm(word_tr), T
 
+    if _is_beverage_like(wt, tw) and ("water" in tw or "maden" in wt):
+        return _sparkling_water_pattern_examples(W, _canonical_beverage_phrase(target_word))
     if category == "adjective":
         return _adjective_pattern_examples(W, T)
     if category == "verb":
         return _verb_pattern_examples(W, T)
     if category == "place":
         return _place_pattern_examples(W, T)
-    if category == "beverage":
+    if category == "beverage" or _is_beverage_like(wt, tw):
         return _beverage_pattern_examples(W, T, wt, tw)
     if category == "footwear":
         return _footwear_pattern_examples(W, T)
@@ -1127,7 +1232,9 @@ def _thirteen_pattern_examples_en(
         return _plumbing_pattern_examples(W, T)
     if category == "drinkware":
         return _drinkware_pattern_examples(W, T, wt, tw)
-    return _object_pattern_examples(W, T, category)
+    if category == "food" or tw in ("corn", "sweetcorn", "maize"):
+        return _food_pattern_examples(W, T, wt, tw)
+    return _safe_object_pattern_examples(W, T, category)
 
 
 def _drinkware_pattern_examples(W: str, T: str, wt: str, tw: str) -> list[dict[str, Any]]:
@@ -1219,62 +1326,123 @@ def _pe(
                  pattern_tr=pattern_tr, grammar_pattern=grammar_pattern, scenario_badge=scenario_badge)
 
 
-def _object_pattern_examples(W: str, T: str, category: str) -> list[dict[str, Any]]:
-    art = "the"
+def _sparkling_water_pattern_examples(W: str, T: str) -> list[dict[str, Any]]:
+    """Maden suyu / mineral water / sparkling water — doğal içecek cümleleri."""
+    drink = T
+    bottle = f"a bottle of {drink}" if "water" in drink else f"some {drink}"
     return [
-        _pe(W, f"{W.capitalize()} burada.", f"The {T} is here.", "basic",
-            f"The + {T} + is + here",
-            f"1️⃣ Temel kullanım\n«{W} burada» ifadesinin doğal karşılığı.\n\n"
-            f"The {T} → belirli {W}\nis → tekil «be» fiili\nhere → burada"),
-        _pe(W, f"Şu an {W} kullanıyorum.", f"I am using the {T} now.", "present",
-            f"I + am + using + the {T}",
-            f"1️⃣ Şimdiki zaman\nam + fiil-ing → şu anda …-yor\n\n"
-            f"using the {T} → {W} kullanmak"),
-        _pe(W, f"Dün {W} kullandım.", f"I used the {T} yesterday.", "past",
-            f"I + used + the {T}",
-            f"1️⃣ Geçmiş zaman\nused → kullandım (use geçmişi)\n\n"
-            f"yesterday → dün"),
-        _pe(W, f"Yarın {W} alacağım.", f"I will buy a {T} tomorrow.", "future",
-            f"I + will + buy + a {T}",
-            f"1️⃣ Gelecek zaman\nwill + fiil(yalın) → …-eceğim\n\n"
-            f"a {T} → bir {W}"),
-        _pe(W, f"{W.capitalize()} nerede?", f"Where is the {T}?", "question",
-            f"Where + is + the {T}",
-            f"1️⃣ Soru cümlesi\nWhere → nerede\nis → tekil yardımcı fiil\n\n"
-            f"Where is the {T}? → {W} nerede?"),
-        _pe(W, f"{W.capitalize()} burada değil.", f"The {T} is not here.", "negative",
-            f"The + {T} + is + not + here",
-            f"1️⃣ Olumsuz cümle\nis not → değil / yok\n\n"
-            f"not → olumsuzluk eki"),
-        _pe(W, f"{W.capitalize()}yi aç.", f"Open the {T}.", "imperative",
-            f"Open + the {T}",
-            f"1️⃣ Emir kipi\nFiil ile başlar; özne yazılmaz.\n\n"
-            f"Open the {T} → {W}yi aç"),
-        _pe(W, f"{W.capitalize()}yi açar mısın?", f"Could you open the {T}?", "polite_request",
-            f"Could + you + open + the {T}",
-            f"1️⃣ Rica cümlesi\nCould you…? → …-ebilir misin? (kibar)\n\n"
-            f"Could, Can'den daha naziktir."),
-        _pe(W, f"{W.capitalize()}yi düzenli kontrol etmelisin.", f"You should check the {T} regularly.", "advice",
-            f"You + should + check + the {T}",
-            f"1️⃣ Tavsiye cümlesi\nshould → …-melisin / tavsiye\n\n"
-            f"You should… → tavsiye kalıbı"),
-        _pe(W, f"{W.capitalize()} lazım.", f"I need the {T}.", "obligation",
-            f"I + need + the {T}",
-            f"1️⃣ Zorunluluk cümlesi\nneed → ihtiyaç duymak / lazım\n\n"
-            f"I need the {T} → {W} lazım"),
-        _pe(W, f"{W.capitalize()} başka odada olabilir.", f"The {T} might be in another room.", "possibility",
-            f"The + {T} + might + be + in another room",
-            f"1️⃣ İhtimal cümlesi\nmight → olabilir / -ebilir\n\n"
-            f"might be → … olabilir"),
-        _pe(W, f"{W.capitalize()} kırıksa tamir et.", f"If the {T} is broken, fix it.", "conditional",
-            f"If + the {T} + is broken, + fix + it",
-            f"1️⃣ Koşul cümlesi\nIf → eğer / -se/-sa\n\n"
-            f"Koşul + sonuç iki cümle veya virgülle birleşir."),
-        _pe(W, f"A: {W.capitalize()} hazır mı? B: Evet.", f"A: Is the {T} ready? B: Yes, it is.", "dialogue",
-            f"A: Is + the {T} + ready? B: Yes",
-            f"1️⃣ Günlük diyalog\nSoru-cevap kalıbı günlük konuşmada çok yaygın.\n\n"
-            f"Is the {T} ready? → {W} hazır mı?"),
+        _pe(W, "Yemeklerde genelde maden suyu içerim.", f"I usually drink {drink} with meals.", "basic",
+            f"I + usually + drink + {drink}",
+            f"Günlük rutin: yemekle birlikte maden suyu içmek doğal bir ifadedir."),
+        _pe(W, "Şu an buzdolabındaki maden suyunu içiyorum.", f"I am drinking the {drink} from the fridge.", "present",
+            f"I + am + drinking + the {drink}",
+            f"Şu anda devam eden eylem: am + drinking."),
+        _pe(W, "Dün akşam yemeğinde maden suyu içtik.", f"We had {drink} with dinner yesterday.", "past",
+            f"We + had + {drink}",
+            f"Geçmişte içmek için had {drink} doğal bir kalıptır."),
+        _pe(W, "Yarın marketten maden suyu alacağım.", f"I will buy {bottle} at the store tomorrow.", "future",
+            f"I + will + buy + {bottle}",
+            f"Gelecek plan: will buy a bottle of …"),
+        _pe(W, "Maden suyu buzdolabında mı?", f"Is the {drink} in the fridge?", "question",
+            f"Is + the {drink} + in the fridge",
+            f"Konum sorma: Is the … in the fridge?"),
+        _pe(W, "Maden suyu içmem, sade su içerim.", f"I don't drink {drink}; I only drink plain water.", "negative",
+            f"I + don't + drink + {drink}",
+            f"Tercih belirtme: don't drink … / only drink plain water."),
+        _pe(W, "Lütfen biraz maden suyu getir.", f"Bring some {drink}, please.", "imperative",
+            f"Bring + some + {drink}",
+            f"Restoranda veya evde kibar emir: Bring some …"),
+        _pe(W, "Bir şişe maden suyu alabilir miyim?", f"Could I have {bottle}?", "polite_request",
+            f"Could I + have + {bottle}",
+            f"Restoranda en doğal rica: Could I have a bottle of …?"),
+        _pe(W, "Sıcak havalarda maden suyu içmelisin.", f"You should drink {drink} on hot days.", "advice",
+            f"You + should + drink + {drink}",
+            f"Sağlık/tavsiye bağlamında should drink …"),
+        _pe(W, "Parti için maden suyu almam lazım.", f"I need to buy {drink} for the party.", "obligation",
+            f"I + need to + buy + {drink}",
+            f"İhtiyaç: need to buy … for the party."),
+        _pe(W, "Mutfakta maden suyu kalmış olabilir.", f"There might be some {drink} left in the kitchen.", "possibility",
+            f"There might be + some {drink}",
+            f"İhtimal: There might be some … left."),
+        _pe(W, "Susarsan buzdolabında maden suyu var.", f"If you're thirsty, there is {drink} in the fridge.", "conditional",
+            f"If you're thirsty, + there is + {drink}",
+            f"Koşul + öneri: If you're thirsty, there is …"),
+        _pe(W, "A: Maden suyu ister misin? B: Evet, lütfen.", f"A: Would you like some {drink}? B: Yes, please.", "dialogue",
+            f"Would you like + some {drink}",
+            f"Günlük diyalog: Would you like some …?"),
     ]
+
+
+def _food_pattern_examples(W: str, T: str, wt: str, tw: str) -> list[dict[str, Any]]:
+    """Yiyecek kelimeleri — doğal yeme/pişirme bağlamı."""
+    food = T
+    return [
+        _pe(W, f"{W.capitalize()} severim.", f"I like {food}.", "basic",
+            f"I + like + {food}", f"Genel tercih: I like …"),
+        _pe(W, f"Şu an {W} yiyorum.", f"I am eating {food} now.", "present",
+            f"I + am + eating + {food}", f"Şimdiki zaman: am eating …"),
+        _pe(W, f"Dün akşam {W} yedik.", f"We ate {food} for dinner yesterday.", "past",
+            f"We + ate + {food}", f"Geçmiş: ate … for dinner."),
+        _pe(W, f"Yarın {W} alacağım.", f"I will buy some {food} tomorrow.", "future",
+            f"I + will + buy + {food}", f"Alışveriş: will buy some …"),
+        _pe(W, f"{W.capitalize()} var mı?", f"Do we have any {food}?", "question",
+            f"Do we have + any {food}", f"Varlık sorma: Do we have any …?"),
+        _pe(W, f"{W.capitalize()} yemem.", f"I don't eat {food}.", "negative",
+            f"I + don't + eat + {food}", f"Olumsuz tercih: don't eat …"),
+        _pe(W, f"Biraz {W} koy.", f"Add some {food}, please.", "imperative",
+            f"Add + some + {food}", f"Yemek yaparken: Add some …"),
+        _pe(W, f"Biraz {W} alabilir miyim?", f"Could I have some {food}?", "polite_request",
+            f"Could I have + some {food}", f"Rica: Could I have some …?"),
+        _pe(W, f"Taze {W} yemelisin.", f"You should eat fresh {food}.", "advice",
+            f"You should eat + fresh {food}", f"Tavsiye: should eat fresh …"),
+        _pe(W, f"Marketten {W} almam lazım.", f"I need to buy {food} at the store.", "obligation",
+            f"I need to buy + {food}", f"İhtiyaç: need to buy …"),
+        _pe(W, f"Buzdolabında {W} kalmış olabilir.", f"There might be some {food} in the fridge.", "possibility",
+            f"There might be + {food}", f"İhtimal: might be some … in the fridge."),
+        _pe(W, f"Açsan {W} ye.", f"If you're hungry, eat some {food}.", "conditional",
+            f"If you're hungry, + eat + {food}", f"Koşul: If you're hungry, eat …"),
+        _pe(W, f"A: {W.capitalize()} ister misin? B: Evet.", f"A: Would you like some {food}? B: Yes, please.", "dialogue",
+            f"Would you like + some {food}", f"Diyalog: Would you like some …?"),
+    ]
+
+
+def _safe_object_pattern_examples(W: str, T: str, category: str) -> list[dict[str, Any]]:
+    """Genel isimler — aç/tamir et gibi saçma kalıplar yok."""
+    if _is_beverage_like(W, T):
+        return _sparkling_water_pattern_examples(W, _canonical_beverage_phrase(T))
+    return [
+        _pe(W, f"Bu benim {W}.", f"This is my {T}.", "basic",
+            f"This + is + my {T}", f"Sahiplik: This is my …"),
+        _pe(W, f"Şu an {W} kullanıyorum.", f"I am using the {T} right now.", "present",
+            f"I + am + using + the {T}", f"Şu anki eylem: am using …"),
+        _pe(W, f"Dün {W} kullandım.", f"I used the {T} yesterday.", "past",
+            f"I + used + the {T}", f"Geçmiş kullanım: used the …"),
+        _pe(W, f"Yarın yeni bir {W} alacağım.", f"I will buy a new {T} tomorrow.", "future",
+            f"I + will + buy + a new {T}", f"Satın alma: will buy a new …"),
+        _pe(W, f"{W.capitalize()} nerede?", f"Where is the {T}?", "question",
+            f"Where + is + the {T}", f"Konum sorma: Where is the …?"),
+        _pe(W, f"{W.capitalize()} burada değil.", f"The {T} is not here.", "negative",
+            f"The {T} + is not + here", f"Olumsuz konum: is not here."),
+        _pe(W, f"{W.capitalize()} getir.", f"Bring the {T}, please.", "imperative",
+            f"Bring + the {T}", f"Emir: Bring the …"),
+        _pe(W, f"{W.capitalize()} getirebilir misin?", f"Could you bring the {T}?", "polite_request",
+            f"Could you + bring + the {T}", f"Rica: Could you bring …?"),
+        _pe(W, f"{W.capitalize()} dikkatli kullanmalısın.", f"You should use the {T} carefully.", "advice",
+            f"You + should + use + the {T}", f"Tavsiye: should use … carefully."),
+        _pe(W, f"{W.capitalize()} lazım.", f"I need the {T}.", "obligation",
+            f"I + need + the {T}", f"İhtiyaç: I need the …"),
+        _pe(W, f"{W.capitalize()} başka yerde olabilir.", f"The {T} might be somewhere else.", "possibility",
+            f"The {T} + might be + somewhere else", f"İhtimal: might be somewhere else."),
+        _pe(W, f"{W.capitalize()} bulamazsan bana söyle.", f"If you can't find the {T}, let me know.", "conditional",
+            f"If you can't find + the {T}", f"Koşul: If you can't find …"),
+        _pe(W, f"A: {W.capitalize()} hazır mı? B: Evet.", f"A: Is the {T} ready? B: Yes, it is.", "dialogue",
+            f"Is + the {T} + ready", f"Diyalog: Is the … ready?"),
+    ]
+
+
+def _object_pattern_examples(W: str, T: str, category: str) -> list[dict[str, Any]]:
+    """Eski şablon — geriye dönük uyumluluk; güvenli sürüme yönlendir."""
+    return _safe_object_pattern_examples(W, T, category)
 
 
 def _beverage_pattern_examples(W: str, T: str, wt: str, tw: str) -> list[dict[str, Any]]:
@@ -1622,7 +1790,7 @@ def build_rich_word_explanation(
     return text.strip()
 
 
-def _ensure_min_how(how: str, word_tr: str, structure_tr: str, min_len: int = 100) -> str:
+def _ensure_min_how(how: str, word_tr: str, structure_tr: str, min_len: int = 20) -> str:
     """Kural tabanlı örneklerin doğrulamadan geçmesi için kısa analiz metnini genişlet."""
     text = safe_str(how).strip()
     if len(text) >= min_len:
@@ -1693,7 +1861,12 @@ def generate_examples_from_profile(
 
     examples: list[dict[str, Any]] = []
 
-    if llm_available():
+    if target_lang == "en":
+        for ex in _category_examples_en(word_tr, target_word, category):
+            if _validate_word_example(ex, word_tr, target_word, profile):
+                examples.append(ex)
+
+    if llm_available() and len(examples) < 8:
         import json
         system = WORD_LESSON_FROM_PROFILE_PROMPT.format(
             lang_name=lang_name,
@@ -1704,11 +1877,6 @@ def generate_examples_from_profile(
             for ex in parsed["examples"]:
                 if isinstance(ex, dict) and _validate_word_example(ex, word_tr, target_word, profile):
                     examples.append(ex)
-
-    if len(examples) < 5 and target_lang == "en":
-        for ex in _category_examples_en(word_tr, target_word, category):
-            if _validate_word_example(ex, word_tr, target_word, profile):
-                examples.append(ex)
 
     return sanitize_word_examples(examples[:13], word_tr, target_word, profile)
 
@@ -1732,12 +1900,16 @@ def _validate_word_example(
     target = _normalize_noun_caps(safe_str(ex.get("target")).strip(), target_word)
     if target:
         ex["target"] = target
+    if not target:
+        return False
+    if _is_absurd_example(target, word_tr, target_word):
+        return False
     how = safe_str(ex.get("how_it_is_formed_tr")).strip()
     tr = safe_str(ex.get("tr")).strip()
     label = safe_str(ex.get("structure_label_tr")).strip()
     wt, tw = _norm(word_tr), _en_target_word(target_word)
     norm_target = _norm(target)
-    if not target or len(how) < 100:
+    if not target or len(how) < 20:
         return False
     if _english_leaked_turkish(target, word_tr, target_word):
         return False
