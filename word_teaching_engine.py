@@ -414,6 +414,7 @@ Bu kelimeyle insanlar günlük hayatta ne yapar? Hangi fiiller doğal? (kapı→
   basic, present, past, future, question, negative, imperative, polite_request, advice, obligation, possibility, conditional, dialogue
 - Her örnekte hedef kelime geçmeli
 - Türkçe cümleler doğal Türkçe; İngilizce cümleler Amerikan İngilizcesi
+- Türkçede iyelik kullan: araba → arabam, cüzdan → cüzdanım (❌ "Araba garajda" → ✅ "Arabam garajda")
 - Her örnekte "tr" TAM Türkçe cümle olmalı — yalnızca kelime YASAK (❌ "Eğlence" → ✅ "Bu akşam eğlence arıyoruz.")
 - common_verbs: bu kelimeyle gerçekten kullanılan fiiller (en az 5)
 - common_collocations: ana dili İngilizce konuşanların söylediği kalıplar (en az 4)
@@ -772,6 +773,7 @@ def _possessive_tr(word_tr: str) -> str:
     low = w.lower()
     known = {
         "cüzdan": "cüzdanım", "cuzdan": "cüzdanım", "şemsiye": "şemsiyem", "semsiye": "şemsiyem",
+        "araba": "arabam", "otomobil": "otomobilim",
         "çanta": "çantam", "canta": "çantam", "anahtar": "anahtarım", "kitap": "kitabım",
         "telefon": "telefonum", "gözlük": "gözlüğüm", "gozluk": "gözlüğüm",
     }
@@ -983,6 +985,41 @@ def _is_placeholder_turkish(tr: str, word_tr: str) -> bool:
     return False
 
 
+def _is_mechanical_turkish(tr: str, word_tr: str) -> bool:
+    """Şablon motorunun ürettiği doğal olmayan Türkçe (Araba garajda, Şu an araba kullanıyorum)."""
+    if _is_placeholder_turkish(tr, word_tr):
+        return True
+    text = safe_str(tr).strip()
+    low = text.lower()
+    wt = word_tr.strip().lower()
+    if len(low.split()) < 2:
+        return True
+    poss = _possessive_tr(word_tr).lower()
+    if poss in low:
+        return False
+    bare_patterns = (
+        rf"^{re.escape(wt)}\s+garajda",
+        rf"^{re.escape(wt)}\s+bozuk",
+        rf"^{re.escape(wt)}\s+nerede",
+        rf"^{re.escape(wt)}\s+hazır",
+        rf"^{re.escape(wt)}\s+bozulmuş",
+        rf"^{re.escape(wt)}\s+bozuksa",
+        rf"^şu an {re.escape(wt)}\b",
+        rf"^geçen yıl {re.escape(wt)}\s+aldım",
+        rf"^yarın {re.escape(wt)}\s+süreceğim",
+        rf"^{re.escape(wt)}\s+tamir\b",
+        rf"^{re.escape(wt)}\s+kullanabilir",
+        rf"^{re.escape(wt)}\s+için sigorta",
+        rf"^a:\s*{re.escape(wt)}\b",
+    )
+    for pat in bare_patterns:
+        if re.search(pat, low):
+            return True
+    if re.match(rf"^{re.escape(wt)}\b", low):
+        return True
+    return False
+
+
 def _has_foreign_word_leak(text: str, word_tr: str, target_word: str) -> bool:
     wt, tw = _norm(word_tr), _en_target_word(target_word)
     markers = FOREIGN_WORD_MARKERS.get(wt) or FOREIGN_WORD_MARKERS.get(tw) or ()
@@ -1114,7 +1151,10 @@ def ensure_turkish_translations(
         ex for ex in examples
         if isinstance(ex, dict)
         and safe_str(ex.get("target")).strip()
-        and _is_placeholder_turkish(safe_str(ex.get("tr")), word_tr)
+        and (
+            _is_placeholder_turkish(safe_str(ex.get("tr")), word_tr)
+            or _is_mechanical_turkish(safe_str(ex.get("tr")), word_tr)
+        )
     ]
     if need_backfill and llm_available():
         mapping = _llm_backfill_turkish(need_backfill, word_tr, target_word)
@@ -1133,13 +1173,14 @@ def ensure_turkish_translations(
                 tr = safe_str(translate_fn(en, "en", "tr")).strip()
             except Exception:
                 tr = ""
-            if tr and not _is_placeholder_turkish(tr, word_tr):
+            if tr and not _is_placeholder_turkish(tr, word_tr) and not _is_mechanical_turkish(tr, word_tr):
                 ex["tr"] = tr
     cleaned: list[dict[str, Any]] = []
     for ex in examples:
         if not isinstance(ex, dict):
             continue
-        if _is_placeholder_turkish(safe_str(ex.get("tr")), word_tr):
+        tr = safe_str(ex.get("tr"))
+        if _is_placeholder_turkish(tr, word_tr) or _is_mechanical_turkish(tr, word_tr):
             continue
         cleaned.append(ex)
     return cleaned
@@ -1321,13 +1362,31 @@ def _rule_word_profile(
             "countability": "countable",
             "semantic_category": "vehicle",
             "meaning_tr": word_tr,
-            "usage_notes_tr": f"«{word_tr}» taşıt; drive, park, fix, buy ile doğal kullanılır.",
-            "common_verbs": ["drive", "park", "buy", "fix", "wash", "rent"],
-            "common_collocations": [f"drive the {target_word}", f"park the {target_word}", "new car"],
-            "common_patterns": [f"The {target_word} is...", f"I drive a {target_word}"],
-            "article_notes_tr": "a car / the car",
-            "avoid_patterns": ["drink the car", "I love car (without context)"],
-            "avoid_reason_tr": "Araç fiilleri: sürmek, park etmek, tamir etmek.",
+            "usage_notes_tr": (
+                f"«{word_tr}» taşıt; drive, park, wash, buy, fix ile doğal kullanılır. "
+                "Türkçede «arabayı sürmek», İngilizcede drive the car / I drive to work."
+            ),
+            "common_verbs": ["drive", "park", "buy", "fix", "wash", "rent", "sell"],
+            "common_collocations": [
+                f"drive the {target_word}", f"park the {target_word}",
+                f"get in the {target_word}", f"a new {target_word}",
+            ],
+            "common_patterns": [
+                f"My {target_word} is in the garage.",
+                f"I drive to work every morning.",
+                f"Where did you park your {target_word}?",
+            ],
+            "article_notes_items": [
+                {"en": f"my {target_word}", "tr": _possessive_tr(word_tr)},
+                {"en": f"a new {target_word}", "tr": f"yeni bir {word_tr.lower()}"},
+                {"en": f"the {target_word}", "tr": word_tr.lower()},
+            ],
+            "article_notes_tr": (
+                f"my {target_word} → {_possessive_tr(word_tr)} / "
+                f"a new {target_word} → yeni bir {word_tr.lower()}"
+            ),
+            "avoid_patterns": ["drink the car", "I love car (without context)", "I am using the car at home"],
+            "avoid_reason_tr": "Araç fiilleri: sürmek, park etmek, tamir ettirmek.",
         },
         "adjective": {
             "part_of_speech": "adjective",
@@ -2415,34 +2474,65 @@ def _footwear_pattern_examples(W: str, T: str) -> list[dict[str, Any]]:
     ]
 
 
+def _accusative_possessive_tr(word_tr: str) -> str:
+    """İyelik + belirtme: araba → arabamı, bisiklet → bisikletimi."""
+    low = word_tr.strip().lower()
+    known = {
+        "araba": "arabamı", "otomobil": "otomobilimi", "bisiklet": "bisikletimi",
+        "cüzdan": "cüzdanımı", "cuzdan": "cüzdanımı", "şemsiye": "şemsiyemi", "semsiye": "şemsiyemi",
+    }
+    if low in known:
+        return known[low]
+    p = _possessive_tr(word_tr)
+    return f"{p}ı"
+
+
 def _vehicle_pattern_examples(W: str, T: str) -> list[dict[str, Any]]:
+    """Taşıt — doğal Türkçe, iyelik ekleri."""
+    tw = _en_target_word(T)
+    my = f"my {tw}"
+    poss = _possessive_tr(W)
+    acc = _accusative_possessive_tr(W)
+    w = W.lower()
+    drive_tr = "Her sabah arabamla işe gidiyorum." if w in ("araba", "otomobil") else f"Her gün {poss.lower()} kullanıyorum."
+    drive_en = "I drive to work every morning." if w in ("araba", "otomobil") else f"I ride {my} every day."
     return [
-        _pe(W, f"{W.capitalize()} garajda.", f"The {T} is in the garage.", "basic",
-            f"The + {T} + is + in the garage", f"1️⃣ Temel kullanım\nThe {T} → araba\nis → -dır\ngarage → garaj"),
-        _pe(W, f"Şu an {W} kullanıyorum.", f"I am driving the {T} now.", "present",
-            f"I + am + driving + the {T}", f"1️⃣ Şimdiki zaman\ndriving → sürüyorum\nam + -ing → şu anda"),
-        _pe(W, f"Geçen yıl {W} aldım.", f"I bought a {T} last year.", "past",
-            f"I + bought + a {T}", f"1️⃣ Geçmiş zaman\nbought → aldım\nlast year → geçen yıl"),
-        _pe(W, f"Yarın {W} süreceğim.", f"I will drive the {T} tomorrow.", "future",
-            f"I + will + drive + the {T}", f"1️⃣ Gelecek zaman\nwill drive → süreceğim"),
-        _pe(W, f"{W.capitalize()} nerede park ettin?", f"Where did you park the {T}?", "question",
-            f"Where + did + you + park", f"1️⃣ Soru cümlesi\nWhere did you park…? → nereye park ettin?"),
-        _pe(W, f"{W.capitalize()} bozuk değil.", f"The {T} is not broken.", "negative",
-            f"The + {T} + is + not + broken", f"1️⃣ Olumsuz cümle\nis not broken → bozuk değil"),
-        _pe(W, f"{W.capitalize()}yı yavaş sür.", f"Drive the {T} slowly.", "imperative",
-            f"Drive + the {T} + slowly", f"1️⃣ Emir kipi\nDrive → sür\nslowly → yavaşça"),
-        _pe(W, f"{W} kullanabilir miyim?", f"Could I use the {T}?", "polite_request",
-            f"Could + I + use + the {T}", f"1️⃣ Rica cümlesi\nCould I…? → …-ebilir miyim?"),
-        _pe(W, f"{W} için sigorta yaptırmalısın.", f"You should get insurance for the {T}.", "advice",
-            f"You + should + get + insurance", f"1️⃣ Tavsiye cümlesi\nshould → …-melisin"),
-        _pe(W, f"{W} tamir etmem lazım.", f"I need to fix the {T}.", "obligation",
-            f"I + need to + fix + the {T}", f"1️⃣ Zorunluluk cümlesi\nneed to fix → tamir etmem lazım"),
-        _pe(W, f"{W.capitalize()} bozulmuş olabilir.", f"The {T} might be broken.", "possibility",
-            f"The + {T} + might + be + broken", f"1️⃣ İhtimal cümlesi\nmight be → … olabilir"),
-        _pe(W, f"{W.capitalize()} bozuksa tamir ettir.", f"If the {T} is broken, get it fixed.", "conditional",
-            f"If + the {T} + is broken", f"1️⃣ Koşul cümlesi\nIf … is broken → … bozuksa"),
-        _pe(W, f"A: {W.capitalize()} hazır mı? B: Evet.", f"A: Is the {T} ready? B: Yes, the keys are inside.", "dialogue",
-            f"A: Is the {T} ready? B: Yes", f"1️⃣ Günlük diyalog\nAraç hazırlığı hakkında kısa konuşma."),
+        _pe(W, f"{poss.capitalize()} garajda.", f"{my.capitalize()} is in the garage.", "basic",
+            f"{my} is in the garage", f"Temel: my {tw} → {poss}.", scenario_badge="🌅 RUTİN"),
+        _pe(W, drive_tr, drive_en, "present",
+            "present use", "Şimdiki zaman: günlük kullanım.", scenario_badge="🔄 ŞU AN"),
+        _pe(W, f"Geçen yıl yeni bir {w} aldım.", f"I bought a new {tw} last year.", "past",
+            f"bought a new {tw}", "Geçmiş: bought → aldım.", scenario_badge="🕐 GEÇMİŞ"),
+        _pe(W, f"Yarın {acc} yıkatacağım.", f"I will wash {my} tomorrow.", "future",
+            f"will wash {my}", "Gelecek: will wash → yıkatacağım/yıkayacağım.", scenario_badge="🔮 GELECEK"),
+        _pe(W, f"{poss.capitalize()} nerede park ettin?" if w in ("araba", "otomobil") else f"{poss.capitalize()} nerede?",
+            f"Where did you park your {tw}?" if w in ("araba", "otomobil") else f"Where is {my}?",
+            "question", "Where did you park" if w in ("araba", "otomobil") else f"Where is {my}",
+            "Soru cümlesi"),
+        _pe(W, f"Bugün {acc} kullanmıyorum.", f"I'm not using {my} today.", "negative",
+            f"not using {my}", "Olumsuz cümle.", scenario_badge="⛔ OLUMSUZ"),
+        _pe(W, f"{acc.capitalize()} buraya park et!" if w in ("araba", "otomobil") else f"{acc.capitalize()} buraya getir.",
+            f"Park the {tw} here!" if w in ("araba", "otomobil") else f"Bring {my} here!",
+            "imperative", f"Park the {tw}" if w in ("araba", "otomobil") else f"Bring {my}",
+            "Emir kipi"),
+        _pe(W, f"{poss.capitalize()} biraz ileri sürebilir misin?" if w in ("araba", "otomobil") else f"{poss.capitalize()} ödünç alabilir miyim?",
+            f"Could you move your {tw} forward a little?" if w in ("araba", "otomobil") else f"Can I borrow {my}?",
+            "polite_request", "Could you move your car" if w in ("araba", "otomobil") else f"Can I borrow {my}",
+            "Rica cümlesi"),
+        _pe(W, f"Uzun yola çıkmadan önce {poss.lower()} kontrol etmelisin." if w in ("araba", "otomobil") else f"{poss.capitalize()} dikkatli kullanmalısın.",
+            f"You should check your {tw} before a long trip." if w in ("araba", "otomobil") else f"You should take care of {my}.",
+            "advice", "should check your car" if w in ("araba", "otomobil") else f"take care of {my}",
+            "Tavsiye cümlesi"),
+        _pe(W, f"{acc.capitalize()} tamir ettirmem gerekiyor.", f"I need to get {my} fixed.", "obligation",
+            f"need to get {my} fixed", "Zorunluluk: tamir ettirmek."),
+        _pe(W, f"{poss.capitalize()} dışarıda olabilir.", f"{my.capitalize()} might be outside.", "possibility",
+            "might be outside", "Olasılık cümlesi."),
+        _pe(W, f"{acc.capitalize()} bulursam sana haber veririm.", f"If I find {my}, I will call you.", "conditional",
+            f"If I find {my}", "Koşul cümlesi."),
+        _pe(W, f"A: {poss.capitalize()} var mı? B: Evet, ama bugün bozuk." if w in ("araba", "otomobil") else f"A: {poss.capitalize()} nerede? B: Orada.",
+            f"A: Do you have a {tw}? B: Yes, but it's broken today." if w in ("araba", "otomobil") else f"A: Where is {my}? B: Over there.",
+            "dialogue", "Do you have a car" if w in ("araba", "otomobil") else f"Where is {my}",
+            "Günlük diyalog"),
     ]
 
 
@@ -2985,7 +3075,7 @@ def _validate_word_example(
     if wt in ("soda", "gazoz", "kola") or tw in ("soda", "cola"):
         if "black soda" in norm_target or "black soda" in tr.lower():
             return False
-    if not tr or _is_placeholder_turkish(tr, word_tr):
+    if not tr or _is_placeholder_turkish(tr, word_tr) or _is_mechanical_turkish(tr, word_tr):
         return False
     if not _tr_contains_word(tr, word_tr):
         return False
@@ -3095,6 +3185,9 @@ def collect_lesson_quality_issues(
         target = safe_str(ex.get("target")).strip()
         if _is_generic_mechanical_template(target):
             issues.append(f"Mekanik şablon cümle reddedildi: {target[:60]}")
+            break
+        if _is_mechanical_turkish(tr, word_tr):
+            issues.append(f"Doğal olmayan Türkçe: {tr[:60]} — iyelik ve tam cümle kullan.")
             break
         if _is_placeholder_turkish(tr, word_tr):
             issues.append(f'Türkçe alan tam cümle olmalı; yalnızca «{word_tr}» yazılamaz.')

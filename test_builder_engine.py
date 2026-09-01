@@ -823,6 +823,25 @@ def test_universal_guarantee_many_words():
     print("TEST universal guarantee OK:", len(words), "words")
 
 
+def test_araba_car_natural():
+    """araba → car: doğal Türkçe, iyelik, mekanik şablon yok."""
+    from word_teaching_engine import _is_mechanical_turkish
+
+    r = generate_word_lesson("araba", "en", fake_translate)
+    assert r["ok"], r
+    targets = " ".join(safe_str(e.get("target")).lower() for e in (r.get("examples") or []))
+    assert "often use my car at home" not in targets
+    assert "drive to work" in targets or "park" in targets
+    articles = (r.get("usage") or {}).get("article_notes_items") or []
+    assert articles, "article notes missing"
+    assert any("arabam" in safe_str(a.get("tr")).lower() for a in articles)
+    for e in r.get("examples") or []:
+        tr = safe_str(e.get("tr"))
+        assert not _is_mechanical_turkish(tr, "araba"), f"mechanical TR: {tr!r}"
+        assert len(tr.split()) >= 2
+    print("TEST araba car natural OK")
+
+
 def test_cuzdan_wallet_natural():
     """cüzdan → wallet: mekanik şablon yok, doğal fiiller."""
     from word_teaching_engine import _is_generic_mechanical_template
@@ -971,6 +990,7 @@ if __name__ == "__main__":
     test_sigara_not_food_patterns()
     test_universal_guarantee_many_words()
     test_cuzdan_wallet_natural()
+    test_araba_car_natural()
     test_semsiye_umbrella_natural()
     test_ai_first_pipeline_without_llm()
     test_has_curated_lexicon()

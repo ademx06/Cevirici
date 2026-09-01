@@ -1,7 +1,7 @@
 """Cümle Kur + Kendini Test Et — kelime/cümle üretimi, yapılandırılmış analiz, telaffuz."""
 from __future__ import annotations
 
-APP_VERSION = "2026.09.01-v28"
+APP_VERSION = "2026.09.01-v29"
 
 import difflib
 import json
@@ -319,6 +319,7 @@ def generate_word_lesson(
     ai_profile, ai_examples, _ai_issues = try_ai_word_lesson(
         word_tr, target_word, target_lang, profile,
     )
+    ai_success = False
     if ai_examples:
         profile = ai_profile
         for ex in ai_examples:
@@ -326,24 +327,25 @@ def generate_word_lesson(
             if _validate_example(enriched):
                 examples.append(enriched)
         examples = sanitize_word_examples(examples, word_tr, target_word, profile, translate_fn)
+        ai_success = len(examples) >= 8
 
-    # 2) AI yetersizse: profil tabanlı örnekler + lexicon
-    if len(examples) < 13:
+    # 2) AI yetersizse: profil tabanlı örnekler (LLM yoksa veya AI başarısızsa)
+    if not ai_success and len(examples) < 13:
         raw_examples = generate_examples_from_profile(profile, word_tr, target_word, target_lang)
         for ex in raw_examples:
             enriched = _enrich_example(ex, target_lang, [target_word], known_words)
             if _validate_example(enriched):
                 examples.append(enriched)
 
-    if not validate_lesson_quality(examples, word_tr, target_word, profile):
+    if not ai_success and not validate_lesson_quality(examples, word_tr, target_word, profile):
         rule_examples = _rule_based_word_lesson(word_tr, target_word, target_lang, translate_fn)
         if len(rule_examples) > len(examples):
             examples = rule_examples
 
     examples = sanitize_word_examples(examples, word_tr, target_word, profile, translate_fn)
 
-    # 3) Hâlâ eksikse: kural tabanlı fallback
-    if len(examples) < 13:
+    # 3) Hâlâ eksikse: kural tabanlı fallback (yalnızca AI başarısızsa)
+    if not ai_success and len(examples) < 13:
         category = detect_category(word_tr, target_word)
         profile = _rule_word_profile(word_tr, target_word, target_lang, category)
         fallback = sanitize_word_examples(
