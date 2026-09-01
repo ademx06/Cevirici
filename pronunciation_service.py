@@ -171,6 +171,16 @@ EN_CANONICAL: dict[str, str] = {
     "minute": "minıt",
     "explain": "ikspleyn",
     "reservation": "rezervayşın",
+    "reading": "ri-ding",
+    "riding": "ray-ding",
+    "shelf": "şelf",
+    "ringing": "ring-ing",
+    "locked": "lokt",
+    "interesting": "intıresting",
+    "finished": "finişt",
+    "charge": "çarç",
+    "answer": "ensır",
+    "knock": "nok",
 }
 
 EN_IPA: dict[str, str] = {
@@ -233,6 +243,21 @@ EN_WORD_MEANINGS: dict[str, str] = {
     "cook": "pişirmek / yemek yapmak",
     "market": "market / pazar",
     "home": "ev",
+    "window": "pencere",
+    "door": "kapı",
+    "book": "kitap",
+    "phone": "telefon",
+    "reading": "okumak",
+    "riding": "binmek / sürmek",
+    "open": "açmak",
+    "close": "kapatmak",
+    "shelf": "raf",
+    "locked": "kilitli",
+    "interesting": "ilginç",
+    "ringing": "çalıyor",
+    "charge": "şarj etmek",
+    "answer": "cevaplamak / açmak",
+    "knock": "çalmak",
 }
 
 TEACHING_HEADER_RE = re.compile(

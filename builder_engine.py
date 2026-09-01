@@ -26,6 +26,7 @@ from pronunciation_service import (
 from word_teaching_engine import (
     SENTENCE_TEACHING_V3_PROMPT,
     analyze_word_profile,
+    build_rule_examples_for_word,
     build_usage_from_profile,
     generate_examples_from_profile,
     rule_sentence_teaching,
@@ -261,7 +262,7 @@ def _rule_based_word_lesson(
 ) -> list[dict[str, Any]]:
     """Kelime profiline göre doğal örnekler — şablon kopyalama yok."""
     profile = analyze_word_profile(word_tr, target_word, target_lang, translate_fn)
-    raw = generate_examples_from_profile(profile, word_tr, target_word, target_lang)
+    raw = build_rule_examples_for_word(word_tr, target_word, profile)
     known: set[str] = {target_word.lower()}
     examples: list[dict[str, Any]] = []
     for ex in raw:
@@ -293,6 +294,8 @@ def generate_word_lesson(
         except Exception:
             target_word = word_tr
     target_word = safe_str(target_word).strip() or word_tr
+    if target_lang == "en":
+        target_word = target_word.lower()
 
     if target_lang == "en":
         tw_info = get_word("en", target_word)

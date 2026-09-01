@@ -26,6 +26,8 @@
   let wordMic = null;
   let sentenceMic = null;
   let searchTimer = null;
+  let wordRequestSeq = 0;
+  let sentenceRequestSeq = 0;
 
   const $ = (id) => document.getElementById(id);
 
@@ -39,7 +41,6 @@
     const word = typeof wordOrData === 'string'
       ? wordOrData
       : (wordOrData?.word_tr || wordOrData?.word || '');
-    if (apiIcon && apiIcon !== '☕') return apiIcon;
     const key = String(word || '').trim().toLowerCase();
     const map = {
       kahve: '☕', coffee: '☕', musluk: '🚰', faucet: '🚰', tap: '🚰',
@@ -48,7 +49,9 @@
       sandalye: '💺', chair: '💺', pencere: '🪟', window: '🪟', su: '💧', water: '💧',
       kalem: '✏️', pen: '✏️', mutlu: '😊', happy: '😊',
     };
-    return map[key] || apiIcon || '📖';
+    if (map[key]) return map[key];
+    if (apiIcon && apiIcon !== '☕' && apiIcon !== '🪑') return apiIcon;
+    return '📖';
   }
 
   function setUi(text, live) {
@@ -430,6 +433,8 @@
       return;
     }
     if (busy) return;
+    const reqId = ++wordRequestSeq;
+    currentWordLesson = null;
     busy = true;
     showLoading('Cümleler oluşturuluyor…');
     try {
@@ -439,6 +444,7 @@
         body: JSON.stringify({ word, lang: LS.getLang() }),
       });
       const data = await r.json();
+      if (reqId !== wordRequestSeq) return;
       if (!r.ok || !data.ok) {
         $('wordResult').innerHTML = '';
         setUi(data.error_tr || 'Bir hata oluştu', false);
@@ -461,6 +467,8 @@
       return;
     }
     if (busy) return;
+    const reqId = ++sentenceRequestSeq;
+    currentSentence = null;
     busy = true;
     showLoading('Cümle analiz ediliyor…');
     try {
@@ -470,6 +478,7 @@
         body: JSON.stringify({ sentence, lang: LS.getLang() }),
       });
       const data = await r.json();
+      if (reqId !== sentenceRequestSeq) return;
       if (!r.ok || !data.ok) {
         $('sentenceResult').innerHTML = '';
         setUi(data.error_tr || 'Bir hata oluştu', false);

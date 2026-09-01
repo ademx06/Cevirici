@@ -25,6 +25,9 @@ def fake_translate(text: str, from_lang: str, to_lang: str) -> str:
         "kahve": "coffee",
         "masa": "table",
         "musluk": "faucet",
+        "pencere": "window",
+        "kapı": "door",
+        "kitap": "book",
         "araba": "car",
         "mutlu": "happy",
         "çalışmak": "work",
@@ -197,6 +200,54 @@ def test_can_you_pattern_examples():
     print("TEST can-you pattern examples OK:", len(examples))
 
 
+def test_window_no_cross_word_leak():
+    result = generate_word_lesson("pencere", "en", fake_translate)
+    assert result["ok"], result
+    assert result.get("word_icon") == "🪟"
+    assert result.get("target_word") == "window"
+    examples = result.get("examples") or []
+    assert len(examples) >= 4, f"expected examples, got {len(examples)}"
+    forbidden = ("masa", "kahve", "musluk", "table", "coffee", "faucet")
+    for ex in examples:
+        tr = safe_str(ex.get("tr")).lower()
+        tg = safe_str(ex.get("target")).lower()
+        how = safe_str(ex.get("how_it_is_formed_tr")).lower()
+        assert "pencere" in tr or "pencer" in tr, f"TR missing pencere: {tr}"
+        assert "window" in tg, f"EN missing window: {tg}"
+        assert "window" in tg and " window" in f" {tg}", f"bad caps: {tg}"
+        for bad in forbidden:
+            assert bad not in how, f"leak in how for {bad}: {how[:80]}"
+            assert bad not in tr, f"leak in tr for {bad}: {tr}"
+    print("TEST window isolation OK:", len(examples))
+
+
+def test_word_sequence_isolation():
+  words = ("kahve", "pencere", "musluk", "kapı", "araba", "kitap", "pencere")
+  markers = {
+      "kahve": ("coffee", "☕", ("masa", "pencere", "window")),
+      "pencere": ("window", "🪟", ("kahve", "coffee", "masa", "table")),
+      "musluk": ("faucet", "🚰", ("pencere", "window", "kahve", "coffee")),
+      "kapı": ("door", "🚪", ("masa", "table", "kahve", "coffee")),
+      "araba": ("car", "🚗", ("masa", "pencere", "kahve")),
+      "kitap": ("book", "📚", ("masa", "pencere", "kahve", "coffee")),
+  }
+  for w in words:
+      result = generate_word_lesson(w, "en", fake_translate)
+      assert result["ok"], result
+      tw, icon, forbidden = markers[w]
+      assert result.get("target_word") == tw, w
+      assert result.get("word_icon") == icon, w
+      for ex in result.get("examples") or []:
+          blob = " ".join([
+              safe_str(ex.get("tr")),
+              safe_str(ex.get("target")),
+              safe_str(ex.get("how_it_is_formed_tr")),
+          ]).lower()
+          for bad in forbidden:
+              assert bad not in blob, f"{w} leaked {bad}: {blob[:100]}"
+  print("TEST word sequence isolation OK")
+
+
 def test_door_icon():
     result = generate_word_lesson("kapı", "en", fake_translate)
     assert result["ok"], result
@@ -244,6 +295,8 @@ if __name__ == "__main__":
     test_market_sentence_teaching()
     test_sentence_analysis()
     test_can_you_pattern_examples()
+    test_window_no_cross_word_leak()
+    test_word_sequence_isolation()
     test_door_icon()
     test_grade_word_correct()
     test_grade_honest_pronunciation()

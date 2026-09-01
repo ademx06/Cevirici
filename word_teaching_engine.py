@@ -21,6 +21,30 @@ CROSS_WORD_LEAK_RE = re.compile(
     re.I,
 )
 
+# Hedef kelime dışındaki bilinen kelime kalıntıları
+FOREIGN_WORD_MARKERS: dict[str, tuple[str, ...]] = {
+    "pencere": ("masa", "sandalye", "kahve", "musluk", "araba"),
+    "window": ("table", "chair", "coffee", "faucet", "car"),
+    "kapı": ("masa", "pencere", "kahve", "musluk", "araba"),
+    "kapi": ("masa", "pencere", "kahve", "musluk", "araba"),
+    "door": ("table", "window", "coffee", "faucet", "car"),
+    "kitap": ("masa", "pencere", "kahve", "musluk", "araba"),
+    "book": ("table", "window", "coffee", "faucet", "car"),
+    "telefon": ("masa", "pencere", "kahve", "musluk"),
+    "phone": ("table", "window", "coffee", "faucet"),
+    "kahve": ("masa", "pencere", "musluk", "araba"),
+    "coffee": ("table", "window", "faucet", "car"),
+    "musluk": ("masa", "pencere", "kahve", "araba", "kitap"),
+    "faucet": ("table", "window", "coffee", "car", "book"),
+    "tap": ("table", "window", "coffee", "car", "book"),
+    "masa": ("pencere", "kahve", "musluk", "araba"),
+    "table": ("window", "coffee", "faucet", "car"),
+    "sandalye": ("pencere", "kahve", "musluk", "araba"),
+    "chair": ("window", "coffee", "faucet", "car"),
+    "araba": ("masa", "pencere", "kahve", "musluk"),
+    "car": ("table", "window", "coffee", "faucet"),
+}
+
 WORD_PROFILE_PROMPT = """Sen uzman bir dil öğretmenisin.
 Türkçe kelime: "{word_tr}"
 Hedef dil: {lang_name} ({target_lang})
@@ -135,7 +159,7 @@ KNOWN_CATEGORIES: dict[str, str] = {
 
 WORD_ICONS: dict[str, str] = {
     "kahve": "☕", "coffee": "☕", "çay": "🍵", "tea": "🍵",
-    "masa": "🪑", "table": "🪑", "sandalye": "🪑",
+    "masa": "🪑", "table": "🪑", "sandalye": "💺", "chair": "💺",
     "musluk": "🚰", "faucet": "🚰", "tap": "🚰",
     "araba": "🚗", "car": "🚗", "otomobil": "🚗",
     "mutlu": "😊", "happy": "😊",
@@ -200,18 +224,63 @@ def detect_category(word_tr: str, target_word: str) -> str:
     return "general"
 
 
+def _en_target_word(target_word: str) -> str:
+    return safe_str(target_word).strip().lower()
+
+
+def _normalize_noun_caps(text: str, noun: str) -> str:
+    """Ortadaki gereksiz büyük harfleri düzelt: The Window → The window."""
+    n = _en_target_word(noun)
+    if not n or not text:
+        return text
+    text = re.sub(rf"\b{re.escape(n)}\b", n, text, flags=re.I)
+    return text
+
+
+def _resolve_category(word_tr: str, target_word: str, category: str | None = None) -> str:
+    """Bilinen kelimelerde kural tabanlı kategori; mobilya şablonu sadece masa/sandalye."""
+    known = detect_category(word_tr, target_word)
+    if known != "general":
+        return known
+    cat = safe_str(category or "general").strip().lower()
+    wt, tw = _norm(word_tr), _en_target_word(target_word)
+    if cat == "furniture" and wt not in ("masa", "sandalye") and tw not in ("table", "chair"):
+        return "object"
+    return cat or "general"
+
+
+def _tr_contains_word(text: str, word_tr: str) -> bool:
+    wt = _norm(word_tr)
+    if not wt:
+        return True
+    t = _norm(text)
+    if wt in t:
+        return True
+    if len(wt) >= 4 and wt[:-1] in t:
+        return True
+    return False
+
+
+def _has_foreign_word_leak(text: str, word_tr: str, target_word: str) -> bool:
+    wt, tw = _norm(word_tr), _en_target_word(target_word)
+    markers = FOREIGN_WORD_MARKERS.get(wt) or FOREIGN_WORD_MARKERS.get(tw) or ()
+    t = safe_str(text).lower()
+    return any(m in t for m in markers)
+
+
 def _is_banned_template(target: str) -> bool:
     t = safe_str(target).strip()
     return any(p.match(t) for p in BANNED_TEMPLATE_RE)
 
 
 def _has_cross_word_leak(text: str, word_tr: str, target_word: str) -> bool:
+    if _has_foreign_word_leak(text, word_tr, target_word):
+        return True
     t = safe_str(text).lower()
     wt = _norm(word_tr)
-    tw = _norm(target_word)
+    tw = _en_target_word(target_word)
     if CROSS_WORD_LEAK_RE.search(t) and wt not in ("kahve", "coffee") and tw != "coffee":
         return True
-    # Başka kelime açıklaması
     if "kahve" in t and wt != "kahve" and "coffee" not in tw:
         return True
     if "coffee" in t and tw != "coffee":
@@ -238,7 +307,11 @@ def analyze_word_profile(
         )
         parsed = _llm_json(system, "Return JSON only.", max_tokens=900)
         if parsed and parsed.get("target_word"):
-            parsed["semantic_category"] = parsed.get("semantic_category") or category
+            known_cat = detect_category(word_tr, target_word)
+            if known_cat != "general":
+                parsed["semantic_category"] = known_cat
+            else:
+                parsed["semantic_category"] = parsed.get("semantic_category") or known_cat
             return parsed
 
     return _rule_word_profile(word_tr, target_word, target_lang, category)
@@ -346,6 +419,22 @@ def _rule_word_profile(
             "avoid_patterns": ["I happy (without am)"],
             "avoid_reason_tr": "Sıfatlar genelde be fiili veya feel/look ile gelir.",
         },
+        "object": {
+            "part_of_speech": "noun",
+            "countability": "countable",
+            "semantic_category": "object",
+            "meaning_tr": word_tr,
+            "usage_notes_tr": (
+                f"«{word_tr}» sayılabilir bir nesnedir. "
+                "open/close, use, need, see gibi fiillerle doğal cümleler kurulur."
+            ),
+            "common_verbs": ["open", "close", "use", "see", "need", "find", "buy"],
+            "common_collocations": [f"the {target_word}", f"a {target_word}", f"open the {target_word}"],
+            "common_patterns": [f"The {target_word} is...", f"Can you open the {target_word}?"],
+            "article_notes_tr": f"the {target_word.lower()} / a {target_word.lower()}",
+            "avoid_patterns": ["I love X", "Do you want X"],
+            "avoid_reason_tr": "Her nesne için aynı şablon kullanılmaz; bağlama göre fiil seçilir.",
+        },
         "verb": {
             "part_of_speech": "verb",
             "countability": "n/a",
@@ -376,13 +465,199 @@ def _rule_word_profile(
     return {"target_word": target_word, **base}
 
 
+def _object_examples_en(word_tr: str, target_word: str) -> list[dict[str, Any]]:
+    """Nesne kelimeleri — pencere, kapı, kitap, telefon vb. için kelimeye özel örnekler."""
+    T, W = _en_target_word(target_word), word_tr
+    wt, tw = _norm(word_tr), T
+
+    if wt in ("pencere",) or tw == "window":
+        return [
+            _ex(W, f"{W.capitalize()} oturma odasında.", f"The {T} is in the living room.", "location",
+                f"The + {T} + is + in the living room",
+                f"Bu cümlede «{W}» özne.\n\n"
+                f"The {T} → belirli pencere\nis → tekil «be» fiili\nin the living room → oturma odasında\n\n"
+                f"Türkçede «{W} oturma odasında» — İngilizcede the + is gerekir."),
+            _ex(W, f"{W.capitalize()}yi açar mısın?", f"Can you open the {T}?", "request",
+                f"Can + you + open + the {T}",
+                f"Can you…? → …-ebilir misin?\n\n"
+                f"open the {T} → pencereyi açmak\n\n"
+                "open + the window çok yaygın bir kalıptır."),
+            _ex(W, f"{W.capitalize()}yi kapat lütfen.", f"Please close the {T}.", "action",
+                f"Please + close + the {T}",
+                f"Emir/kibar rica: Please + fiil\n\n"
+                f"close the {T} → pencereyi kapatmak\n\n"
+                "close the window = pencereyi kapat."),
+            _ex(W, f"{W.capitalize()}den dışarı bak.", f"Look out of the {T}.", "action",
+                f"Look + out of + the {T}",
+                f"look out of → …-den dışarı bakmak\n\n"
+                f"the {T} → pencere\n\n"
+                "out of the window = pencereden dışarı."),
+            _ex(W, f"{W.capitalize()} temiz mi?", f"Is the {T} clean?", "question",
+                f"Is + the {T} + clean",
+                f"Soru: Is + özne + sıfat?\n\n"
+                f"clean → temiz\n\n"
+                f"«{W.capitalize()} temiz mi?» sorusunun karşılığı."),
+            _ex(W, f"{W.capitalize()}yi açtım çünkü hava sıcaktı.", f"I opened the {T} because it was hot.", "past",
+                f"I + opened + the {T} + because + it was hot",
+                f"Geçmiş: opened\n\n"
+                f"open the {T} → pencereyi açmak\nbecause → çünkü\n\n"
+                "Sebep bildirmek için because kullanılır."),
+        ]
+
+    if wt in ("kapı", "kapi") or tw == "door":
+        return [
+            _ex(W, f"{W.capitalize()} ön tarafta.", f"The {T} is at the front.", "location",
+                f"The + {T} + is + at the front",
+                f"The {T} → belirli kapı\nat the front → ön tarafta\n\n"
+                f"«{W.capitalize()} ön tarafta» anlamını verir."),
+            _ex(W, f"{W.capitalize()}yi açar mısın?", f"Can you open the {T}?", "request",
+                f"Can + you + open + the {T}",
+                f"open the {T} → kapıyı açmak\n\n"
+                "Can you open the door? çok yaygın bir rica cümlesidir."),
+            _ex(W, f"{W.capitalize()}yi kapat lütfen.", f"Please close the {T}.", "action",
+                f"Please + close + the {T}",
+                f"close the {T} → kapıyı kapatmak"),
+            _ex(W, f"{W.capitalize()}yı çal.", f"Knock on the {T}.", "action",
+                f"Knock + on + the {T}",
+                f"knock on the {T} → kapıyı çalmak\n\n"
+                "knock on the door sabit bir kalıptır."),
+            _ex(W, f"{W.capitalize()} kilitli mi?", f"Is the {T} locked?", "question",
+                f"Is + the {T} + locked",
+                f"locked → kilitli\n\n"
+                f"«{W.capitalize()} kilitli mi?» sorusu."),
+            _ex(W, f"{W.capitalize()}dan içeri girdik.", f"We came in through the {T}.", "past",
+                f"We + came in + through + the {T}",
+                f"through the {T} → kapıdan / kapı aracılığıyla\n\n"
+                f"came in → içeri girmek"),
+        ]
+
+    if wt == "kitap" or tw == "book":
+        return [
+            _ex(W, f"{W.capitalize()} rafta.", f"The {T} is on the shelf.", "location",
+                f"The + {T} + is + on the shelf",
+                f"The {T} → belirli kitap\non the shelf → rafta\n\n"
+                f"«{W.capitalize()} rafta» anlamını verir."),
+            _ex(W, f"Bir {W} okuyorum.", f"I am reading a {T}.", "present_continuous",
+                f"I + am + reading + a {T}",
+                f"reading → okumak (fiil)\n\n"
+                f"a {T} → bir kitap\n\n"
+                "❌ riding değil — reading = okumak."),
+            _ex(W, f"Bu {W} çok ilginç.", f"This {T} is very interesting.", "description",
+                f"This + {T} + is + very interesting",
+                f"This {T} → bu kitap\ninteresting → ilginç"),
+            _ex(W, f"{W.capitalize()} okumayı seviyorum.", f"I like reading {T}s.", "routine",
+                f"I + like + reading + {T}s",
+                f"like + fiil-ing → … yapmayı sevmek\n\n"
+                f"reading → okumak"),
+            _ex(W, f"{W.capitalize()} nerede?", f"Where is the {T}?", "question",
+                f"Where + is + the {T}",
+                f"Where is…? → … nerede?\n\n"
+                f"the {T} → belirli kitap"),
+            _ex(W, f"Dün bir {W} bitirdim.", f"I finished a {T} yesterday.", "past",
+                f"I + finished + a {T} + yesterday",
+                f"finished → bitirdim\n\n"
+                f"a {T} → bir kitap"),
+        ]
+
+    if wt == "telefon" or tw == "phone":
+        return [
+            _ex(W, f"{W.capitalize()} cebimde.", f"The {T} is in my pocket.", "location",
+                f"The + {T} + is + in my pocket",
+                f"The {T} → telefon\nin my pocket → cebimde"),
+            _ex(W, f"{W.capitalize()}u şarj et.", f"Charge the {T}.", "action",
+                f"Charge + the {T}",
+                f"charge the {T} → telefonu şarj etmek"),
+            _ex(W, f"{W.capitalize()} çalıyor.", f"The {T} is ringing.", "present_continuous",
+                f"The + {T} + is + ringing",
+                f"ringing → çalıyor\n\n"
+                f"is ringing → şu anda çalıyor"),
+            _ex(W, f"{W.capitalize()}u nerede bıraktın?", f"Where did you leave the {T}?", "question",
+                f"Where + did + you + leave + the {T}",
+                f"leave the {T} → telefonu bırakmak"),
+            _ex(W, f"{W.capitalize()}um bozuk.", f"My {T} is broken.", "problem",
+                f"My {T} → benim telefonum\nbroken → bozuk"),
+            _ex(W, f"{W.capitalize()}u açar mısın?", f"Can you answer the {T}?", "request",
+                f"Can + you + answer + the {T}",
+                f"answer the {T} → telefonu açmak / cevaplamak"),
+        ]
+
+    return [
+        _ex(W, f"{W.capitalize()} burada.", f"The {T} is here.", "description",
+            f"The + {T} + is + here",
+            f"The {T} → belirli {W}\nis → -dir/-dır\nhere → burada\n\n"
+            f"«{W.capitalize()} burada» anlamını verir."),
+        _ex(W, f"Bir {W} aldım.", f"I bought a {T}.", "past",
+            f"I + bought + a {T}",
+            f"a {T} → bir {W}\nbought → aldım (buy geçmişi)"),
+        _ex(W, f"{W.capitalize()} nerede?", f"Where is the {T}?", "question",
+            f"Where + is + the {T}?",
+            f"Where is…? → … nerede?\n\n"
+            f"the {T} → belirli {W}"),
+        _ex(W, f"{W.capitalize()}yi kullanıyorum.", f"I use the {T}.", "routine",
+            f"I + use + the {T}",
+            f"use the {T} → {W}yi kullanmak"),
+        _ex(W, f"{W.capitalize()} lazım.", f"I need the {T}.", "need_to",
+            f"I + need + the {T}",
+            f"need the {T} → {W}ye ihtiyacım var"),
+        _ex(W, f"{W.capitalize()}yi görebiliyor musun?", f"Can you see the {T}?", "question",
+            f"Can + you + see + the {T}",
+            f"see the {T} → {W}yi görebilmek"),
+    ]
+
+
 def _category_examples_en(
     word_tr: str,
     target_word: str,
     category: str,
 ) -> list[dict[str, Any]]:
     """Kategori bazlı doğal örnekler — şablon değil, anlama göre."""
-    T, W = target_word, word_tr
+    category = _resolve_category(word_tr, target_word, category)
+    T, W = _en_target_word(target_word), word_tr
+    wt, tw = _norm(word_tr), T
+
+    if category == "furniture" and (wt in ("masa", "sandalye") or tw in ("table", "chair")):
+        examples = [
+            _ex(W, f"{W.capitalize()} mutfakta.", f"The {T} is in the kitchen.", "location",
+                f"The + {T} + is + in the kitchen",
+                f"Bu cümlede «{W}» özne.\n\n"
+                f"The {T} → belirli {W}\nis → tekil «be» fiili\nin the kitchen → mutfakta\n\n"
+                f"Türkçede «{W} mutfakta» — İngilizcede the + is gerekir."),
+            _ex(W, f"{W.capitalize()}nın üzerinde kitap var.", f"There is a book on the {T}.", "existence",
+                f"There is + a book + on the {T}",
+                f"Var/yok: There is…\n\n"
+                f"on the {T} → {W}nın üzerinde\n\n"
+                "on edatı «üzerinde» anlamı verir."),
+            _ex(W, f"Bardakları {W}ya koy.", f"Please put the cups on the {T}.", "action",
+                f"Put + the cups + on the {T}",
+                f"Emir: fiil ile başlar (Please opsiyonel)\n\n"
+                f"put … on the {T} → … {W}nın üzerine koy\n\n"
+                "put + nesne + on + yer kalıbı çok yaygın.",
+                pattern_tr="Put + nesne + on the [şey]",
+                pattern_examples=[{
+                    "target": f"Put the book on the {T}.",
+                    "tr": f"Kitabı {W}nın üzerine koy.",
+                    "new_words": [{"word": "book", "meaning_tr": "kitap"}],
+                }]),
+            _ex(W, f"{W.capitalize()}da oturduk.", f"We sat at the {T}.", "past",
+                f"We + sat + at the {T}",
+                f"Geçmiş: sat (sit'in geçmişi)\n\n"
+                f"at the {T} → {W}da (oturma bağlamı)\n\n"
+                f"«{W.capitalize()}» için at kullanılır, on değil (oturma)."),
+            _ex(W, f"{W.capitalize()}yı temizlemem lazım.", f"I need to clean the {T}.", "need_to",
+                f"I + need to + clean + the {T}",
+                f"need to + fiil → …-mem lazım\n\n"
+                f"clean the {T} → {W}yı temizlemek\n\n"
+                "❌ I need clean — need to gerekli."),
+            _ex(W, f"{W.capitalize()}yı taşıyabilir misin?", f"Can you move the {T}?", "request",
+                f"Can + you + move + the {T}",
+                f"Can you…? → …-ebilir misin?\n\n"
+                f"move the {T} → {W}yı taşımak\n\n"
+                f"«{W}» için move doğal bir fiildir."),
+        ]
+        return examples
+
+    if category == "object":
+        return _object_examples_en(word_tr, target_word)
 
     if category == "beverage":
         return [
@@ -417,47 +692,6 @@ def _category_examples_en(
                 f"two {T}s → iki {W} (sayılabilir porsiyon)\n\n"
                 "İçecek madde olarak sayılamaz ama «iki kahve» porsiyon olarak sayılabilir."),
         ]
-
-    if category == "furniture":
-        examples = [
-            _ex(W, f"{W.capitalize()} mutfakta.", f"The {T} is in the kitchen.", "location",
-                f"The + {T} + is + in the kitchen",
-                f"Bu cümlede «{W}» özne.\n\n"
-                f"The {T} → belirli masa\nis → tekil «be» fiili\nin the kitchen → mutfakta\n\n"
-                "Türkçede «masa mutfakta» — İngilizcede the + is gerekir."),
-            _ex(W, f"Masanın üzerinde kitap var.", f"There is a book on the {T}.", "existence",
-                f"There is + a book + on the {T}",
-                f"Var/yok: There is…\n\n"
-                f"on the {T} → masanın üzerinde\n\n"
-                "on edatı «üzerinde» anlamı verir."),
-            _ex(W, f"Bardakları masaya koy.", f"Please put the cups on the {T}.", "action",
-                f"Put + the cups + on the {T}",
-                f"Emir: fiil ile başlar (Please opsiyonel)\n\n"
-                f"put … on the {T} → … masanın üzerine koy\n\n"
-                "put + nesne + on + yer kalıbı çok yaygın.",
-                pattern_tr="Put + nesne + on the [şey]",
-                pattern_examples=[{
-                    "target": f"Put the book on the {T}.",
-                    "tr": f"Kitabı {W}nın üzerine koy.",
-                    "new_words": [{"word": "book", "meaning_tr": "kitap"}],
-                }]),
-            _ex(W, f"Masada oturduk.", f"We sat at the {T}.", "past",
-                f"We + sat + at the {T}",
-                f"Geçmiş: sat (sit'in geçmişi)\n\n"
-                f"at the {T} → masada (oturma bağlamı)\n\n"
-                "Masa için at kullanılır, on değil (oturma)."),
-            _ex(W, f"Masayı temizlemem lazım.", f"I need to clean the {T}.", "need_to",
-                f"I + need to + clean + the {T}",
-                f"need to + fiil → …-mem lazım\n\n"
-                f"clean the {T} → masayı temizlemek\n\n"
-                "❌ I need clean — need to gerekli."),
-            _ex(W, f"Masayı taşıyabilir misin?", f"Can you move the {T}?", "request",
-                f"Can + you + move + the {T}",
-                f"Can you…? → …-ebilir misin?\n\n"
-                f"move the {T} → masayı taşımak\n\n"
-                "Mobilya için move doğal bir fiildir."),
-        ]
-        return examples
 
     if category == "plumbing":
         return [
@@ -611,7 +845,7 @@ def generate_examples_from_profile(
 ) -> list[dict[str, Any]]:
     """Profile göre örnek üret — LLM veya kategori şablonları."""
     lang_name = LANG_NAMES.get(target_lang, target_lang)
-    category = profile.get("semantic_category") or detect_category(word_tr, target_word)
+    category = _resolve_category(word_tr, target_word, profile.get("semantic_category"))
 
     examples: list[dict[str, Any]] = []
 
@@ -635,15 +869,34 @@ def generate_examples_from_profile(
     return examples[:8]
 
 
+def build_rule_examples_for_word(
+    word_tr: str,
+    target_word: str,
+    profile: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Kural tabanlı kelimeye özel örnekler — LLM yokken veya kalite düşükken."""
+    category = _resolve_category(word_tr, target_word, profile.get("semantic_category"))
+    return _category_examples_en(word_tr, target_word, category)
+
+
 def _validate_word_example(
     ex: dict[str, Any],
     word_tr: str,
     target_word: str,
     profile: dict[str, Any] | None = None,
 ) -> bool:
-    target = safe_str(ex.get("target")).strip()
+    target = _normalize_noun_caps(safe_str(ex.get("target")).strip(), target_word)
+    if target:
+        ex["target"] = target
     how = safe_str(ex.get("how_it_is_formed_tr")).strip()
+    tr = safe_str(ex.get("tr")).strip()
     if not target or len(how) < 40:
+        return False
+    if tr and not _tr_contains_word(tr, word_tr):
+        return False
+    if _has_foreign_word_leak(tr, word_tr, target_word):
+        return False
+    if _has_foreign_word_leak(how, word_tr, target_word):
         return False
     if _is_banned_template(target) and profile:
         cat = profile.get("semantic_category", "")
@@ -653,7 +906,7 @@ def _validate_word_example(
         return False
     if _has_cross_word_leak(safe_str(ex.get("why_this_structure_tr")), word_tr, target_word):
         return False
-    tw = _norm(target_word)
+    tw = _en_target_word(target_word)
     norm_target = _norm(target)
     if tw and tw not in norm_target and f"{tw}s" not in norm_target:
         return False
