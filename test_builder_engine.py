@@ -507,6 +507,32 @@ def test_ai_first_pipeline_without_llm():
     print("TEST AI-first fallback OK:", len(r.get("examples") or []))
 
 
+def test_ai_only_mode_falls_back_when_api_unavailable():
+    """AI-only modda API/limit hatası olsa bile ders üretilir (kullanıcıya hata gösterilmez)."""
+    import education_engine
+    from unittest.mock import patch
+    from word_teaching_engine import ai_only_lesson_enabled
+
+    old_flag = os.environ.pop("WORD_LESSON_ALLOW_TEMPLATES", None)
+    old_groq = os.environ.get("GROQ_API_KEY")
+    os.environ["GROQ_API_KEY"] = "test-key"
+    try:
+        with patch.object(education_engine, "_llm_json", return_value=None):
+            assert ai_only_lesson_enabled("en")
+            for word in ("araba", "cüzdan", "şemsiye"):
+                r = generate_word_lesson(word, "en", fake_translate)
+                assert r["ok"], f"{word} failed: {r}"
+                assert len(r.get("examples") or []) >= 13, f"{word}: {len(r.get('examples') or [])}"
+        print("TEST ai-only API fallback OK")
+    finally:
+        if old_flag is not None:
+            os.environ["WORD_LESSON_ALLOW_TEMPLATES"] = old_flag
+        if old_groq is None:
+            os.environ.pop("GROQ_API_KEY", None)
+        else:
+            os.environ["GROQ_API_KEY"] = old_groq
+
+
 def test_has_curated_lexicon():
     from word_lexicon import has_curated_lexicon
     assert has_curated_lexicon("kitap", "book")
@@ -996,6 +1022,7 @@ if __name__ == "__main__":
     test_araba_car_natural()
     test_semsiye_umbrella_natural()
     test_ai_first_pipeline_without_llm()
+    test_ai_only_mode_falls_back_when_api_unavailable()
     test_has_curated_lexicon()
     test_profile_ideas_fallback_examples()
     test_masa_icon()

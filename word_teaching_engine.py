@@ -34,6 +34,20 @@ def ai_only_lesson_enabled(target_lang: str) -> bool:
         return False
     return True
 
+
+def is_llm_api_failure(issues: list[str]) -> bool:
+    """API/limit/JSON hatası mı, yoksa kalite reddi mi?"""
+    if not issues:
+        return False
+    api_markers = (
+        "geçerli json",
+        "ai kullanılamıyor",
+        "en az 8 örnek döndürülemedi",
+        "hiç geçerli örnek üretilmedi",
+    )
+    blob = " ".join(safe_str(i).lower() for i in issues)
+    return any(marker in blob for marker in api_markers)
+
 ENGLISH_VARIANT_LABEL_TR = "🇺🇸 Amerikan İngilizcesi (varsayılan)"
 
 # Bilinen US/UK farkları — kartlarda bilgi notu olarak gösterilir
@@ -3313,7 +3327,7 @@ def guarantee_word_lesson(
             if len(examples) >= 13:
                 break
 
-    if len(examples) < 13 and llm_available() and target_lang == "en":
+    if len(examples) < 13 and not ai_only and llm_available() and target_lang == "en":
         ai_profile, ai_examples, _ = try_ai_word_lesson(word_tr, target_word, target_lang, profile)
         if ai_examples:
             profile = {**profile, **ai_profile}

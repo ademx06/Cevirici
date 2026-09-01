@@ -3423,11 +3423,16 @@ def _openai_chat(messages: list[dict], json_mode: bool = False, max_tokens: int 
             headers=_api_headers({"Authorization": f"Bearer {os.environ.get('OPENAI_API_KEY', '').strip()}"}),
             method="POST",
         )
-        with urlopen(req, timeout=18) as resp:
+        with urlopen(req, timeout=_llm_request_timeout(max_tokens)) as resp:
             data = json.loads(resp.read().decode())
         return data["choices"][0]["message"]["content"].strip()
     except Exception:
         return None
+
+
+def _llm_request_timeout(max_tokens: int) -> int:
+    """Büyük JSON yanıtları için yeterli süre; küçük isteklerde hızlı zaman aşımı."""
+    return min(90, max(18, 12 + max_tokens // 120))
 
 
 def _groq_chat(messages: list[dict], max_tokens: int = 520, json_mode: bool = False) -> str | None:
@@ -3446,7 +3451,7 @@ def _groq_chat(messages: list[dict], max_tokens: int = 520, json_mode: bool = Fa
             headers=_api_headers({"Authorization": f"Bearer {os.environ.get('GROQ_API_KEY', '').strip()}"}),
             method="POST",
         )
-        with urlopen(req, timeout=18) as resp:
+        with urlopen(req, timeout=_llm_request_timeout(max_tokens)) as resp:
             data = json.loads(resp.read().decode())
         return data["choices"][0]["message"]["content"].strip()
     except Exception:
@@ -3466,7 +3471,7 @@ def _gemini_chat(system: str, user: str, max_tokens: int = 520) -> str | None:
     }).encode()
     try:
         req = Request(url, data=body, headers=_api_headers(), method="POST")
-        with urlopen(req, timeout=18) as resp:
+        with urlopen(req, timeout=_llm_request_timeout(max_tokens)) as resp:
             data = json.loads(resp.read().decode())
         parts = data["candidates"][0]["content"]["parts"]
         return "".join(p.get("text", "") for p in parts).strip()
@@ -3474,19 +3479,29 @@ def _gemini_chat(system: str, user: str, max_tokens: int = 520) -> str | None:
         return None
 
 
-def _llm_json(system: str, user: str, max_tokens: int = 380) -> dict[str, Any] | None:
-    """Yapılandırılmış JSON yanıt — Groq / Gemini / OpenAI."""
-    provider = _active_llm_provider()
-    if not provider:
-        return None
-    raw: str | None = None
+def _llm_providers_in_order() -> list[str]:
+    """Tüm yapılandırılmış sağlayıcılar — Groq başarısız olursa sıradaki denenir."""
+    providers: list[str] = []
+    if os.environ.get("GROQ_API_KEY", "").strip():
+        providers.append("groq")
+    if os.environ.get("GEMINI_API_KEY", "").strip():
+        providers.append("gemini")
+    if os.environ.get("OPENAI_API_KEY", "").strip():
+        providers.append("openai")
+    return providers
+
+
+def _llm_chat_json_raw(
+    provider: str,
+    system: str,
+    user: str,
+    max_tokens: int,
+) -> str | None:
+    """Tek sağlayıcıdan ham JSON metin al."""
+    messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
     if provider == "groq":
-        raw = _groq_chat(
-            [{"role": "system", "content": system}, {"role": "user", "content": user}],
-            max_tokens=max_tokens,
-            json_mode=True,
-        )
-    elif provider == "gemini":
+        return _groq_chat(messages, max_tokens=max_tokens, json_mode=True)
+    if provider == "gemini":
         url = (
             f"https://generativelanguage.googleapis.com/v1beta/models/"
             f"{os.environ.get('GEMINI_MODEL', 'gemini-2.0-flash')}:generateContent"
@@ -3503,18 +3518,27 @@ def _llm_json(system: str, user: str, max_tokens: int = 380) -> dict[str, Any] |
         }).encode()
         try:
             req = Request(url, data=body, headers=_api_headers(), method="POST")
-            with urlopen(req, timeout=18) as resp:
+            with urlopen(req, timeout=_llm_request_timeout(max_tokens)) as resp:
                 data = json.loads(resp.read().decode())
             parts = data["candidates"][0]["content"]["parts"]
-            raw = "".join(p.get("text", "") for p in parts).strip()
+            return "".join(p.get("text", "") for p in parts).strip()
         except Exception:
-            raw = None
-    else:
-        raw = _openai_chat(
-            [{"role": "system", "content": system}, {"role": "user", "content": user}],
-            json_mode=True,
-            max_tokens=max_tokens,
-        )
+            return None
+    if provider == "openai":
+        return _openai_chat(messages, json_mode=True, max_tokens=max_tokens)
+    return None
+
+
+def _llm_json(system: str, user: str, max_tokens: int = 380) -> dict[str, Any] | None:
+    """Yapılandırılmış JSON yanıt — Groq / Gemini / OpenAI (sırayla dener)."""
+    providers = _llm_providers_in_order()
+    if not providers:
+        return None
+    raw: str | None = None
+    for provider in providers:
+        raw = _llm_chat_json_raw(provider, system, user, max_tokens)
+        if raw:
+            break
     if not raw:
         return None
     try:
