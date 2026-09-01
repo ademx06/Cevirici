@@ -297,12 +297,30 @@ def test_soda_lesson():
         assert "kelimeye özel doğal yapı" not in how.lower()
         label = safe_str(ex.get("structure_label_tr"))
         assert "Dil Bilgisi Formülü" in label
+        assert any(str(i) in safe_str(ex.get("sentence_type_label")) for i in range(1, 14)), (
+            f"missing numbered pattern label: {ex.get('sentence_type_label')}"
+        )
     usage = result.get("usage") or {}
     for v in usage.get("common_verbs") or []:
         assert v.get("tr"), f"empty verb tr: {v}"
     for p in usage.get("common_phrases") or []:
         assert p.get("tr") and p.get("pronunciation_tr")
     print("TEST soda lesson OK:", len(examples))
+
+
+def test_thirteen_grammar_patterns():
+    """Kelime dersinde 13 dil bilgisi kalıbı olmalı."""
+    result = generate_word_lesson("masa", "en", fake_translate)
+    assert result["ok"], result
+    examples = result.get("examples") or []
+    assert len(examples) >= 13, f"expected 13 examples, got {len(examples)}"
+    labels = {safe_str(ex.get("sentence_type_label")) for ex in examples}
+    assert any("Temel kullanım" in l for l in labels)
+    assert any("Olumsuz" in l for l in labels)
+    assert any("Rica" in l for l in labels)
+    assert result.get("word_icon") == "🪑"
+    assert result.get("word_icon") != "📖"
+    print("TEST thirteen patterns OK:", len(examples), "examples")
 
 
 def test_door_icon():
@@ -355,6 +373,7 @@ if __name__ == "__main__":
     test_window_no_cross_word_leak()
     test_shoe_no_socks_leak()
     test_soda_lesson()
+    test_thirteen_grammar_patterns()
     test_word_sequence_isolation()
     test_door_icon()
     test_grade_word_correct()

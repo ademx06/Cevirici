@@ -1,6 +1,8 @@
 """Cümle Kur + Kendini Test Et — kelime/cümle üretimi, yapılandırılmış analiz, telaffuz."""
 from __future__ import annotations
 
+APP_VERSION = "2026.09.01-v12"
+
 import difflib
 import json
 import re
@@ -348,6 +350,7 @@ def generate_word_lesson(
         "target_lang": target_lang,
         "target_word": target_word,
         "word_icon": word_icon_for(word_tr, target_word, category),
+        "app_version": APP_VERSION,
         "pronunciation_tr": tw_pron["pronunciation_tr"],
         "ipa": tw_pron.get("ipa", ""),
         "word_profile": {
@@ -358,7 +361,7 @@ def generate_word_lesson(
         },
         "word_explanation_tr": word_explanation,
         "usage": usage,
-        "examples": examples[:10],
+        "examples": examples[:13],
     }
 
 

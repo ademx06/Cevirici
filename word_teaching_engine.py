@@ -80,23 +80,43 @@ VERBS_TR: dict[str, str] = {
     "pour": "dökmek", "chill": "soğutmak",
 }
 
+GRAMMAR_PATTERNS: dict[str, dict[str, Any]] = {
+    "basic": {"num": 1, "label_tr": "1. Temel kullanım"},
+    "present": {"num": 2, "label_tr": "2. Şimdiki zaman"},
+    "past": {"num": 3, "label_tr": "3. Geçmiş zaman"},
+    "future": {"num": 4, "label_tr": "4. Gelecek zaman"},
+    "question": {"num": 5, "label_tr": "5. Soru cümlesi"},
+    "negative": {"num": 6, "label_tr": "6. Olumsuz cümle"},
+    "imperative": {"num": 7, "label_tr": "7. Emir kipi"},
+    "polite_request": {"num": 8, "label_tr": "8. Rica cümlesi"},
+    "advice": {"num": 9, "label_tr": "9. Tavsiye cümlesi"},
+    "obligation": {"num": 10, "label_tr": "10. Zorunluluk cümlesi"},
+    "possibility": {"num": 11, "label_tr": "11. İhtimal / olasılık cümlesi"},
+    "conditional": {"num": 12, "label_tr": "12. Koşul cümlesi"},
+    "dialogue": {"num": 13, "label_tr": "13. Günlük konuşma / diyalog"},
+}
+
+# Eski sentence_type → 13 kalıp anahtarı
+PATTERN_TYPE_ALIASES: dict[str, str] = {
+    "description": "basic", "location": "basic", "existence": "basic",
+    "routine": "present", "present_continuous": "present", "movement": "present",
+    "past": "past", "shopping": "past", "experience": "past",
+    "future": "future",
+    "question": "question",
+    "negative": "negative",
+    "imperative": "imperative", "action": "imperative",
+    "request": "polite_request", "offer": "polite_request",
+    "advice": "advice",
+    "need_to": "obligation", "repair": "obligation",
+    "problem": "possibility",
+    "conditional": "conditional",
+    "daily": "dialogue", "comparison": "dialogue",
+}
+
+GENERIC_ICONS = frozenset({"📖", "📚", "📦", ""})
+
 SCENARIO_LABELS: dict[str, str] = {
-    "request": "POLITE_REQUEST",
-    "offer": "POLITE_REQUEST",
-    "negative": "NEGATIVE",
-    "description": "STATEMENT",
-    "routine": "STATEMENT_OF_PREFERENCE",
-    "daily": "NARRATIVE",
-    "question": "QUESTION",
-    "past": "NARRATIVE",
-    "need_to": "STATEMENT",
-    "imperative": "REQUEST",
-    "action": "STATEMENT",
-    "location": "STATEMENT",
-    "existence": "STATEMENT",
-    "problem": "STATEMENT",
-    "shopping": "STATEMENT",
-    "present_continuous": "NARRATIVE",
+    k: v["label_tr"] for k, v in GRAMMAR_PATTERNS.items()
 }
 
 GENERIC_STRUCTURE_LABEL_RE = re.compile(
@@ -187,8 +207,9 @@ KELİME PROFİLİ (SADECE BU KELİME — önceki kelime yok):
 4. Yaygın fiiller/ifadelerde Türkçe anlam boş bırakılamaz.
 5. Her örnekte "how_it_is_formed_tr" en az 120 karakter, derin dil bilgisi analizi.
 6. "structure_label_tr" asla "Kelimeye özel doğal yapı" olamaz — gerçek formül yaz.
-7. En az 3 farklı senaryo: POLITE_REQUEST, NEGATIVE, STATEMENT, NARRATIVE, QUESTION vb.
-8. word_breakdown: her kelime için token, pronunciation_tr (Türkçe fonetik), meaning_tr, role_tr.
+7. En az 10 farklı kalıp: Temel kullanım, Şimdiki zaman, Geçmiş zaman, Gelecek zaman, Soru, Olumsuz, Emir, Rica, Tavsiye, Zorunluluk, İhtimal, Koşul, Diyalog.
+8. sentence_type_label numaralı Türkçe kalıp adı olmalı (ör. "6. Olumsuz cümle").
+9. word_breakdown: her kelime için token, pronunciation_tr (Türkçe fonetik), meaning_tr, role_tr.
 
 Her örnek alanları:
 - tr, target, sentence_type (request/negative/...)
@@ -209,34 +230,41 @@ JSON:
 SENTENCE_TEACHING_V3_PROMPT = """Turkish sentence (user may have minor errors): "{tr_sentence}"
 Target language: {lang_name} ({target_lang})
 
-Teach HOW to build this sentence — not just translate.
-If Turkish is imperfect, infer intent politely in inferred_turkish_tr.
+Sen kıdemli bir dil öğretmenisin. Öğrenciye cümleyi ADIM ADIM öğret — sadece çeviri değil.
+
+[KATI KURALLAR]
+1. how_it_is_formed_tr en az 200 karakter; numaralı adımlar (1️⃣ 2️⃣ 3️⃣) kullan.
+2. Önce genel anlam, sonra yapı, sonra her parça (need to, because, nothing vb.).
+3. clause_breakdown: cümle 6+ kelimeyse mutlaka parçala (ana fikir + sebep/yan cümle).
+4. word_breakdown: her kelime için token, role_tr, meaning_tr, pronunciation_hint (Türkçe fonetik).
+5. important_patterns: en az 2 kalıp; her kalıpta açıklama + örnek.
+6. Türkçe kusurluysa inferred_turkish_tr ile düzelt; kibar ol.
 
 Return JSON:
 {{
   "inferred_turkish_tr": "düzeltilmiş Türkçe veya null",
-  "meaning_summary_tr": "cümlenin genel anlamı (1-2 cümle)",
+  "meaning_summary_tr": "cümlenin genel anlamı (1-2 cümle, öğretici)",
   "target_sentence": "most natural {lang_name}",
   "alternatives": ["optional natural alternative"],
-  "sentence_type": "...",
-  "grammar_topic": "...",
+  "sentence_type": "complex|simple|question|...",
+  "grammar_topic": "need_to_because|present|past|...",
   "difficulty": "A1-C2",
   "structure_tr": "I + need + to go + ...",
-  "structure_label_tr": "Ana yapı özeti",
+  "structure_label_tr": "Zorunluluk (need to) + sebep (because) + infinitive",
   "clause_breakdown": [
     {{"clause_tr": "Markete gitmem gerekiyor", "target": "I need to go to the market", "role_tr": "ana fikir"}}
   ],
   "word_breakdown": [
-    {{"token":"need","role_tr":"fiil","meaning_tr":"gerekiyor","pronunciation_hint":"ni:d","mini_example_tr":"I need water.","mini_example_target":"..."}}
+    {{"token":"need","role_tr":"fiil","meaning_tr":"gerekiyor","pronunciation_hint":"nid"}}
   ],
-  "how_it_is_formed_tr": "Adım adım öğretim: önce genel anlam, sonra yapı, sonra need to / because / nothing / at home gibi parçalar",
-  "why_this_structure_tr": "...",
-  "important_note_tr": "... or null",
+  "how_it_is_formed_tr": "1️⃣ Genel anlam\\n...\\n\\n2️⃣ Ana yapı\\n...\\n\\n3️⃣ need to + fiil\\n...",
+  "why_this_structure_tr": "Bu yapı neden seçildi — kısa pedagojik açıklama",
+  "important_note_tr": "Sık yapılan hata veya ipucu veya null",
   "important_patterns": [
     {{"pattern_tr": "need to + fiil", "explanation_tr": "...", "examples": [{{"target":"I need to work.","tr":"Çalışmam gerekiyor."}}]}}
   ],
-  "new_words": [{{"word":"because","meaning_tr":"çünkü","example_target":"...","example_tr":"..."}}],
-  "pattern_tr": "... or null",
+  "new_words": [{{"word":"because","meaning_tr":"çünkü"}}],
+  "pattern_tr": "Ana kalıp özeti veya null",
   "pattern_examples": []
 }}"""
 
@@ -297,9 +325,8 @@ WORD_ICONS: dict[str, str] = {
 }
 
 CATEGORY_ICONS: dict[str, str] = {
-    "beverage": "☕", "furniture": "🪑", "plumbing": "🚰", "vehicle": "🚗",
-    "adjective": "😊", "verb": "💼", "place": "📍", "object": "📦", "general": "📖",
-    "footwear": "👟",
+    "beverage": "🥤", "furniture": "🪑", "plumbing": "🚰", "vehicle": "🚗",
+    "adjective": "😊", "verb": "💼", "place": "📍", "object": "📦", "footwear": "👟",
 }
 
 SENTENCE_TYPE_LABELS: dict[str, str] = {
@@ -330,12 +357,36 @@ SENTENCE_TYPE_LABELS: dict[str, str] = {
 
 
 def word_icon_for(word_tr: str, target_word: str, category: str = "general") -> str:
-    """İkon — kelime sözlüğü öncelikli; kategori LLM'den değil kural tabanlı."""
+    """İkon — kelime sözlüğü → kategori → anahtar kelime; asla alakasız 📖 kullanma."""
     for w in (_norm(word_tr), _norm(target_word)):
         if w in WORD_ICONS:
             return WORD_ICONS[w]
     cat = detect_category(word_tr, target_word)
-    return CATEGORY_ICONS.get(cat, "📖")
+    if cat in CATEGORY_ICONS:
+        return CATEGORY_ICONS[cat]
+    # Türkçe anahtar kelime tahmini
+    wt = _norm(word_tr)
+    keyword_icons = (
+        (("kahve", "çay", "gazoz", "kola", "soda", "cola", "su", "süt", "meyve"), "🥤"),
+        (("masa", "sandalye", "koltuk", "yatak", "dolap"), "🪑"),
+        (("ayakkabı", "ayakkabi", "bot", "çorap", "corap"), "👟"),
+        (("araba", "otomobil", "bisiklet", "otobüs", "tren", "uçak"), "🚗"),
+        (("musluk", "lavabo", "duş", "banyo"), "🚰"),
+        (("kapı", "kapi", "pencere", "duvar", "tavan"), "🪟"),
+        (("kitap", "defter", "gazete", "dergi"), "📚"),
+        (("telefon", "bilgisayar", "tablet", "kamera"), "📱"),
+        (("kalem", "silgi", "kağıt", "defter"), "✏️"),
+        (("mutlu", "üzgün", "yorgun", "kızgın", "heyecan"), "😊"),
+        (("çalış", "calis", "koş", "kos", "yürü"), "💼"),
+        (("ev", "market", "pazar", "okul", "hastane", "park"), "📍"),
+        (("yemek", "ekmek", "peynir", "et", "sebze", "meyve"), "🍽️"),
+        (("kedi", "köpek", "kuş", "balık"), "🐾"),
+        (("güneş", "yağmur", "kar", "bulut"), "🌤️"),
+    )
+    for keys, icon in keyword_icons:
+        if any(k in wt for k in keys):
+            return icon
+    return "🏷️"
 
 
 def _norm(s: str) -> str:
@@ -884,6 +935,348 @@ def _object_examples_en(word_tr: str, target_word: str) -> list[dict[str, Any]]:
     ]
 
 
+def _pattern_label(grammar_pattern: str) -> str:
+    return GRAMMAR_PATTERNS.get(grammar_pattern, {}).get("label_tr", grammar_pattern)
+
+
+def _resolve_grammar_pattern(sentence_type: str, grammar_pattern: str | None = None) -> str:
+    if grammar_pattern and grammar_pattern in GRAMMAR_PATTERNS:
+        return grammar_pattern
+    return PATTERN_TYPE_ALIASES.get(sentence_type, sentence_type if sentence_type in GRAMMAR_PATTERNS else "basic")
+
+
+def _thirteen_pattern_examples_en(
+    word_tr: str,
+    target_word: str,
+    category: str,
+) -> list[dict[str, Any]]:
+    """13 dil bilgisi kalıbına göre kelimeye özel örnek cümleler."""
+    category = _resolve_category(word_tr, target_word, category)
+    T, W = _en_target_word(target_word), word_tr
+    wt, tw = _norm(word_tr), T
+
+    if category == "adjective":
+        return _adjective_pattern_examples(W, T)
+    if category == "verb":
+        return _verb_pattern_examples(W, T)
+    if category == "place":
+        return _place_pattern_examples(W, T)
+    if category == "beverage":
+        return _beverage_pattern_examples(W, T, wt, tw)
+    if category == "footwear":
+        return _footwear_pattern_examples(W, T)
+    if category == "vehicle":
+        return _vehicle_pattern_examples(W, T)
+    if category == "plumbing":
+        return _plumbing_pattern_examples(W, T)
+    return _object_pattern_examples(W, T, category)
+
+
+def _pe(
+    W: str,
+    tr: str,
+    target: str,
+    grammar_pattern: str,
+    structure_tr: str,
+    how: str,
+    pattern_tr: str | None = None,
+) -> dict[str, Any]:
+    return _ex(W, tr, target, grammar_pattern, structure_tr, how, pattern_tr=pattern_tr, grammar_pattern=grammar_pattern)
+
+
+def _object_pattern_examples(W: str, T: str, category: str) -> list[dict[str, Any]]:
+    art = "the"
+    return [
+        _pe(W, f"{W.capitalize()} burada.", f"The {T} is here.", "basic",
+            f"The + {T} + is + here",
+            f"1️⃣ Temel kullanım\n«{W} burada» ifadesinin doğal karşılığı.\n\n"
+            f"The {T} → belirli {W}\nis → tekil «be» fiili\nhere → burada"),
+        _pe(W, f"Şu an {W} kullanıyorum.", f"I am using the {T} now.", "present",
+            f"I + am + using + the {T}",
+            f"1️⃣ Şimdiki zaman\nam + fiil-ing → şu anda …-yor\n\n"
+            f"using the {T} → {W} kullanmak"),
+        _pe(W, f"Dün {W} kullandım.", f"I used the {T} yesterday.", "past",
+            f"I + used + the {T}",
+            f"1️⃣ Geçmiş zaman\nused → kullandım (use geçmişi)\n\n"
+            f"yesterday → dün"),
+        _pe(W, f"Yarın {W} alacağım.", f"I will buy a {T} tomorrow.", "future",
+            f"I + will + buy + a {T}",
+            f"1️⃣ Gelecek zaman\nwill + fiil(yalın) → …-eceğim\n\n"
+            f"a {T} → bir {W}"),
+        _pe(W, f"{W.capitalize()} nerede?", f"Where is the {T}?", "question",
+            f"Where + is + the {T}",
+            f"1️⃣ Soru cümlesi\nWhere → nerede\nis → tekil yardımcı fiil\n\n"
+            f"Where is the {T}? → {W} nerede?"),
+        _pe(W, f"{W.capitalize()} burada değil.", f"The {T} is not here.", "negative",
+            f"The + {T} + is + not + here",
+            f"1️⃣ Olumsuz cümle\nis not → değil / yok\n\n"
+            f"not → olumsuzluk eki"),
+        _pe(W, f"{W.capitalize()}yi aç.", f"Open the {T}.", "imperative",
+            f"Open + the {T}",
+            f"1️⃣ Emir kipi\nFiil ile başlar; özne yazılmaz.\n\n"
+            f"Open the {T} → {W}yi aç"),
+        _pe(W, f"{W.capitalize()}yi açar mısın?", f"Could you open the {T}?", "polite_request",
+            f"Could + you + open + the {T}",
+            f"1️⃣ Rica cümlesi\nCould you…? → …-ebilir misin? (kibar)\n\n"
+            f"Could, Can'den daha naziktir."),
+        _pe(W, f"{W.capitalize()}yi düzenli kontrol etmelisin.", f"You should check the {T} regularly.", "advice",
+            f"You + should + check + the {T}",
+            f"1️⃣ Tavsiye cümlesi\nshould → …-melisin / tavsiye\n\n"
+            f"You should… → tavsiye kalıbı"),
+        _pe(W, f"{W.capitalize()} lazım.", f"I need the {T}.", "obligation",
+            f"I + need + the {T}",
+            f"1️⃣ Zorunluluk cümlesi\nneed → ihtiyaç duymak / lazım\n\n"
+            f"I need the {T} → {W} lazım"),
+        _pe(W, f"{W.capitalize()} başka odada olabilir.", f"The {T} might be in another room.", "possibility",
+            f"The + {T} + might + be + in another room",
+            f"1️⃣ İhtimal cümlesi\nmight → olabilir / -ebilir\n\n"
+            f"might be → … olabilir"),
+        _pe(W, f"{W.capitalize()} kırıksa tamir et.", f"If the {T} is broken, fix it.", "conditional",
+            f"If + the {T} + is broken, + fix + it",
+            f"1️⃣ Koşul cümlesi\nIf → eğer / -se/-sa\n\n"
+            f"Koşul + sonuç iki cümle veya virgülle birleşir."),
+        _pe(W, f"A: {W.capitalize()} hazır mı? B: Evet.", f"A: Is the {T} ready? B: Yes, it is.", "dialogue",
+            f"A: Is + the {T} + ready? B: Yes",
+            f"1️⃣ Günlük diyalog\nSoru-cevap kalıbı günlük konuşmada çok yaygın.\n\n"
+            f"Is the {T} ready? → {W} hazır mı?"),
+    ]
+
+
+def _beverage_pattern_examples(W: str, T: str, wt: str, tw: str) -> list[dict[str, Any]]:
+    is_soda = wt in ("soda", "gazoz", "kola") or tw in ("soda", "cola")
+    portion = "a soda" if is_soda else "a coffee"
+    uncount = "soda" if is_soda else "coffee"
+    diet = "diet soda" if is_soda else "black coffee"
+    return [
+        _pe(W, f"Bu {W}.", f"This is {uncount}.", "basic",
+            f"This + is + {uncount}",
+            f"1️⃣ Temel kullanım\nThis is… → Bu …\n\n"
+            f"{uncount} → {W}"),
+        _pe(W, f"Şu an {W} içiyorum.", f"I am drinking {uncount} now.", "present",
+            f"I + am + drinking + {uncount}",
+            f"1️⃣ Şimdiki zaman\nam + drink-ing → şu anda içiyorum\n\n"
+            f"İçeceklerle drink kullanılır."),
+        _pe(W, f"Dün {W} içtim.", f"I drank {portion} yesterday.", "past",
+            f"I + drank + {portion}",
+            f"1️⃣ Geçmiş zaman\ndrank → içtim (drink geçmişi)\n\n"
+            f"{portion} → bir {W}"),
+        _pe(W, f"Sonra {W} içeceğim.", f"I will have {portion} later.", "future",
+            f"I + will + have + {portion}",
+            f"1️⃣ Gelecek zaman\nwill + have → … içeceğim / alacağım\n\n"
+            f"İçecek için have da doğaldır."),
+        _pe(W, f"{W.capitalize()} ister misin?", f"Do you want {portion}?", "question",
+            f"Do + you + want + {portion}",
+            f"1️⃣ Soru cümlesi\nDo you want…? → … ister misin?\n\n"
+            f"Günlük teklif/soru kalıbı."),
+        _pe(W, f"{W.capitalize()} içmem.", f"I don't drink {uncount}.", "negative",
+            f"I + don't + drink + {uncount}",
+            f"1️⃣ Olumsuz cümle\ndon't + fiil(yalın) → …-mıyorum\n\n"
+            f"don't drink → içmem"),
+        _pe(W, f"Bana {W} getir.", f"Bring me {portion}, please.", "imperative",
+            f"Bring + me + {portion}",
+            f"1️⃣ Emir kipi\nFiil ile başlar: Bring → getir\n\n"
+            f"please → lütfen (kibarlık)"),
+        _pe(W, f"Bir {W} alabilir miyim?", f"Can I have {portion}?", "polite_request",
+            f"Can + I + have + {portion}",
+            f"1️⃣ Rica cümlesi\nCan I have…? → … alabilir miyim?\n\n"
+            f"Restoranda çok doğal kalıp."),
+        _pe(W, f"{'Diyet gazoz' if is_soda else 'Siyah kahve'} denemelisin.", f"You should try {diet}.", "advice",
+            f"You + should + try + {diet}",
+            f"1️⃣ Tavsiye cümlesi\nshould → …-melisin\n\n"
+            f"{'❌ black soda yok — diet soda kullan.' if is_soda else 'black coffee doğal bir ifadedir.'}"),
+        _pe(W, f"Parti için {W} almam lazım.", f"I need to buy {uncount} for the party.", "obligation",
+            f"I + need to + buy + {uncount}",
+            f"1️⃣ Zorunluluk cümlesi\nneed to + fiil → …-mem lazım\n\n"
+            f"need to buy → almam lazım"),
+        _pe(W, f"Buzdolabında {W} olabilir.", f"There might be {uncount} in the fridge.", "possibility",
+            f"There + might + be + {uncount}",
+            f"1️⃣ İhtimal cümlesi\nThere might be… → … olabilir\n\n"
+            f"might → olasılık"),
+        _pe(W, f"{W.capitalize()} istersen buzdolabında var.", f"If you want {uncount}, there is some in the fridge.", "conditional",
+            f"If + you + want + {uncount}, + there is some",
+            f"1️⃣ Koşul cümlesi\nIf you want… → … istersen\n\n"
+            f"Koşul + sonuç yapısı."),
+        _pe(W, f"A: {W.capitalize()} ister misin? B: Evet, lütfen.", f"A: Would you like {portion}? B: Yes, please.", "dialogue",
+            f"A: Would you like…? B: Yes, please",
+            f"1️⃣ Günlük diyalog\nWould you like…? → kibar teklif\n\n"
+            f"Yes, please → Evet, lütfen"),
+    ]
+
+
+def _footwear_pattern_examples(W: str, T: str) -> list[dict[str, Any]]:
+    shoes = "shoes" if T == "shoe" else T
+    return [
+        _pe(W, f"Bu {W}lar rahat.", f"These {shoes} are comfortable.", "basic",
+            f"These + {shoes} + are + comfortable",
+            f"1️⃣ Temel kullanım\nThese → bunlar\nare → -dır/-dir\n\n"
+            f"Ayakkabı genelde çoğul (shoes) kullanılır."),
+        _pe(W, f"Şu an {W}larımı giyiyorum.", f"I am putting on my {shoes} now.", "present",
+            f"I + am + putting on + my {shoes}",
+            f"1️⃣ Şimdiki zaman\nputting on → giyiyorum\n\n"
+            f"am + fiil-ing → şu anda"),
+        _pe(W, f"Dün yeni {W} aldım.", f"I bought new {shoes} yesterday.", "past",
+            f"I + bought + new {shoes}",
+            f"1️⃣ Geçmiş zaman\nbought → aldım (buy geçmişi)\n\n"
+            f"new shoes → yeni ayakkabı"),
+        _pe(W, f"Yarın {W} alacağım.", f"I will buy {shoes} tomorrow.", "future",
+            f"I + will + buy + {shoes}",
+            f"1️⃣ Gelecek zaman\nwill + buy → alacağım\n\n"
+            f"tomorrow → yarın"),
+        _pe(W, f"Bu {W}ları nereden aldın?", f"Where did you buy these {shoes}?", "question",
+            f"Where + did + you + buy + these {shoes}",
+            f"1️⃣ Soru cümlesi\nWhere did you…? → …-i nereden …?\n\n"
+            f"did → geçmiş zaman yardımcısı"),
+        _pe(W, f"Bu {W}lar bana küçük geliyor.", f"These {shoes} don't fit me.", "negative",
+            f"These + {shoes} + don't + fit + me",
+            f"1️⃣ Olumsuz cümle\ndon't fit → uymuyor / küçük geliyor\n\n"
+            f"fit → uymak (beden)"),
+        _pe(W, f"{W.capitalize()}larını bağla.", f"Tie your {shoes}.", "imperative",
+            f"Tie + your + {shoes}",
+            f"1️⃣ Emir kipi\ntie your shoes → ayakkabılarını bağla\n\n"
+            f"Emirde özne yok."),
+        _pe(W, f"{W.capitalize()}larını bağlayabilir misin?", f"Could you tie your {shoes}?", "polite_request",
+            f"Could + you + tie + your {shoes}",
+            f"1️⃣ Rica cümlesi\nCould you…? → …-ebilir misin?\n\n"
+            f"Kibar rica kalıbı."),
+        _pe(W, f"Evde {W} giymelisin.", f"You should wear {shoes} at home.", "advice",
+            f"You + should + wear + {shoes}",
+            f"1️⃣ Tavsiye cümlesi\nshould → …-melisin\n\n"
+            f"wear shoes → ayakkabı giymek"),
+        _pe(W, f"Yeni bir çift {W} almam lazım.", f"I need to buy a new pair of {shoes}.", "obligation",
+            f"I + need to + buy + a pair of {shoes}",
+            f"1️⃣ Zorunluluk cümlesi\nneed to → …-mem lazım\n\n"
+            f"a pair of shoes → bir çift ayakkabı"),
+        _pe(W, f"{W.capitalize()}larım kaybolmuş olabilir.", f"My {shoes} might be lost.", "possibility",
+            f"My + {shoes} + might + be + lost",
+            f"1️⃣ İhtimal cümlesi\nmight be → … olabilir\n\n"
+            f"lost → kayıp"),
+        _pe(W, f"Yağmur yağarsa {W} giy.", f"If it rains, wear your {shoes}.", "conditional",
+            f"If + it + rains, + wear + your {shoes}",
+            f"1️⃣ Koşul cümlesi\nIf it rains → yağmur yağarsa\n\n"
+            f"Koşul + emir/tavsiye"),
+        _pe(W, f"A: {W.capitalize()}ların rahat mı? B: Evet.", f"A: Are your {shoes} comfortable? B: Yes, they are.", "dialogue",
+            f"A: Are + your {shoes} + comfortable? B: Yes",
+            f"1️⃣ Günlük diyalog\nAre your shoes…? → ayakkabıların rahat mı?\n\n"
+            f"Yes, they are → evet, öyleler"),
+    ]
+
+
+def _vehicle_pattern_examples(W: str, T: str) -> list[dict[str, Any]]:
+    return [
+        _pe(W, f"{W.capitalize()} garajda.", f"The {T} is in the garage.", "basic",
+            f"The + {T} + is + in the garage", f"1️⃣ Temel kullanım\nThe {T} → araba\nis → -dır\ngarage → garaj"),
+        _pe(W, f"Şu an {W} kullanıyorum.", f"I am driving the {T} now.", "present",
+            f"I + am + driving + the {T}", f"1️⃣ Şimdiki zaman\ndriving → sürüyorum\nam + -ing → şu anda"),
+        _pe(W, f"Geçen yıl {W} aldım.", f"I bought a {T} last year.", "past",
+            f"I + bought + a {T}", f"1️⃣ Geçmiş zaman\nbought → aldım\nlast year → geçen yıl"),
+        _pe(W, f"Yarın {W} süreceğim.", f"I will drive the {T} tomorrow.", "future",
+            f"I + will + drive + the {T}", f"1️⃣ Gelecek zaman\nwill drive → süreceğim"),
+        _pe(W, f"{W.capitalize()} nerede park ettin?", f"Where did you park the {T}?", "question",
+            f"Where + did + you + park", f"1️⃣ Soru cümlesi\nWhere did you park…? → nereye park ettin?"),
+        _pe(W, f"{W.capitalize()} bozuk değil.", f"The {T} is not broken.", "negative",
+            f"The + {T} + is + not + broken", f"1️⃣ Olumsuz cümle\nis not broken → bozuk değil"),
+        _pe(W, f"{W.capitalize()}yı yavaş sür.", f"Drive the {T} slowly.", "imperative",
+            f"Drive + the {T} + slowly", f"1️⃣ Emir kipi\nDrive → sür\nslowly → yavaşça"),
+        _pe(W, f"{W} kullanabilir miyim?", f"Could I use the {T}?", "polite_request",
+            f"Could + I + use + the {T}", f"1️⃣ Rica cümlesi\nCould I…? → …-ebilir miyim?"),
+        _pe(W, f"{W} için sigorta yaptırmalısın.", f"You should get insurance for the {T}.", "advice",
+            f"You + should + get + insurance", f"1️⃣ Tavsiye cümlesi\nshould → …-melisin"),
+        _pe(W, f"{W} tamir etmem lazım.", f"I need to fix the {T}.", "obligation",
+            f"I + need to + fix + the {T}", f"1️⃣ Zorunluluk cümlesi\nneed to fix → tamir etmem lazım"),
+        _pe(W, f"{W.capitalize()} bozulmuş olabilir.", f"The {T} might be broken.", "possibility",
+            f"The + {T} + might + be + broken", f"1️⃣ İhtimal cümlesi\nmight be → … olabilir"),
+        _pe(W, f"{W.capitalize()} bozuksa tamir ettir.", f"If the {T} is broken, get it fixed.", "conditional",
+            f"If + the {T} + is broken", f"1️⃣ Koşul cümlesi\nIf … is broken → … bozuksa"),
+        _pe(W, f"A: {W.capitalize()} hazır mı? B: Evet.", f"A: Is the {T} ready? B: Yes, the keys are inside.", "dialogue",
+            f"A: Is the {T} ready? B: Yes", f"1️⃣ Günlük diyalog\nAraç hazırlığı hakkında kısa konuşma."),
+    ]
+
+
+def _plumbing_pattern_examples(W: str, T: str) -> list[dict[str, Any]]:
+    return [
+        _pe(W, f"{W.capitalize()} mutfakta.", f"The {T} is in the kitchen.", "basic",
+            f"The + {T} + is + in the kitchen", f"1️⃣ Temel kullanım\nThe faucet → musluk\nis → -dır"),
+        _pe(W, f"{W.capitalize()} su sızdırıyor.", f"The {T} is leaking.", "present",
+            f"The + {T} + is + leaking", f"1️⃣ Şimdiki zaman\nis leaking → sızdırıyor\n-ing → devam eden durum"),
+        _pe(W, f"Dün {W} tamir ettirdim.", f"I had the {T} repaired yesterday.", "past",
+            f"I + had + the {T} + repaired", f"1️⃣ Geçmiş zaman\nhad … repaired → tamir ettirdim"),
+        _pe(W, f"Yarın {W} değiştireceğim.", f"I will replace the {T} tomorrow.", "future",
+            f"I + will + replace + the {T}", f"1️⃣ Gelecek zaman\nwill replace → değiştireceğim"),
+        _pe(W, f"{W.capitalize()} neden akıyor?", f"Why is the {T} leaking?", "question",
+            f"Why + is + the {T} + leaking", f"1️⃣ Soru cümlesi\nWhy → neden\nis leaking → sızdırıyor"),
+        _pe(W, f"{W.capitalize()} kapatılmamış.", f"The {T} is not turned off.", "negative",
+            f"The + {T} + is + not + turned off", f"1️⃣ Olumsuz cümle\nnot turned off → kapatılmamış"),
+        _pe(W, f"{W.capitalize()}u kapat.", f"Turn off the {T}.", "imperative",
+            f"Turn off + the {T}", f"1️⃣ Emir kipi\nturn off → kapatmak (musluk/ışık için)"),
+        _pe(W, f"{W.capitalize()}u kapatabilir misin?", f"Could you turn off the {T}?", "polite_request",
+            f"Could + you + turn off + the {T}", f"1️⃣ Rica cümlesi\nCould you turn off…? → kapatabilir misin?"),
+        _pe(W, f"Su tasarrufu için {W}u kapatmalısın.", f"You should turn off the {T} to save water.", "advice",
+            f"You + should + turn off + the {T}", f"1️⃣ Tavsiye cümlesi\nshould → …-melisin"),
+        _pe(W, f"{W.capitalize()} tamir ettirmem lazım.", f"I need to have the {T} repaired.", "obligation",
+            f"I + need to + have + the {T} + repaired", f"1️⃣ Zorunluluk cümlesi\nneed to have … repaired"),
+        _pe(W, f"{W.capitalize()} bozulmuş olabilir.", f"The {T} might be broken.", "possibility",
+            f"The + {T} + might + be + broken", f"1️⃣ İhtimal cümlesi\nmight be broken → bozulmuş olabilir"),
+        _pe(W, f"{W.capitalize()} akarsa hemen kapat.", f"If the {T} is leaking, turn it off immediately.", "conditional",
+            f"If + the {T} + is leaking", f"1️⃣ Koşul cümlesi\nIf … is leaking → … akarsa"),
+        _pe(W, f"A: {W.capitalize()} akıyor mu? B: Evet.", f"A: Is the {T} leaking? B: Yes, a little.", "dialogue",
+            f"A: Is the {T} leaking? B: Yes", f"1️⃣ Günlük diyalog\nMusluk sorunu hakkında kısa konuşma."),
+    ]
+
+
+def _adjective_pattern_examples(W: str, T: str) -> list[dict[str, Any]]:
+    return [
+        _pe(W, f"Mutluyum.", f"I am {T}.", "basic", f"I + am + {T}", f"1️⃣ Temel kullanım\nam + sıfat → …-yım\n❌ I happy — am gerekli"),
+        _pe(W, f"Şu an mutluyum.", f"I am feeling {T} right now.", "present", f"I + am + feeling + {T}", f"1️⃣ Şimdiki zaman\nfeeling → hissediyorum"),
+        _pe(W, f"Dün mutluydum.", f"I was {T} yesterday.", "past", f"I + was + {T}", f"1️⃣ Geçmiş zaman\nwas → geçmişte be fiili"),
+        _pe(W, f"Yarın mutlu olacağım.", f"I will be {T} tomorrow.", "future", f"I + will + be + {T}", f"1️⃣ Gelecek zaman\nwill be → … olacağım"),
+        _pe(W, f"Mutlu musun?", f"Are you {T}?", "question", f"Are + you + {T}", f"1️⃣ Soru cümlesi\nAre + özne + sıfat?"),
+        _pe(W, f"Mutlu değilim.", f"I am not {T}.", "negative", f"I + am + not + {T}", f"1️⃣ Olumsuz cümle\nam not → değilim"),
+        _pe(W, f"Mutlu ol!", f"Be {T}!", "imperative", f"Be + {T}", f"1️⃣ Emir kipi\nBe + sıfat → … ol"),
+        _pe(W, f"Mutlu olabilir misin?", f"Could you be {T}?", "polite_request", f"Could + you + be + {T}", f"1️⃣ Rica cümlesi\nCould you be…? → … olabilir misin?"),
+        _pe(W, f"Daha mutlu olmalısın.", f"You should be {T}er.", "advice", f"You + should + be + {T}", f"1️⃣ Tavsiye cümlesi\nshould be → … olmalısın"),
+        _pe(W, f"Mutlu hissetmem lazım.", f"I need to feel {T}.", "obligation", f"I + need to + feel + {T}", f"1️⃣ Zorunluluk cümlesi\nneed to feel → hissetmem lazım"),
+        _pe(W, f"Mutlu olabilirsin.", f"You might be {T}.", "possibility", f"You + might + be + {T}", f"1️⃣ İhtimal cümlesi\nmight be → … olabilirsin"),
+        _pe(W, f"Güzel hava olursa mutlu olursun.", f"If the weather is nice, you will be {T}.", "conditional", f"If + …, + you will be + {T}", f"1️⃣ Koşul cümlesi\nIf … → … olursa"),
+        _pe(W, f"A: Mutlu musun? B: Evet.", f"A: Are you {T}? B: Yes, I am.", "dialogue", f"A: Are you {T}? B: Yes", f"1️⃣ Günlük diyalog\nDuygu sorma kalıbı."),
+    ]
+
+
+def _verb_pattern_examples(W: str, T: str) -> list[dict[str, Any]]:
+    return [
+        _pe(W, f"Her gün çalışırım.", f"I {T} every day.", "basic", f"I + {T} + every day", f"1️⃣ Temel kullanım\nGeniş zaman: I + fiil(yalın)"),
+        _pe(W, f"Şu an çalışıyorum.", f"I am {T}ing now.", "present", f"I + am + {T}ing", f"1️⃣ Şimdiki zaman\nam + fiil-ing → şu anda …-yor"),
+        _pe(W, f"Dün geç çalıştım.", f"I {T}ed late yesterday.", "past", f"I + {T}ed", f"1️⃣ Geçmiş zaman\nfiil + -ed → geçmiş zaman"),
+        _pe(W, f"Yarın çalışacağım.", f"I will {T} tomorrow.", "future", f"I + will + {T}", f"1️⃣ Gelecek zaman\nwill + fiil → …-eceğim"),
+        _pe(W, f"Burada çalışıyor musun?", f"Do you {T} here?", "question", f"Do + you + {T}", f"1️⃣ Soru cümlesi\nDo + özne + fiil?"),
+        _pe(W, f"Pazar günleri çalışmam.", f"I don't {T} on Sundays.", "negative", f"I + don't + {T}", f"1️⃣ Olumsuz cümle\ndon't + fiil(yalın)"),
+        _pe(W, f"Çalış!", f"{T.capitalize()}!", "imperative", f"{T.capitalize()}", f"1️⃣ Emir kipi\nFiil ile başlar, özne yok"),
+        _pe(W, f"Biraz çalışabilir misin?", f"Could you {T} a bit?", "polite_request", f"Could + you + {T}", f"1️⃣ Rica cümlesi\nCould you…? → …-ebilir misin?"),
+        _pe(W, f"Daha çok çalışmalısın.", f"You should {T} harder.", "advice", f"You + should + {T}", f"1️⃣ Tavsiye cümlesi\nshould → …-melisin"),
+        _pe(W, f"Bugün çalışmam lazım.", f"I need to {T} today.", "obligation", f"I + need to + {T}", f"1️⃣ Zorunluluk cümlesi\nneed to + fiil"),
+        _pe(W, f"Belki yarın çalışırım.", f"I might {T} tomorrow.", "possibility", f"I + might + {T}", f"1️⃣ İhtimal cümlesi\nmight → belki / -ebilir"),
+        _pe(W, f"Vaktin olursa çalış.", f"If you have time, {T}.", "conditional", f"If + you + have time, + {T}", f"1️⃣ Koşul cümlesi\nIf you have time → vaktin olursa"),
+        _pe(W, f"A: Çalışıyor musun? B: Evet.", f"A: Are you {T}ing? B: Yes, I am.", "dialogue", f"A: Are you {T}ing? B: Yes", f"1️⃣ Günlük diyalog"),
+    ]
+
+
+def _place_pattern_examples(W: str, T: str) -> list[dict[str, Any]]:
+    return [
+        _pe(W, f"{W.capitalize()} yakın.", f"The {T} is nearby.", "basic", f"The + {T} + is + nearby", f"1️⃣ Temel kullanım\nThe {T} → belirli yer"),
+        _pe(W, f"Şu an {W}'e gidiyorum.", f"I am going to the {T} now.", "present", f"I + am + going + to the {T}", f"1️⃣ Şimdiki zaman\nam going → gidiyorum"),
+        _pe(W, f"Dün {W}'e gittim.", f"I went to the {T} yesterday.", "past", f"I + went + to the {T}", f"1️⃣ Geçmiş zaman\nwent → gittim"),
+        _pe(W, f"Yarın {W}'e gideceğim.", f"I will go to the {T} tomorrow.", "future", f"I + will + go + to the {T}", f"1️⃣ Gelecek zaman\nwill go → gideceğim"),
+        _pe(W, f"{W.capitalize()} açık mı?", f"Is the {T} open?", "question", f"Is + the {T} + open", f"1️⃣ Soru cümlesi\nIs the … open? → … açık mı?"),
+        _pe(W, f"Bugün {W}'e gitmiyorum.", f"I am not going to the {T} today.", "negative", f"I + am + not + going", f"1️⃣ Olumsuz cümle\nam not going → gitmiyorum"),
+        _pe(W, f"{W.capitalize()}e git.", f"Go to the {T}.", "imperative", f"Go + to the {T}", f"1️⃣ Emir kipi\nGo to the … → …-e git"),
+        _pe(W, f"{W.capitalize()}e gidebilir miyiz?", f"Could we go to the {T}?", "polite_request", f"Could + we + go", f"1️⃣ Rica cümlesi\nCould we…? → …-ebilir miyiz?"),
+        _pe(W, f"Erken {W}'e gitmelisin.", f"You should go to the {T} early.", "advice", f"You + should + go", f"1️⃣ Tavsiye cümlesi\nshould go → gitmelisin"),
+        _pe(W, f"{W.capitalize()}e gitmem lazım.", f"I need to go to the {T}.", "obligation", f"I + need to + go", f"1️⃣ Zorunluluk cümlesi\nneed to go → gitmem lazım"),
+        _pe(W, f"{W.capitalize()} bugün kapalı olabilir.", f"The {T} might be closed today.", "possibility", f"The + {T} + might + be + closed", f"1️⃣ İhtimal cümlesi\nmight be closed → kapalı olabilir"),
+        _pe(W, f"Açıksa {W}'e gidelim.", f"If it is open, let's go to the {T}.", "conditional", f"If + it + is open", f"1️⃣ Koşul cümlesi\nIf it is open → açıksa"),
+        _pe(W, f"A: {W.capitalize()}e gidelim mi? B: Olur.", f"A: Shall we go to the {T}? B: Sure.", "dialogue", f"A: Shall we go? B: Sure", f"1️⃣ Günlük diyalog\nShall we…? → …-elim mi?"),
+    ]
+
+
 def _footwear_examples_en(word_tr: str, target_word: str) -> list[dict[str, Any]]:
     """Ayakkabı / shoe — günlük doğal örnekler."""
     T, W = _en_target_word(target_word), word_tr
@@ -929,259 +1322,8 @@ def _category_examples_en(
     target_word: str,
     category: str,
 ) -> list[dict[str, Any]]:
-    """Kategori bazlı doğal örnekler — şablon değil, anlama göre."""
-    category = _resolve_category(word_tr, target_word, category)
-    T, W = _en_target_word(target_word), word_tr
-    wt, tw = _norm(word_tr), T
-
-    if category == "furniture" and (wt in ("masa", "sandalye") or tw in ("table", "chair")):
-        examples = [
-            _ex(W, f"{W.capitalize()} mutfakta.", f"The {T} is in the kitchen.", "location",
-                f"The + {T} + is + in the kitchen",
-                f"Bu cümlede «{W}» özne.\n\n"
-                f"The {T} → belirli {W}\nis → tekil «be» fiili\nin the kitchen → mutfakta\n\n"
-                f"Türkçede «{W} mutfakta» — İngilizcede the + is gerekir."),
-            _ex(W, f"{W.capitalize()}nın üzerinde kitap var.", f"There is a book on the {T}.", "existence",
-                f"There is + a book + on the {T}",
-                f"Var/yok: There is…\n\n"
-                f"on the {T} → {W}nın üzerinde\n\n"
-                "on edatı «üzerinde» anlamı verir."),
-            _ex(W, f"Bardakları {W}ya koy.", f"Please put the cups on the {T}.", "action",
-                f"Put + the cups + on the {T}",
-                f"Emir: fiil ile başlar (Please opsiyonel)\n\n"
-                f"put … on the {T} → … {W}nın üzerine koy\n\n"
-                "put + nesne + on + yer kalıbı çok yaygın.",
-                pattern_tr="Put + nesne + on the [şey]",
-                pattern_examples=[{
-                    "target": f"Put the book on the {T}.",
-                    "tr": f"Kitabı {W}nın üzerine koy.",
-                    "new_words": [{"word": "book", "meaning_tr": "kitap"}],
-                }]),
-            _ex(W, f"{W.capitalize()}da oturduk.", f"We sat at the {T}.", "past",
-                f"We + sat + at the {T}",
-                f"Geçmiş: sat (sit'in geçmişi)\n\n"
-                f"at the {T} → {W}da (oturma bağlamı)\n\n"
-                f"«{W.capitalize()}» için at kullanılır, on değil (oturma)."),
-            _ex(W, f"{W.capitalize()}yı temizlemem lazım.", f"I need to clean the {T}.", "need_to",
-                f"I + need to + clean + the {T}",
-                f"need to + fiil → …-mem lazım\n\n"
-                f"clean the {T} → {W}yı temizlemek\n\n"
-                "❌ I need clean — need to gerekli."),
-            _ex(W, f"{W.capitalize()}yı taşıyabilir misin?", f"Can you move the {T}?", "request",
-                f"Can + you + move + the {T}",
-                f"Can you…? → …-ebilir misin?\n\n"
-                f"move the {T} → {W}yı taşımak\n\n"
-                f"«{W}» için move doğal bir fiildir."),
-        ]
-        return examples
-
-    if category == "footwear":
-        return _footwear_examples_en(word_tr, target_word)
-
-    if category == "object":
-        return _object_examples_en(word_tr, target_word)
-
-    if category == "beverage":
-        return _beverage_examples_en(word_tr, target_word)
-
-    if category == "plumbing":
-        return [
-            _ex(W, f"{W.capitalize()} mutfakta.", f"The {T} is in the kitchen.", "location",
-                f"The + {T} + is + in the kitchen",
-                f"The → belirli musluk\n{T} → {W}\nis → tekil be fiili\nin the kitchen → mutfakta"),
-            _ex(W, f"{W.capitalize()} su sızdırıyor.", f"The {T} is leaking.", "problem",
-                f"The + {T} + is + leaking",
-                f"1️⃣ Genel anlam: Musluk şu anda su sızdırıyor.\n\n"
-                f"The → belirli musluk\nis → tekil yardımcı fiil\nleaking → sızdırıyor (is + fiil-ing)\n\n"
-                "❓ Neden -ing? Devam eden durum için Present Continuous yapısı.\n\n"
-                "Genel yapı: Subject + is/are + verb-ing",
-                pattern_tr="The [place] faucet is [verb-ing].",
-                pattern_examples=[{
-                    "target": "The bathroom faucet is leaking.",
-                    "tr": "Banyo musluğu su sızdırıyor.",
-                    "new_words": [
-                        {"word": "bathroom", "meaning_tr": "banyo"},
-                        {"word": "leaking", "meaning_tr": "sızdırıyor"},
-                    ],
-                }]),
-            _ex(W, f"Musluğu kapat.", f"Turn off the {T}.", "action",
-                f"Turn off + the {T}",
-                f"turn off → kapatmak (musluk, ışık, cihaz için çok yaygın)\n\n"
-                f"❓ Neden turn off? İngilizcede musluk/ışık kapatırken bu phrasal verb kullanılır.\n\n"
-                f"the {T} → belirli musluk"),
-            _ex(W, f"Musluğu kapatabilir misin?", f"Could you turn off the {T}?", "request",
-                f"Could + you + turn off + the {T}",
-                f"Could you…? → kibar rica\n\n"
-                "turn off the faucet = musluğu kapatmak"),
-            _ex(W, f"{W.capitalize()} neden akıyor?", f"Why is the {T} leaking?", "question",
-                f"Why + is + the {T} + leaking",
-                f"Soru: Why + is + özne + fiil-ing?\n\n"
-                f"Why → neden\nleaking → sızdırıyor"),
-            _ex(W, f"Yeni bir mutfak musluğu almam gerekiyor.", f"I need to buy a new kitchen {T}.", "shopping",
-                f"I + need to + buy + a new kitchen {T}",
-                f"need to + fiil → …-mem lazım\n\n"
-                f"a new kitchen {T} → yeni mutfak musluğu\n\n"
-                "kitchen faucet = mutfak musluğu (sıfat + isim)"),
-            _ex(W, f"Musluğu tamir ettirmem gerekiyor.", f"I need to have the {T} repaired.", "repair",
-                f"I + need to + have + the {T} + repaired",
-                f"have something repaired → bir şeyi tamir ettirmek\n\n"
-                f"Bu yapı «musluğu tamir ettirmem lazım» anlamını verir."),
-        ]
-
-    if category == "vehicle":
-        return [
-            _ex(W, f"{W.capitalize()} garajda.", f"The {T} is in the garage.", "location",
-                f"The + {T} + is + in the garage", f"The {T} → araba\ngarage → garaj"),
-            _ex(W, f"Yeni bir {W} aldım.", f"I bought a new {T}.", "shopping",
-                f"I + bought + a new {T}", f"a new {T} → yeni araba\nbought → aldım"),
-            _ex(W, f"{W.capitalize()} bozuk.", f"The {T} is broken.", "problem",
-                f"The + {T} + is + broken", f"broken → bozuk (sıfat)\nis broken → bozuk durumda"),
-            _ex(W, f"{W} kullanabilir misin?", f"Can you drive the {T}?", "request",
-                f"Can + you + drive + the {T}", f"drive the {T} → arabayı sürmek"),
-            _ex(W, f"{W} tamir etmem lazım.", f"I need to fix the {T}.", "repair",
-                f"I + need to + fix + the {T}", f"fix the {T} → arabayı tamir etmek"),
-            _ex(W, f"{W} nereye park ettin?", f"Where did you park the {T}?", "question",
-                f"Where + did + you + park + the {T}", f"park → park etmek\nWhere did you…? → nereye…?"),
-        ]
-
-    if category == "adjective":
-        return [
-            _ex(W, f"Mutluyum.", f"I am {T}.", "description",
-                f"I + am + {T}", f"am + sıfat → …-yım/-ım\n\n❌ I happy — am gerekli"),
-            _ex(W, f"Mutlu görünüyor.", f"She looks {T}.", "description",
-                f"She + looks + {T}", f"look + sıfat → … gibi görünmek"),
-            _ex(W, f"Mutlu musun?", f"Are you {T}?", "question",
-                f"Are + you + {T}", f"Soru: Are + özne + sıfat?"),
-            _ex(W, f"Bu beni mutlu ediyor.", f"This makes me {T}.", "action",
-                f"This + makes + me + {T}", f"make + kişi + sıfat → …-i mutlu etmek"),
-            _ex(W, f"Dün mutluydum.", f"I was {T} yesterday.", "past",
-                f"I + was + {T}", f"was → geçmişte be fiili"),
-            _ex(W, f"Mutlu görünüyorlar.", f"They seem {T}.", "description",
-                f"They + seem + {T}", f"seem + sıfat → … gibi görünmek"),
-        ]
-
-    if category == "verb":
-        return [
-            _ex(W, f"Her gün çalışırım.", f"I {T} every day.", "routine",
-                f"I + {T} + every day", f"Geniş zaman: I + fiil(yalın)"),
-            _ex(W, f"Pazar günleri çalışmam.", f"I don't {T} on Sundays.", "negative",
-                f"I + don't + {T}", f"don't + fiil(yalın) → …-mıyorum"),
-            _ex(W, f"Burada çalışıyor musun?", f"Do you {T} here?", "question",
-                f"Do + you + {T}", f"Soru: Do + özne + fiil?"),
-            _ex(W, f"Daha çok çalışmam lazım.", f"I need to {T} harder.", "need_to",
-                f"I + need to + {T}", f"need to + fiil → …-mem lazım"),
-            _ex(W, f"Şu an çalışıyor.", f"She is {T}ing now.", "present_continuous",
-                f"She + is + {T}ing", f"is + fiil-ing → şu anda …-yor"),
-            _ex(W, f"Dün geç saate kadar çalıştım.", f"I {T}ed late yesterday.", "past",
-                f"I + {T}ed + late", f"Geçmiş zaman: fiil + -ed (düzenli fiiller)"),
-        ]
-
-    if category == "place":
-        return [
-            _ex(W, f"{W.capitalize()}e gidiyorum.", f"I am going to the {T}.", "movement",
-                f"I + am going + to the {T}",
-                f"go to the {T} → {W}'e gitmek\n\n"
-                "Yer isimlerinde genelde the kullanılır."),
-            _ex(W, f"{W.capitalize()}te bekliyorum.", f"I am waiting at the {T}.", "location",
-                f"I + am waiting + at the {T}",
-                f"at the {T} → {W}'te/-da\n\n"
-                "Beklemek için at + yer."),
-        ]
-
-    # Genel sayılabilir isim
-    return [
-        _ex(W, f"{W.capitalize()} burada.", f"The {T} is here.", "description",
-            f"The + {T} + is + here", f"The {T} → belirli {W}\nis → -dir/-dır\nhere → burada"),
-        _ex(W, f"Bir {W} aldım.", f"I bought a {T}.", "past",
-            f"I + bought + a {T}", f"a {T} → bir {W}\nbought → aldım (buy geçmişi)"),
-        _ex(W, f"{W.capitalize()} nerede?", f"Where is the {T}?", "question",
-            f"Where + is + the {T}?", "Soru: Where + is + özne?"),
-    ]
-
-
-def _beverage_examples_en(word_tr: str, target_word: str) -> list[dict[str, Any]]:
-    """İçecek — kahve ve soda için ayrı doğal örnekler."""
-    T, W = _en_target_word(target_word), word_tr
-    wt, tw = _norm(word_tr), T
-
-    if wt in ("soda", "gazoz", "kola") or tw in ("soda", "cola"):
-        return [
-            _ex(W, "Bir gazoz alabilir miyim?", "Can I have a soda?", "request",
-                "Can + I + have + a + soda",
-                "1️⃣ Genel anlam\nRestoranda veya dükkanda kibarca gazoz istemek.\n\n"
-                "2️⃣ Can I have…?\nCan → -ebilir miyim\nI → ben\nhave → almak/istemek\na soda → bir gazoz\n\n"
-                "3️⃣ Neden have?\nİngilizcede içecek isterken have a coffee/soda çok doğaldır.\n\n"
-                "❌ Do you give me soda — doğal değil.",
-                pattern_tr="Can I + have + a + [içecek]?"),
-            _ex(W, "Gazoz içmem.", "I don't drink soda.", "negative",
-                "I + don't + drink + soda",
-                "1️⃣ Olumsuz tercih\nGazoz içmediğini söylemek.\n\n"
-                "2️⃣ don't + fiil(yalın)\ndon't → olumsuz yardımcı\ndrink → içmek\nsoda → gazoz\n\n"
-                "3️⃣ Neden drink?\nİçeceklerle drink kullanılır; eat değil.",
-                pattern_tr="I + don't + drink + [içecek]"),
-            _ex(W, "Diyet gazoz ister misin?", "Would you like a diet soda?", "offer",
-                "Would + you + like + a + diet soda",
-                "1️⃣ Kibar teklif\nWould you like…? çok kibar bir teklif kalıbıdır.\n\n"
-                "2️⃣ diet soda\n❌ black soda yok\ndiet soda → diyet gazoz / light\n\n"
-                "3️⃣ Neden Would?\nDo you want'tan daha nazik.",
-                pattern_tr="Would you like + a + [içecek]?"),
-            _ex(W, "Yemekte genelde gazoz içerim.", "I usually have soda with my meal.", "routine",
-                "I + usually + have + soda + with my meal",
-                "1️⃣ Alışkanlık\nusually → genelde\nhave soda → gazoz içmek/alma\nwith my meal → yemeğimle birlikte\n\n"
-                "2️⃣ have vs drink\nBurada have soda da doğal.",
-                pattern_tr="I + usually + have + [içecek] + with + [yemek]"),
-            _ex(W, "Bir kutu kola aldım.", "I bought a can of cola.", "past",
-                "I + bought + a can of + cola",
-                "1️⃣ Geçmiş alışveriş\nbought → aldım (buy geçmişi)\n\n"
-                "2️⃣ a can of cola\nKutu ile sayım: a can of… / a bottle of…\n\n"
-                "3️⃣ cola vs soda\nCola marka/tür; soda daha genel.",
-                pattern_tr="I + bought + a can of + [içecek]"),
-            _ex(W, "Soğuk bir gazoz istiyorum.", "I'd like a cold soda, please.", "request",
-                "I'd + like + a + cold + soda",
-                "1️⃣ Kibar istek\nI'd like = I would like → … istiyorum (kibar)\n\n"
-                "2️⃣ cold soda\nSıcaklık sıfatı isimden önce gelir.\n\n"
-                "3️⃣ please\nCümle sonunda kibarlık için eklenebilir.",
-                pattern_tr="I'd like + a + [sıfat] + [içecek]"),
-        ]
-
-    return [
-        _ex(W, f"Sabahları {W} içerim.", f"I drink {T} every morning.", "routine",
-            f"I + drink + {T} + every morning",
-            f"1️⃣ Genel anlam\nSabah rutini olarak içecek tüketmek.\n\n"
-            f"I → ben\ndrink → içmek\n{T} → {W}\nevery morning → her sabah\n\n"
-            "Türkçede «sabahları kahve içerim» — İngilizcede özne I ile başlar.",
-            pattern_tr="I + drink + [içecek] + every morning"),
-        _ex(W, f"Akşam {W} içmek ister misin?", f"Would you like some {T} tonight?", "offer",
-            f"Would + you + like + some {T}",
-            f"1️⃣ Kibar teklif\nWould you like…? → … ister misin?\n\n"
-            f"some {T} → biraz {W}\n\n"
-            "Do you want? daha doğrudan; Would you like daha kibar.",
-            pattern_tr="Would you like + some + [içecek]?"),
-        _ex(W, f"Bir {W} alabilir miyim?", f"Can I have a {T}?", "request",
-            f"Can + I + have + a {T}",
-            f"1️⃣ Rica\nCan I have…? kibarca bir şey istemek.\n\n"
-            f"a {T} → bir {W} (porsiyon)\n\n"
-            "have burada «almak/istemek» anlamında.",
-            pattern_tr="Can I + have + a + [içecek]?"),
-        _ex(W, f"Siyah {W} sevmem.", f"I don't like black {T}.", "negative",
-            f"I + don't + like + black {T}",
-            f"1️⃣ Olumsuz tercih\ndon't + like → … sevmem\n\n"
-            f"black {T} → siyah {W}\n\n"
-            "Kahve için black coffee doğal; soda için kullanılmaz.",
-            pattern_tr="I + don't + like + [sıfat] + [içecek]"),
-        _ex(W, f"O {W} yapıyor.", f"She is making {T}.", "present_continuous",
-            f"She + is + making + {T}",
-            f"1️⃣ Şu an yapıyor\nis + making → yapıyor\n\n"
-            f"making {T} → {W} hazırlıyor\n\n"
-            "make coffee çok yaygın bir kalıptır.",
-            pattern_tr="She + is + making + [içecek]"),
-        _ex(W, f"İki {W} içtim.", f"I had two {T}s.", "past",
-            f"I + had + two {T}s",
-            f"1️⃣ Geçmiş\nhad → geçmişte sahip olmak/içmek\n\n"
-            f"two {T}s → iki {W} (porsiyon)\n\n"
-            "İçecek madde sayılamaz ama porsiyon sayılabilir.",
-            pattern_tr="I + had + two + [içecek]"),
-    ]
+    """13 dil bilgisi kalıbına göre kelimeye özel örnekler."""
+    return _thirteen_pattern_examples_en(word_tr, target_word, category)
 
 
 def _fill_word_breakdown(ex: dict[str, Any], lang: str = "en") -> dict[str, Any]:
@@ -1266,8 +1408,10 @@ def _ex(
     pattern_tr: str | None = None,
     pattern_examples: list[dict[str, Any]] | None = None,
     important_note_tr: str | None = None,
+    grammar_pattern: str | None = None,
 ) -> dict[str, Any]:
-    scenario = SCENARIO_LABELS.get(sentence_type, sentence_type.upper())
+    pat_key = _resolve_grammar_pattern(sentence_type, grammar_pattern)
+    scenario = _pattern_label(pat_key)
     structure_label = f"Dil Bilgisi Formülü: {structure_tr}"
     pat = pattern_tr
     if pat and not pat.lower().startswith("kelime şablonu"):
@@ -1276,10 +1420,11 @@ def _ex(
     ex = {
         "tr": tr,
         "target": target,
-        "sentence_type": sentence_type,
+        "sentence_type": pat_key,
         "sentence_type_label": scenario,
-        "grammar_topic": sentence_type,
-        "difficulty": "A1" if sentence_type in ("description", "question", "location") else "A2",
+        "grammar_pattern": pat_key,
+        "grammar_topic": pat_key,
+        "difficulty": "A1" if pat_key in ("basic", "question") else "A2",
         "structure_tr": structure_tr,
         "structure_label_tr": structure_label,
         "word_breakdown": [],
@@ -1324,7 +1469,7 @@ def generate_examples_from_profile(
             if _validate_word_example(ex, word_tr, target_word, profile):
                 examples.append(ex)
 
-    return sanitize_word_examples(examples[:8], word_tr, target_word, profile)
+    return sanitize_word_examples(examples[:13], word_tr, target_word, profile)
 
 
 def build_rule_examples_for_word(

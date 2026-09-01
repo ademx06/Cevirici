@@ -25,6 +25,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
+APP_VERSION = "2026.09.01-v12"
 PORT = int(os.environ.get("PORT", "8780"))
 WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "base")
 DISABLE_WHISPER = os.environ.get("DISABLE_WHISPER", "1").lower() in ("1", "true", "yes")
@@ -806,6 +807,11 @@ class Handler(SimpleHTTPRequestHandler):
         return "Bir hata oluştu — tekrar deneyin"
 
     def end_headers(self):
+        path = urlparse(self.path).path
+        if path.endswith((".js", ".html", ".css")):
+            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+            self.send_header("Pragma", "no-cache")
+            self.send_header("Expires", "0")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "*")
@@ -879,7 +885,7 @@ class Handler(SimpleHTTPRequestHandler):
                 "ok": True,
                 "origin": origin,
                 "port": PORT,
-                "app_version": "2026.09.01-v11",
+                "app_version": APP_VERSION,
                 "git_commit": (os.environ.get("RENDER_GIT_COMMIT") or os.environ.get("GIT_COMMIT") or "")[:12],
                 "ai_enabled": llm_available(),
                 "ai_provider": info.get("provider"),

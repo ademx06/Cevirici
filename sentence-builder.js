@@ -37,22 +37,57 @@
     return d.innerHTML;
   }
 
+  const GENERIC_ICONS = new Set(['📖', '📚', '📦', '']);
+  const CATEGORY_ICONS = {
+    beverage: '🥤', furniture: '🪑', plumbing: '🚰', vehicle: '🚗',
+    adjective: '😊', verb: '💼', place: '📍', object: '📦', footwear: '👟',
+  };
+
   function resolveWordIcon(wordOrData, apiIcon) {
-    const word = typeof wordOrData === 'string'
-      ? wordOrData
-      : (wordOrData?.word_tr || wordOrData?.word || '');
+    const data = typeof wordOrData === 'object' && wordOrData ? wordOrData : null;
+    const word = data ? (data.word_tr || data.word || '') : String(wordOrData || '');
+    const target = data?.target_word || '';
     const key = String(word || '').trim().toLowerCase();
+    const targetKey = String(target || '').trim().toLowerCase();
     const map = {
-      kahve: '☕', coffee: '☕', musluk: '🚰', faucet: '🚰', tap: '🚰',
-      kapı: '🚪', kapi: '🚪', door: '🚪', araba: '🚗', car: '🚗', ev: '🏠', house: '🏠', home: '🏠',
-      telefon: '📱', phone: '📱', kitap: '📖', book: '📖', masa: '🪑', table: '🪑',
-      sandalye: '💺', chair: '💺', pencere: '🪟', window: '🪟', su: '💧', water: '💧',
-      kalem: '✏️', pen: '✏️', mutlu: '😊', happy: '😊',
+      kahve: '☕', coffee: '☕', çay: '🍵', tea: '🍵',
+      musluk: '🚰', faucet: '🚰', tap: '🚰',
+      kapı: '🚪', kapi: '🚪', door: '🚪', araba: '🚗', car: '🚗',
+      ev: '🏠', house: '🏠', home: '🏠', telefon: '📱', phone: '📱',
+      kitap: '📚', book: '📚', masa: '🪑', table: '🪑',
+      sandalye: '💺', chair: '💺', pencere: '🪟', window: '🪟',
+      su: '💧', water: '💧', kalem: '✏️', pen: '✏️',
+      mutlu: '😊', happy: '😊',
       ayakkabı: '👟', ayakkabi: '👟', shoe: '👟', shoes: '👟',
       soda: '🥤', gazoz: '🥤', kola: '🥤', cola: '🥤',
+      süt: '🥛', milk: '🥛', ekmek: '🍞', bread: '🍞',
+      kedi: '🐱', cat: '🐱', köpek: '🐶', dog: '🐶',
     };
     if (map[key]) return map[key];
-    return '📖';
+    if (map[targetKey]) return map[targetKey];
+    const icon = apiIcon || data?.word_icon || '';
+    if (icon && !GENERIC_ICONS.has(icon)) return icon;
+    const cat = data?.word_profile?.semantic_category;
+    if (cat && CATEGORY_ICONS[cat]) return CATEGORY_ICONS[cat];
+    const keywordIcons = [
+      [['kahve', 'çay', 'gazoz', 'kola', 'soda', 'su', 'süt'], '🥤'],
+      [['masa', 'sandalye', 'koltuk', 'yatak'], '🪑'],
+      [['ayakkabı', 'ayakkabi', 'bot'], '👟'],
+      [['araba', 'otomobil', 'bisiklet'], '🚗'],
+      [['musluk', 'lavabo', 'duş'], '🚰'],
+      [['kapı', 'kapi', 'pencere'], '🪟'],
+      [['kitap', 'defter', 'gazete'], '📚'],
+      [['telefon', 'bilgisayar', 'tablet'], '📱'],
+      [['mutlu', 'üzgün', 'yorgun'], '😊'],
+      [['çalış', 'calis', 'koş'], '💼'],
+      [['ev', 'market', 'okul', 'hastane'], '📍'],
+      [['yemek', 'ekmek', 'peynir'], '🍽️'],
+      [['kedi', 'köpek', 'kuş'], '🐾'],
+    ];
+    for (const [keys, em] of keywordIcons) {
+      if (keys.some((k) => key.includes(k))) return em;
+    }
+    return '🏷️';
   }
 
   function setUi(text, live) {
@@ -184,6 +219,7 @@
     const why = ex.why_this_structure_tr || '';
     const note = ex.important_note_tr || '';
     const label = ex.structure_label_tr || '';
+    const pattern = ex.pattern_tr || '';
     return `
       <details class="mod-details" open>
         <summary>🧠 Nasıl kuruldu?</summary>
@@ -191,7 +227,8 @@
         ${why ? `<p class="mod-detail-why">${esc(why)}</p>` : ''}
         ${note ? `<p class="mod-warn">${esc(note)}</p>` : ''}
         ${ex.structure_tr ? `<p class="mod-structure">📚 Dil Bilgisi Formülü: ${esc(ex.structure_tr)}</p>` : ''}
-        ${label ? `<p class="mod-structure-label">${esc(label)}</p>` : ''}
+        ${label && !label.includes(ex.structure_tr || '___') ? `<p class="mod-structure-label">${esc(label)}</p>` : ''}
+        ${pattern ? `<p class="mod-pattern-tr">${esc(pattern)}</p>` : ''}
         ${renderWordBreakdown(ex)}
         ${renderPatternBlock(ex, lang)}
       </details>`;
@@ -333,9 +370,10 @@
     const usageMap = renderUsageMap(usage, lang);
     const icon = resolveWordIcon(data, data.word_icon);
     const examples = (data.examples || []).map((ex, i) => renderExampleCard(ex, lang, i)).join('');
+    const ver = data.app_version ? `<p class="mod-version">Sürüm: ${esc(data.app_version)}</p>` : '';
     box.innerHTML = `
       <div class="mod-hero mod-hero-green">
-        <div class="mod-hero-icon">${icon}</div>
+        <div class="mod-hero-icon" id="wordHeroIcon">${icon}</div>
         <div>
           <h2>${esc(data.word_tr)}</h2>
           <p class="mod-hero-sub">${esc(data.target_word)}${data.pronunciation_tr ? ` · 🗣️ ${esc(data.pronunciation_tr)}` : ''}</p>
@@ -348,8 +386,9 @@
         ${patterns ? `<ul class="mod-tags">${patterns}</ul>` : ''}
         ${usage.common_mistakes_tr ? `<p class="mod-warn">⚠️ ${esc(usage.common_mistakes_tr)}</p>` : ''}
       </div>
-      <h3 class="mod-section-title">Örnek cümleler</h3>
+      <h3 class="mod-section-title">Örnek cümleler <small class="mod-section-hint">13 dil bilgisi kalıbı</small></h3>
       ${examples}
+      ${ver}
       <button type="button" id="saveWordBtn" class="mod-action-btn mod-action-save">⭐ Öğrendiklerime Ekle</button>`;
     box.querySelector('#saveWordBtn')?.addEventListener('click', saveCurrentWord);
     bindListenButtons(box);
@@ -363,7 +402,7 @@
     const saved = LS.saveWord({
       word_tr: currentWordLesson.word_tr,
       target_word: currentWordLesson.target_word,
-      word_icon: currentWordLesson.word_icon,
+      word_icon: resolveWordIcon(currentWordLesson, currentWordLesson.word_icon),
       pronunciation_tr: currentWordLesson.pronunciation_tr,
       ipa: currentWordLesson.ipa,
       target_lang: currentWordLesson.target_lang,
@@ -387,10 +426,13 @@
     const meaning = data.meaning_summary_tr ? `<p class="mod-lead">${esc(data.meaning_summary_tr)}</p>` : '';
     const alts = (data.alternatives || []).filter(Boolean);
     const altBlock = alts.length ? `<div class="mod-alts"><strong>Alternatif:</strong> ${alts.map((a) => esc(a)).join(' · ')}</div>` : '';
+    const grammarBadge = data.grammar_topic || data.sentence_type
+      ? `<span class="mod-badge mod-badge-grammar">${esc(data.structure_label_tr || data.grammar_topic || '')}</span>`
+      : '';
     box.innerHTML = `
       <div class="mod-hero mod-hero-blue">
         <div class="mod-hero-icon">💬</div>
-        <div><h2>Cümle analizi</h2></div>
+        <div><h2>Cümle analizi</h2>${grammarBadge}</div>
       </div>
       ${inferred}
       ${meaning}
