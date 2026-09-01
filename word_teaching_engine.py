@@ -362,9 +362,9 @@ Hedef kelime (çeviri): "{target_word}"
 JSON döndür:
 {{
   "target_word": "...",
-  "part_of_speech": "noun|verb|adjective|...",
+  "part_of_speech": "noun|verb|adjective|adverb|pronoun|preposition|conjunction|interjection|determiner",
   "countability": "countable|uncountable|both|n/a",
-  "semantic_category": "beverage|furniture|footwear|plumbing|vehicle|object|place|other",
+  "semantic_category": "beverage|furniture|document|object|place|food|vehicle|animal|fruit|vegetable|clothing|adjective|verb|pronoun|adverb|abstract|other",
   "meaning_tr": "temel Türkçe anlam",
   "usage_notes_tr": "En az 3 cümle: sayılabilirlik, US/UK farkı, günlük kullanım, dikkat edilecekler",
   "common_verbs": ["drink", "order"],
@@ -428,6 +428,9 @@ Kullanıcıya tek seferde mükemmel ders ver; ikinci deneme gerekmesin.
 
 [ÖNCE DÜŞÜN — sonra yaz]
 Bu kelimeyle insanlar günlük hayatta ne yapar? Hangi fiiller doğal? (kapı→knock/lock, kitap→read/borrow, fatura→pay/send, çanta→carry/pack)
+Önce kelime türünü (isim/fiil/sıfat/zarf/zamir/edat/bağlaç/ünlem) belirle; türe uygun olmayan cümle ASLA yazma.
+
+{pos_rules}
 
 [YASAK — mekanik şablon]
 ❌ I am using the {target_word}
@@ -451,9 +454,9 @@ JSON:
 {{
   "meaning_tr": "temel Türkçe anlam",
   "usage_notes_tr": "en az 3 cümle pedagojik açıklama",
-  "part_of_speech": "noun|verb|adjective",
+  "part_of_speech": "noun|verb|adjective|adverb|pronoun|preposition|conjunction|interjection|determiner",
   "countability": "countable|uncountable|both|n/a",
-  "semantic_category": "beverage|furniture|document|object|place|food|vehicle|other",
+  "semantic_category": "beverage|furniture|document|object|place|food|vehicle|animal|fruit|vegetable|adjective|verb|pronoun|adverb|abstract|other",
   "common_verbs": ["fiil1", "fiil2"],
   "common_collocations": ["doğal kalıp 1", "doğal kalıp 2"],
   "common_patterns": [
@@ -554,6 +557,9 @@ KNOWN_CATEGORIES: dict[str, str] = {
     "şeker": "snack", "seker": "snack", "candy": "snack", "çikolata": "snack", "cikolata": "snack",
     "chocolate": "snack", "bisküvi": "snack", "biskivi": "snack", "cookie": "snack",
     "eğlence": "abstract", "eglence": "abstract", "entertainment": "abstract",
+    "bal": "food", "honey": "food",
+    "koltuk": "furniture", "sofa": "furniture", "yatak": "furniture", "bed": "furniture",
+    "dolap": "furniture", "wardrobe": "furniture",
     "gözlük": "eyewear", "gozluk": "eyewear", "glasses": "eyewear", "sunglasses": "eyewear",
     "sigara": "tobacco", "cigarette": "tobacco", "cigarettes": "tobacco",
     "tütün": "tobacco", "tutun": "tobacco", "tobacco": "tobacco",
@@ -596,6 +602,196 @@ KNOWN_TR_TO_EN: dict[str, str] = {
     "bicak": "knife", "kalem": "pen", "yastik": "pillow", "radyo": "radio",
     "parfüm": "perfume", "parfum": "perfume",
 }
+
+# Kelime türü (POS) — AI ve şablon yönlendirmesi
+KNOWN_PART_OF_SPEECH: dict[str, str] = {
+    # sıfat / adjective
+    "mutlu": "adjective", "happy": "adjective", "sessiz": "adjective", "quiet": "adjective",
+    "üzgün": "adjective", "uzgun": "adjective", "sad": "adjective", "yorgun": "adjective",
+    "tired": "adjective", "güzel": "adjective", "guzel": "adjective", "beautiful": "adjective",
+    "büyük": "adjective", "buyuk": "adjective", "big": "adjective", "küçük": "adjective",
+    "kucuk": "adjective", "small": "adjective", "sıcak": "adjective", "sicak": "adjective",
+    "hot": "adjective", "soğuk": "adjective", "soguk": "adjective", "cold": "adjective",
+    # fiil / verb
+    "çalışmak": "verb", "calismak": "verb", "work": "verb", "gitmek": "verb", "go": "verb",
+    "yemek": "verb", "eat": "verb", "içmek": "verb", "icmek": "verb", "drink": "verb",
+    "okumak": "verb", "read": "verb", "yazmak": "verb", "write": "verb", "koşmak": "verb",
+    "kosmak": "verb", "run": "verb", "gelmek": "verb", "come": "verb", "almak": "verb", "buy": "verb",
+    # zamir / pronoun
+    "ben": "pronoun", "i": "pronoun", "sen": "pronoun", "you": "pronoun", "o": "pronoun",
+    "he": "pronoun", "she": "pronoun", "it": "pronoun", "biz": "pronoun", "we": "pronoun",
+    "siz": "pronoun", "onlar": "pronoun", "they": "pronoun", "benim": "pronoun", "my": "pronoun",
+    "senin": "pronoun", "your": "pronoun", "onun": "pronoun", "his": "pronoun", "her": "pronoun",
+    "bizim": "pronoun", "our": "pronoun", "onların": "pronoun", "their": "pronoun",
+    # zarf / adverb
+    "hızlı": "adverb", "hizli": "adverb", "quickly": "adverb", "yavaş": "adverb", "yavas": "adverb",
+    "slowly": "adverb", "şimdi": "adverb", "simdi": "adverb", "now": "adverb", "burada": "adverb",
+    "here": "adverb", "orada": "adverb", "there": "adverb", "çok": "adverb", "very": "adverb",
+    "her zaman": "adverb", "always": "adverb", "asla": "adverb", "never": "adverb",
+    # edat / preposition
+    "içinde": "preposition", "icinde": "preposition", "in": "preposition", "üzerinde": "preposition",
+    "on": "preposition", "altında": "preposition", "under": "preposition", "ile": "preposition",
+    "with": "preposition", "için": "preposition", "for": "preposition",
+    # bağlaç / conjunction
+    "ve": "conjunction", "and": "conjunction", "ama": "conjunction", "but": "conjunction",
+    "çünkü": "conjunction", "cunku": "conjunction", "because": "conjunction",
+    # ünlem / interjection
+    "merhaba": "interjection", "hello": "interjection", "hey": "interjection", "evet": "interjection",
+    "yes": "interjection", "hayır": "interjection", "hayir": "interjection", "no": "interjection",
+}
+
+POS_LABELS_TR: dict[str, str] = {
+    "noun": "isim",
+    "verb": "fiil",
+    "adjective": "sıfat",
+    "adverb": "zarf",
+    "pronoun": "zamir",
+    "preposition": "edat",
+    "conjunction": "bağlaç",
+    "interjection": "ünlem",
+    "determiner": "belirteç",
+}
+
+
+def detect_part_of_speech(word_tr: str, target_word: str) -> str:
+    """Kelime türünü tespit et — nesne şablonuna yanlış düşmeyi önler."""
+    for w in (_norm(word_tr), _norm(target_word)):
+        if w in KNOWN_PART_OF_SPEECH:
+            return KNOWN_PART_OF_SPEECH[w]
+    wt, tw = _norm(word_tr), _norm(target_word)
+    if _is_adjective_like(word_tr, target_word):
+        return "adjective"
+    if _is_pronoun_like(word_tr, target_word):
+        return "pronoun"
+    if _is_adverb_like(word_tr, target_word):
+        return "adverb"
+    if wt.endswith(("mak", "mek")) or tw.endswith("ing") and len(tw) > 4:
+        if wt.endswith(("mak", "mek")):
+            return "verb"
+    verb_hints = ("git", "gel", "al", "ver", "yap", "oku", "yaz", "koş", "kos", "çalış", "calis")
+    if any(wt == v or wt.startswith(v) for v in verb_hints):
+        return "verb"
+    if detect_category(word_tr, target_word) != "general":
+        return "noun"
+    return "noun"
+
+
+def get_pos_teaching_rules_for_prompt(word_tr: str, target_word: str) -> str:
+    """AI prompt'una eklenecek kelime türüne özel zorunlu kurallar."""
+    pos = detect_part_of_speech(word_tr, target_word)
+    tw = _en_target_word(target_word)
+    rules: dict[str, str] = {
+        "noun": (
+            f"[İSİM KURALLARI — {word_tr}]\n"
+            "- Nesne/yer/kavram: buy, find, carry, use, need gibi DOĞAL fiiller\n"
+            "- a/an/the veya my/your ile kullanım; sayılabilirlik açıkla\n"
+            f"❌ YASAK: I am using the {tw}, Bring the {tw}, I bought a new {tw} (yiyecek/sıfat değilse)\n"
+            "- Türkçede iyelik: arabam, cüzdanım, kitabım"
+        ),
+        "verb": (
+            f"[FİİL KURALLARI — {word_tr}]\n"
+            "- Zamanlar: simple present, past (-ed), future (will), present continuous (-ing)\n"
+            "- need to / want to / have to + fiil; soru: Do you …? / Did you …?\n"
+            f"❌ YASAK: I bought a new {tw}, my {tw} is on the table, a {tw}\n"
+            "- Fiil mastarı: to {tw}; emir: {tw.capitalize()}!"
+        ),
+        "adjective": (
+            f"[SIFAT KURALLARI — {word_tr}]\n"
+            "- be + sıfat: I am {tw}, It is {tw}, You look {tw}\n"
+            "- feel/keep/become + sıfat; sıfat + noun: a {tw} room\n"
+            f"❌ YASAK: bought a new {tw}, my {tw}, bring my {tw}, where is my {tw}\n"
+            "- Türkçe: sessizim, mutluyum; ortam: burası sessiz"
+        ),
+        "adverb": (
+            f"[ZARF KURALLARI — {word_tr}]\n"
+            "- Fiili niteler: walk {tw}, speak {tw}, drive {tw}\n"
+            "- Sıfat + -ly: quick → quickly; yer/zaman: here, now, always\n"
+            f"❌ YASAK: a {tw}, my {tw}, the {tw} is here\n"
+            "- Türkçe karşılık: hızlıca, yavaşça, şimdi, burada"
+        ),
+        "pronoun": (
+            f"[ZAMİR KURALLARI — {word_tr}]\n"
+            "- Özne: I, you, he, she, we, they + fiil\n"
+            "- Nesne: me, him, her, us, them / iyelik: my, your, his, her\n"
+            f"❌ YASAK: bought a new {tw}, my {tw} is on the table (zamir nesne değil)\n"
+            "- Diyalog ve karşılaştırma: He is …, She told me …"
+        ),
+        "preposition": (
+            f"[EDAT KURALLARI — {word_tr}]\n"
+            "- Yer/yön/zaman: in, on, at, under, with, for + isim\n"
+            "- Kalıp: in the morning, on the table, at home\n"
+            f"❌ YASAK: I bought a {tw}, my {tw}\n"
+            "- Türkçe: -de/-da, -e/-a, ile, için karşılıklarını açıkla"
+        ),
+        "conjunction": (
+            f"[BAĞLAÇ KURALLARI — {word_tr}]\n"
+            "- Cümle bağlama: … and …, … but …, because …\n"
+            "- Koşul: if …, when …, although …\n"
+            f"❌ YASAK: nesne gibi kullanım (buy/bring/my {tw})"
+        ),
+        "interjection": (
+            f"[ÜNLEM KURALLARI — {word_tr}]\n"
+            "- Kısa doğal tepkiler: Hello!, Oh!, Wow!, Yes!, No!\n"
+            "- Diyalog ve duygu; tam cümle kur\n"
+            f"❌ YASAK: I bought a {tw}, my {tw} is here"
+        ),
+    }
+    base = rules.get(pos, rules["noun"])
+    return (
+        f"\n[KELİME TÜRÜ: {POS_LABELS_TR.get(pos, pos)} ({pos})]\n"
+        f"{base}\n"
+        "- Her örnekte how_it_is_formed_tr: 1️⃣ genel anlam 2️⃣ ana yapı 3️⃣+ dil bilgisi adımları (≥200 karakter)\n"
+    )
+
+
+def _is_pronoun_like(word_tr: str, target_word: str) -> bool:
+    hints = (
+        "ben", "sen", "o", "biz", "siz", "onlar", "i", "you", "he", "she", "it", "we", "they",
+        "me", "him", "her", "us", "them", "my", "your", "his", "our", "their", "mine", "yours",
+        "benim", "senin", "onun", "bizim", "sizin", "onların",
+    )
+    return _any_category_hint(word_tr, target_word, hints)
+
+
+def _is_adverb_like(word_tr: str, target_word: str) -> bool:
+    hints = (
+        "hızlı", "hizli", "quickly", "yavaş", "yavas", "slowly", "şimdi", "simdi", "now",
+        "burada", "here", "orada", "there", "çok", "very", "always", "never", "often", "sometimes",
+        "sık", "genellikle", "usually", "carefully", "dikkatlice", "well", "iyi",
+    )
+    return _any_category_hint(word_tr, target_word, hints)
+
+
+def _is_verb_like(word_tr: str, target_word: str) -> bool:
+    if detect_part_of_speech(word_tr, target_word) == "verb":
+        return True
+    wt = _norm(word_tr)
+    return wt.endswith(("mak", "mek"))
+
+
+def _is_preposition_like(word_tr: str, target_word: str) -> bool:
+    hints = (
+        "in", "on", "at", "under", "over", "with", "without", "for", "from", "to", "about",
+        "between", "içinde", "icinde", "üzerinde", "uzerinde", "altında", "altinda", "ile", "için", "icin",
+    )
+    return _any_category_hint(word_tr, target_word, hints)
+
+
+def _is_conjunction_like(word_tr: str, target_word: str) -> bool:
+    hints = (
+        "ve", "and", "ama", "but", "çünkü", "cunku", "because", "veya", "or", "fakat",
+        "although", "rağmen", "ragmen", "if", "eğer", "eger", "when", "iken",
+    )
+    return _any_category_hint(word_tr, target_word, hints)
+
+
+def _is_interjection_like(word_tr: str, target_word: str) -> bool:
+    hints = (
+        "merhaba", "hello", "hey", "evet", "yes", "hayır", "hayir", "no", "oh", "wow",
+        "ah", "eyvah", "bravo", "tebrikler", "congratulations", "thanks", "teşekkürler", "tesekkurler",
+    )
+    return _any_category_hint(word_tr, target_word, hints)
+
 
 # Çeviri API'sinin döndürdüğü varyantları Amerikan İngilizcesine normalize et
 EN_TARGET_ALIASES: dict[str, str] = {
@@ -1464,6 +1660,146 @@ def _rule_word_profile(
             "avoid_patterns": ["I happy (without am)"],
             "avoid_reason_tr": "Sıfatlar genelde be fiili veya feel/look ile gelir.",
         },
+        "pronoun": {
+            "part_of_speech": "pronoun",
+            "countability": "n/a",
+            "semantic_category": "pronoun",
+            "meaning_tr": word_tr,
+            "usage_notes_tr": (
+                f"«{word_tr}» zamirdir; özne (I, you), nesne (me, him) veya iyelik (my, your) olarak kullanılır. "
+                "Asla nesne gibi satın alınmaz veya masada bulunmaz."
+            ),
+            "common_verbs": ["be", "see", "tell", "give", "help", "know"],
+            "common_collocations": ["I think", "he told me", "give her", "my friend"],
+            "common_patterns": ["I am …", "She told me …", "This is mine."],
+            "article_notes_tr": "Zamirlerde a/an/the kullanılmaz.",
+            "avoid_patterns": [f"bought a new {target_word}", f"my {target_word} is on"],
+            "avoid_reason_tr": "Zamir nesne değildir; özne, nesne veya iyelik görevi görür.",
+        },
+        "adverb": {
+            "part_of_speech": "adverb",
+            "countability": "n/a",
+            "semantic_category": "adverb",
+            "meaning_tr": word_tr,
+            "usage_notes_tr": (
+                f"«{word_tr}» zarftır; fiili, sıfatı veya cümleyi niteler. "
+                "Sıklıkla -ly eki (quickly) veya yer/zaman (here, now)."
+            ),
+            "common_verbs": ["walk", "speak", "drive", "work", "run", "eat"],
+            "common_collocations": [f"walk {target_word}", f"speak {target_word}", "very carefully"],
+            "common_patterns": [f"He walks {target_word}.", "Come here.", "I always …"],
+            "article_notes_tr": "Zarflarda a/an/the kullanılmaz.",
+            "avoid_patterns": [f"a {target_word}", f"my {target_word}", f"the {target_word} is here"],
+            "avoid_reason_tr": "Zarf nesne değildir; fiilin nasıl/ne zaman/nerede yapıldığını gösterir.",
+        },
+        "preposition": {
+            "part_of_speech": "preposition",
+            "countability": "n/a",
+            "semantic_category": "preposition",
+            "meaning_tr": word_tr,
+            "usage_notes_tr": (
+                f"«{word_tr}» edattır; isimden önce gelir ve yer, yön, zaman veya ilişki bildirir. "
+                "in/on/at/with/for gibi kalıplarla öğrenilir."
+            ),
+            "common_verbs": ["go", "be", "put", "stay", "wait", "look"],
+            "common_collocations": [f"in the morning", f"on the table", f"at home", f"with me"],
+            "common_patterns": [f"I am at home.", f"The book is on the table.", f"Come with me."],
+            "article_notes_tr": "Edatlar tek başına değil, isim/ifade ile kullanılır (at home, on the table).",
+            "avoid_patterns": [f"bought a {target_word}", f"my {target_word} is on", f"I am using the {target_word}"],
+            "avoid_reason_tr": "Edat nesne değildir; isimle birlikte yer/yön/zaman bildirir.",
+        },
+        "conjunction": {
+            "part_of_speech": "conjunction",
+            "countability": "n/a",
+            "semantic_category": "conjunction",
+            "meaning_tr": word_tr,
+            "usage_notes_tr": (
+                f"«{word_tr}» bağlaçtır; kelime, öbek veya cümleleri birbirine bağlar. "
+                "and/but/because/if gibi kalıplarla öğrenilir."
+            ),
+            "common_verbs": ["want", "like", "go", "stay", "eat", "work"],
+            "common_collocations": ["coffee and tea", "tired but happy", "because I was late"],
+            "common_patterns": ["I like tea and coffee.", "I stayed because it was raining."],
+            "article_notes_tr": "Bağlaçlar tek başına nesne olmaz; iki parçayı birleştirir.",
+            "avoid_patterns": [f"bought a {target_word}", f"my {target_word}", f"bring the {target_word}"],
+            "avoid_reason_tr": "Bağlaç satın alınmaz veya taşınmaz; cümleleri bağlar.",
+        },
+        "interjection": {
+            "part_of_speech": "interjection",
+            "countability": "n/a",
+            "semantic_category": "interjection",
+            "meaning_tr": word_tr,
+            "usage_notes_tr": (
+                f"«{word_tr}» ünlemdir; duygu, selamlama veya ani tepki bildirir. "
+                "Kısa, doğal ve diyalog içinde öğrenilir."
+            ),
+            "common_verbs": ["say", "shout", "wave", "smile", "answer", "reply"],
+            "common_collocations": ["say hello", "say yes", "oh no", "wow"],
+            "common_patterns": ["Hello!", "Oh no!", "Yes, please."],
+            "article_notes_tr": "Ünlemlerde artikel kullanılmaz; çoğu zaman tek başına veya kısa cümlede gelir.",
+            "avoid_patterns": [f"bought a {target_word}", f"my {target_word} is on", f"I am using the {target_word}"],
+            "avoid_reason_tr": "Ünlem nesne değildir; selamlama veya duygu ifadesidir.",
+        },
+        "animal": {
+            "part_of_speech": "noun",
+            "countability": "countable",
+            "semantic_category": "animal",
+            "meaning_tr": word_tr,
+            "usage_notes_tr": f"«{word_tr}» bir hayvandır; feed, walk, adopt, pet gibi fiiller doğaldır.",
+            "common_verbs": ["feed", "walk", "adopt", "pet", "see", "love"],
+            "common_collocations": [f"a {target_word}", f"my {target_word}", f"feed the {target_word}"],
+            "common_patterns": [f"I have a {target_word}.", f"The {target_word} is sleeping."],
+            "article_notes_items": [
+                {"en": f"a {target_word}", "tr": f"bir {word_tr.lower()}"},
+                {"en": f"the {target_word}", "tr": word_tr.lower()},
+            ],
+            "avoid_reason_tr": "Hayvan sevilir, beslenir, gezdirilir; mekanik nesne şablonu kullanılmaz.",
+        },
+        "fruit": {
+            "part_of_speech": "noun",
+            "countability": "countable",
+            "semantic_category": "fruit",
+            "meaning_tr": word_tr,
+            "usage_notes_tr": f"«{word_tr}» meyvedir; eat, buy, peel, slice fiilleri doğaldır.",
+            "common_verbs": ["eat", "buy", "peel", "slice", "like", "have"],
+            "common_collocations": [f"an {target_word}", f"a {target_word}", f"some {target_word}s"],
+            "common_patterns": [f"I like {target_word}s.", f"Can I have an {target_word}?"],
+            "article_notes_items": [
+                {"en": f"an {target_word}", "tr": f"bir {word_tr.lower()}"},
+                {"en": f"{target_word}s", "tr": f"{word_tr.lower()}lar"},
+            ],
+            "avoid_reason_tr": "Meyve yenir; bring the X / using the X şablonu kullanılmaz.",
+        },
+        "vegetable": {
+            "part_of_speech": "noun",
+            "countability": "countable",
+            "semantic_category": "vegetable",
+            "meaning_tr": word_tr,
+            "usage_notes_tr": f"«{word_tr}» sebzedir; cook, chop, buy, eat fiilleri doğaldır.",
+            "common_verbs": ["cook", "chop", "buy", "eat", "wash", "grow"],
+            "common_collocations": [f"fresh {target_word}s", f"chop the {target_word}"],
+            "common_patterns": [f"I need some {target_word}s.", f"Chop the {target_word}."],
+            "article_notes_items": [
+                {"en": f"a {target_word}", "tr": f"bir {word_tr.lower()}"},
+                {"en": f"the {target_word}", "tr": word_tr.lower()},
+            ],
+            "avoid_reason_tr": "Sebze pişirilir, doğranır; nesne şablonu kullanılmaz.",
+        },
+        "furniture": {
+            "part_of_speech": "noun",
+            "countability": "countable",
+            "semantic_category": "furniture",
+            "meaning_tr": word_tr,
+            "usage_notes_tr": f"«{word_tr}» mobilyadır; sit, lie, put, move fiilleri doğaldır.",
+            "common_verbs": ["sit", "lie", "put", "move", "buy", "assemble"],
+            "common_collocations": [f"on the {target_word}", f"sit on the {target_word}"],
+            "common_patterns": [f"Sit on the {target_word}.", f"The {target_word} is comfortable."],
+            "article_notes_items": [
+                {"en": f"the {target_word}", "tr": word_tr.lower()},
+                {"en": f"a new {target_word}", "tr": f"yeni bir {word_tr.lower()}"},
+            ],
+            "avoid_reason_tr": "Mobilya oturulur, üzerine konur; love/drink/eat fiilleri kullanılmaz.",
+        },
         "object": {
             "part_of_speech": "noun",
             "countability": "countable",
@@ -1670,7 +2006,12 @@ def _rule_word_profile(
         },
     }
     if category == "general":
-        category = "object"
+        pos = detect_part_of_speech(word_tr, target_word)
+        pos_map = {
+            "adjective": "adjective", "verb": "verb", "pronoun": "pronoun", "adverb": "adverb",
+            "preposition": "preposition", "conjunction": "conjunction", "interjection": "interjection",
+        }
+        category = pos_map.get(pos, "object")
     base = profiles.get(category, profiles["object"])
     wt, tw = _norm(word_tr), _en_target_word(target_word)
     if category == "beverage" and (wt in ("soda", "gazoz", "kola") or tw in ("soda", "cola")):
@@ -1836,7 +2177,7 @@ def _rule_word_profile(
                 "Boş bardak için: an empty glass, please."
             ),
         }
-    return {"target_word": target_word, **base}
+    return {"target_word": target_word, **base, "part_of_speech": base.get("part_of_speech") or detect_part_of_speech(word_tr, target_word)}
 
 
 def _pattern_label(grammar_pattern: str) -> str:
@@ -1869,10 +2210,34 @@ def _thirteen_pattern_examples_en(
         if _is_quiet_like(wt, tw):
             return _quiet_pattern_examples(W, T)
         return _adjective_pattern_examples(W, T)
+    if _is_pronoun_like(wt, tw):
+        return _pronoun_pattern_examples(W, T)
+    if _is_adverb_like(wt, tw):
+        return _adverb_pattern_examples(W, T)
+    if _is_preposition_like(wt, tw):
+        return _preposition_pattern_examples(W, T)
+    if _is_conjunction_like(wt, tw):
+        return _conjunction_pattern_examples(W, T)
+    if _is_interjection_like(wt, tw):
+        return _interjection_pattern_examples(W, T)
+    if _is_verb_like(wt, tw) or category == "verb":
+        return _verb_pattern_examples(W, T)
+    if category in ("fruit", "vegetable") or wt in ("elma", "muz", "domates", "havuç", "havuc", "portakal"):
+        return _food_pattern_examples(W, T, wt, tw)
+    if category == "animal":
+        return _animal_pattern_examples(W, T)
+    if category == "furniture":
+        return _furniture_pattern_examples(W, T)
     if category == "adjective":
         return _adjective_pattern_examples(W, T)
     if category == "verb":
         return _verb_pattern_examples(W, T)
+    if category == "preposition":
+        return _preposition_pattern_examples(W, T)
+    if category == "conjunction":
+        return _conjunction_pattern_examples(W, T)
+    if category == "interjection":
+        return _interjection_pattern_examples(W, T)
     if _is_market_like(wt, tw):
         return _market_pattern_examples(W, T)
     if category == "place":
@@ -2386,6 +2751,12 @@ def _universal_object_pattern_examples(W: str, T: str) -> list[dict[str, Any]]:
         if _is_quiet_like(W, T):
             return _quiet_pattern_examples(W, T)
         return _adjective_pattern_examples(W, T)
+    if _is_pronoun_like(W, T):
+        return _pronoun_pattern_examples(W, T)
+    if _is_adverb_like(W, T):
+        return _adverb_pattern_examples(W, T)
+    if _is_verb_like(W, T):
+        return _verb_pattern_examples(W, T)
     if _is_wallet_like(W, T):
         return _wallet_pattern_examples(W, T)
     if _is_umbrella_like(W, T):
@@ -2987,6 +3358,342 @@ def _turkish_predicate_adj_negative(word_tr: str) -> str:
     return known.get(w, f"{word_tr} değilim")
 
 
+def _pronoun_pattern_examples(W: str, T: str) -> list[dict[str, Any]]:
+    """Zamir — özne/nesne/iyelik; asla «yeni bir he aldım» yok."""
+    p = _en_target_word(T)
+    subj = p
+    obj = {"he": "him", "she": "her", "they": "them", "we": "us", "i": "me", "you": "you"}.get(p, p)
+    poss = {"he": "his", "she": "her", "they": "their", "we": "our", "i": "my", "you": "your"}.get(p, f"{p}'s")
+    return [
+        _pe(W, f"{W.capitalize()} öğretmen.", f"{subj.capitalize()} is a teacher.", "basic",
+            f"{subj} + is + a teacher",
+            _rich_teaching_how(f"«{W}» özne olarak kullanılır.", f"{subj} is a teacher", f"{W} öğretmen.",
+                [("özne zamiri", f"{subj} + is → …-dır\n❌ Him is a teacher — özne değil nesne zamiri")],
+                mistakes=[f"bought a new {p}", f"my {p} is on the table"]),
+            scenario_badge="🌅 RUTİN"),
+        _pe(W, f"Şu an {W} arıyoruz.", f"We are looking for {obj} right now.", "present",
+            f"looking for {obj}", _rich_teaching_how("Nesne zamiri ile arama.", f"looking for {obj}",
+                f"Şu an {W} arıyoruz.", [("nesne zamiri", f"{obj} → onu/onları (nesne)")]), scenario_badge="🔄 ŞU AN"),
+        _pe(W, f"Dün {W} gördüm.", f"I saw {obj} yesterday.", "past",
+            f"I + saw + {obj}", _rich_teaching_how("Geçmişte nesne zamiri.", f"I saw {obj}",
+                f"Dün {W} gördüm.", [("saw", f"saw {obj} → onu gördüm")]), scenario_badge="🕐 GEÇMİŞ"),
+        _pe(W, f"Yarın {W} arayacağım.", f"I will call {obj} tomorrow.", "future",
+            f"will call {obj}", _rich_teaching_how("Gelecek + nesne zamiri.", f"I will call {obj}",
+                f"Yarın {W} arayacağım.", [("will call", "will + fiil → arayacağım")]), scenario_badge="🔮 GELECEK"),
+        _pe(W, f"{W.capitalize()} mi?", f"Is that {obj}?", "question",
+            f"Is that {obj}", _rich_teaching_how("Kimlik sorusu.", f"Is that {obj}?",
+                f"{W.capitalize()} mi?", [("Is that …?", "Is that him/her? → o mu?")]), scenario_badge="❓ SORU"),
+        _pe(W, f"Bugün {W} görmedim.", f"I didn't see {obj} today.", "negative",
+            f"didn't see {obj}", _rich_teaching_how("Olumsuz + nesne.", f"I didn't see {obj}",
+                f"Bugün {W} görmedim.", [("didn't see", "didn't + fiil → görmedim")]), scenario_badge="⛔ OLUMSUZ"),
+        _pe(W, f"{W.capitalize()} ara!", f"Call {obj}!", "imperative",
+            f"Call + {obj}", _rich_teaching_how("Emir + nesne zamiri.", f"Call {obj}!",
+                f"{W.capitalize()} ara!", [("Call him/her", f"Call {obj} → onu ara")])),
+        _pe(W, f"{W.capitalize()} görebilir misin?", f"Can you see {obj}?", "polite_request",
+            f"Can you see {obj}", _rich_teaching_how("Rica + nesne zamiri.", f"Can you see {obj}?",
+                f"{W.capitalize()} görebilir misin?", [("Can you see …?", "… görebilir misin?")])),
+        _pe(W, f"{W.capitalize()} dinlemelisin.", f"You should listen to {obj}.", "advice",
+            f"listen to {obj}", _rich_teaching_how("Tavsiye.", f"You should listen to {obj}",
+                f"{W.capitalize()} dinlemelisin.", [("listen to", f"listen to {obj} → onu dinle")])),
+        _pe(W, f"{W.capitalize()} bulmam lazım.", f"I need to find {obj}.", "obligation",
+            f"need to find {obj}", _rich_teaching_how("Zorunluluk.", f"I need to find {obj}",
+                f"{W.capitalize()} bulmam lazım.", [("need to find", "… bulmam lazım")])),
+        _pe(W, f"{W.capitalize()} burada olabilir.", f"{subj.capitalize()} might be here.", "possibility",
+            f"might be here", _rich_teaching_how("Olasılık + özne.", f"{subj} might be here",
+                f"{W.capitalize()} burada olabilir.", [("might be", "… olabilir")])),
+        _pe(W, f"{W.capitalize()} görürsen haber ver.", f"If you see {obj}, let me know.", "conditional",
+            f"If you see {obj}", _rich_teaching_how("Koşul.", f"If you see {obj}",
+                f"{W.capitalize()} görürsen haber ver.", [("If you see", "… görürsen")])),
+        _pe(W, f"A: {W.capitalize()} nerede? B: Orada.", f"A: Where is {subj}? B: Over there.", "dialogue",
+            f"Where is {subj}", _rich_teaching_how("Diyalog.", f"Where is {subj}?",
+                f"{W.capitalize()} nerede?", [("Where is he/she?", "özne zamiri + where")])),
+    ]
+
+
+def _adverb_pattern_examples(W: str, T: str) -> list[dict[str, Any]]:
+    """Zarf — fiili niteler; asla «yeni bir quickly aldım» yok."""
+    adv = _en_target_word(T)
+    return [
+        _pe(W, f"Her zaman {W} konuşurum.", f"I always speak {adv}.", "basic",
+            f"always + speak {adv}", _rich_teaching_how(f"«{W}» fiili niteler.", f"I always speak {adv}",
+                f"Her zaman {W} konuşurum.", [("zarf + fiil", f"speak {adv} → {W} konuşmak")],
+                mistakes=[f"a {adv}", f"my {adv}"]), scenario_badge="🌅 RUTİN"),
+        _pe(W, f"Şu an {W} gidiyorum.", f"I am walking {adv} right now.", "present",
+            f"walking {adv}", _rich_teaching_how("Şimdiki zaman + zarf.", f"walking {adv}",
+                f"Şu an {W} gidiyorum.", [("-ly zarf", f"{adv} → nasıl? (yavaşça, hızlıca)")]), scenario_badge="🔄 ŞU AN"),
+        _pe(W, f"Dün {W} çalıştım.", f"I worked {adv} yesterday.", "past",
+            f"worked {adv}", _rich_teaching_how("Geçmiş + zarf.", f"I worked {adv}",
+                f"Dün {W} çalıştım.", [("worked + zarf", "fiilden sonra zarf")]), scenario_badge="🕐 GEÇMİŞ"),
+        _pe(W, f"Yarın daha {W} gideceğim.", f"I will drive more {adv} tomorrow.", "future",
+            f"will drive {adv}", _rich_teaching_how("Gelecek + zarf.", f"I will drive {adv}",
+                f"Yarın daha {W} gideceğim.", [("more + zarf", "karşılaştırma")]), scenario_badge="🔮 GELECEK"),
+        _pe(W, f"{W.capitalize()} mi gidiyorsun?", f"Are you driving {adv}?", "question",
+            f"Are you + verb + {adv}", _rich_teaching_how("Soru + zarf.", f"Are you driving {adv}?",
+                f"{W.capitalize()} mi gidiyorsun?", [("Are you … -ly?", "…-yor musun?")]), scenario_badge="❓ SORU"),
+        _pe(W, f"{W.capitalize()} konuşmuyorum.", f"I don't speak {adv}.", "negative",
+            f"don't speak {adv}", _rich_teaching_how("Olumsuz + zarf.", f"I don't speak {adv}",
+                f"{W.capitalize()} konuşmuyorum.", [("don't + fiil + zarf", "olumsuz")]), scenario_badge="⛔ OLUMSUZ"),
+        _pe(W, f"{W.capitalize()} konuş!", f"Speak {adv}!", "imperative",
+            f"Speak {adv}", _rich_teaching_how("Emir + zarf.", f"Speak {adv}!",
+                f"{W.capitalize()} konuş!", [("Speak + zarf", "emir kipi")])),
+        _pe(W, f"Biraz daha {W} konuşabilir misin?", f"Could you speak a little more {adv}?", "polite_request",
+            f"speak more {adv}", _rich_teaching_how("Rica.", f"Could you speak more {adv}?",
+                f"Biraz daha {W} konuşabilir misin?", [("a little more", "biraz daha")])),
+        _pe(W, f"Sınavda {W} okumalısın.", f"You should read {adv} on the exam.", "advice",
+            f"should read {adv}", _rich_teaching_how("Tavsiye.", f"You should read {adv}",
+                f"Sınavda {W} okumalısın.", [("should + fiil + zarf", "tavsiye")])),
+        _pe(W, f"{W.capitalize()} dinlemem lazım.", f"I need to listen {adv}.", "obligation",
+            f"need to listen {adv}", _rich_teaching_how("Zorunluluk.", f"I need to listen {adv}",
+                f"{W.capitalize()} dinlemem lazım.", [("need to + fiil + zarf", "…-mem lazım")])),
+        _pe(W, f"Belki {W} gidebiliriz.", f"We might go {adv}.", "possibility",
+            f"might go {adv}", _rich_teaching_how("Olasılık.", f"We might go {adv}",
+                f"Belki {W} gidebiliriz.", [("might + fiil + zarf", "belki")])),
+        _pe(W, f"Acele edersen {W} gidersin.", f"If you hurry, you will go {adv}.", "conditional",
+            f"If you hurry, go {adv}", _rich_teaching_how("Koşul.", f"If you hurry, you will go {adv}",
+                f"Acele edersen {W} gidersin.", [("If …, will …", "koşul")])),
+        _pe(W, f"A: {W.capitalize()} mi? B: Evet.", f"A: {adv.capitalize()}? B: Yes.", "dialogue",
+            f"A: {adv}", _rich_teaching_how("Diyalog.", f"{adv}?",
+                f"{W.capitalize()} mi?", [("Zarf tek başına", "kısa onay")])),
+    ]
+
+
+def _animal_pattern_examples(W: str, T: str) -> list[dict[str, Any]]:
+    """Hayvan — besleme, sevme, gezdirme; nesne şablonu yok."""
+    an = _en_target_word(T)
+    a_an = f"an {an}" if an[0] in "aeiou" else f"a {an}"
+    return [
+        _pe(W, f"Bir {W} besliyoruz.", f"We have {a_an}.", "basic",
+            f"have {a_an}", _rich_teaching_how(f"Evcil hayvan sahipliği.", f"We have {a_an}",
+                f"Bir {W} besliyoruz.", [("have a pet", f"have {a_an} → bir …-mız var")],
+                mistakes=[f"I am using the {an}"]), scenario_badge="🌅 RUTİN"),
+        _pe(W, f"Şu an {W} besliyorum.", f"I am feeding the {an} right now.", "present",
+            f"feeding the {an}", _rich_teaching_how("Besleme.", f"I am feeding the {an}",
+                f"Şu an {W} besliyorum.", [("feed the", "feed → beslemek")]), scenario_badge="🔄 ŞU AN"),
+        _pe(W, f"Dün {W} veterinere götürdük.", f"We took the {an} to the vet yesterday.", "past",
+            f"took the {an} to the vet", _rich_teaching_how("Veteriner.", f"We took the {an} to the vet",
+                f"Dün {W} veterinere götürdük.", [("took to the vet", "veterinere götürmek")]), scenario_badge="🕐 GEÇMİŞ"),
+        _pe(W, f"Yarın {W} gezdireceğim.", f"I will walk the {an} tomorrow.", "future",
+            f"will walk the {an}", _rich_teaching_how("Gezdirme.", f"I will walk the {an}",
+                f"Yarın {W} gezdireceğim.", [("walk the dog/cat", "gezdirme")]), scenario_badge="🔮 GELECEK"),
+        _pe(W, f"{W.capitalize()} uyuyor mu?", f"Is the {an} sleeping?", "question",
+            f"Is the {an} sleeping", _rich_teaching_how("Soru.", f"Is the {an} sleeping?",
+                f"{W.capitalize()} uyuyor mu?", [("Is the … -ing?", "şu an …-yor mu?")]), scenario_badge="❓ SORU"),
+        _pe(W, f"Bugün {W} gezdirmedim.", f"I didn't walk the {an} today.", "negative",
+            f"didn't walk the {an}", _rich_teaching_how("Olumsuz.", f"I didn't walk the {an}",
+                f"Bugün {W} gezdirmedim.", [("didn't walk", "gezdirmedim")]), scenario_badge="⛔ OLUMSUZ"),
+        _pe(W, f"{W.capitalize()} besle!", f"Feed the {an}!", "imperative",
+            f"Feed the {an}", _rich_teaching_how("Emir.", f"Feed the {an}!",
+                f"{W.capitalize()} besle!", [("Feed the", "besle")])),
+        _pe(W, f"{W.capitalize()} okşayabilir miyim?", f"Can I pet the {an}?", "polite_request",
+            f"Can I pet the {an}", _rich_teaching_how("Rica.", f"Can I pet the {an}?",
+                f"{W.capitalize()} okşayabilir miyim?", [("pet the", "okşamak / sevmek")])),
+        _pe(W, f"{W.capitalize()} düzenli beslemelisin.", f"You should feed the {an} regularly.", "advice",
+            f"should feed the {an}", _rich_teaching_how("Tavsiye.", f"You should feed the {an}",
+                f"{W.capitalize()} düzenli beslemelisin.", [("should feed", "düzenli besle")])),
+        _pe(W, f"{W.capitalize()} veterinere götürmem lazım.", f"I need to take the {an} to the vet.", "obligation",
+            f"need to take the {an}", _rich_teaching_how("Zorunluluk.", f"I need to take the {an} to the vet",
+                f"{W.capitalize()} veterinere götürmem lazım.", [("need to take", "götürmem lazım")])),
+        _pe(W, f"{W.capitalize()} bahçede olabilir.", f"The {an} might be in the yard.", "possibility",
+            f"might be in the yard", _rich_teaching_how("Olasılık.", f"The {an} might be in the yard",
+                f"{W.capitalize()} bahçede olabilir.", [("might be", "olabilir")])),
+        _pe(W, f"{W.capitalize()} açsa yemek ver.", f"If the {an} is hungry, give it food.", "conditional",
+            f"If the {an} is hungry", _rich_teaching_how("Koşul.", f"If the {an} is hungry, give it food",
+                f"{W.capitalize()} açsa yemek ver.", [("If …, give", "açsa ver")])),
+        _pe(W, f"A: {W.capitalize()} nerede? B: Sofada.", f"A: Where is the {an}? B: On the couch.", "dialogue",
+            f"Where is the {an}", _rich_teaching_how("Diyalog.", f"Where is the {an}?",
+                f"{W.capitalize()} nerede?", [("Where is the …?", "… nerede?")])),
+    ]
+
+
+def _furniture_pattern_examples(W: str, T: str) -> list[dict[str, Any]]:
+    """Mobilya — oturma, yatma, yerleştirme."""
+    item = _en_target_word(T)
+    the = f"the {item}"
+    return [
+        _pe(W, f"{W.capitalize()} çok rahat.", f"The {item} is very comfortable.", "basic",
+            f"The {item} + is + comfortable", _rich_teaching_how(f"Mobilya tanımı.", f"The {item} is comfortable",
+                f"{W.capitalize()} çok rahat.", [("The + mobilya", f"the {item} → belirli mobilya")]),
+            scenario_badge="🌅 RUTİN"),
+        _pe(W, f"Şu an {W} üzerinde oturuyorum.", f"I am sitting on the {item} right now.", "present",
+            f"sitting on the {item}", _rich_teaching_how("Oturma.", f"sitting on the {item}",
+                f"Şu an {W} üzerinde oturuyorum.", [("sit on", f"on the {item} → üzerinde")]), scenario_badge="🔄 ŞU AN"),
+        _pe(W, f"Dün yeni {W} aldık.", f"We bought a new {item} yesterday.", "past",
+            f"bought a new {item}", _rich_teaching_how("Satın alma.", f"bought a new {item}",
+                f"Dün yeni {W} aldık.", [("a new", "yeni bir")]), scenario_badge="🕐 GEÇMİŞ"),
+        _pe(W, f"Yarın {W} taşıyacağız.", f"We will move the {item} tomorrow.", "future",
+            f"will move the {item}", _rich_teaching_how("Taşıma.", f"will move the {item}",
+                f"Yarın {W} taşıyacağız.", [("move the", "taşımak")]), scenario_badge="🔮 GELECEK"),
+        _pe(W, f"{W.capitalize()} rahat mı?", f"Is the {item} comfortable?", "question",
+            f"Is the {item} comfortable", _rich_teaching_how("Soru.", f"Is the {item} comfortable?",
+                f"{W.capitalize()} rahat mı?", [("Is the …?", "… rahat mı?")]), scenario_badge="❓ SORU"),
+        _pe(W, f"Bu {W} rahat değil.", f"This {item} isn't comfortable.", "negative",
+            f"isn't comfortable", _rich_teaching_how("Olumsuz.", f"This {item} isn't comfortable",
+                f"Bu {W} rahat değil.", [("isn't", "değil")]), scenario_badge="⛔ OLUMSUZ"),
+        _pe(W, f"{W.capitalize()} üzerine otur!", f"Sit on the {item}!", "imperative",
+            f"Sit on the {item}", _rich_teaching_how("Emir.", f"Sit on the {item}!",
+                f"{W.capitalize()} üzerine otur!", [("Sit on", "üzerine otur")])),
+        _pe(W, f"{W.capitalize()} kaydırabilir misin?", f"Could you move the {item}?", "polite_request",
+            f"Could you move the {item}", _rich_teaching_how("Rica.", f"Could you move the {item}?",
+                f"{W.capitalize()} kaydırabilir misin?", [("Could you move", "kaydırabilir misin")])),
+        _pe(W, f"{W.capitalize()} pencereye yakın olmalı.", f"The {item} should be near the window.", "advice",
+            f"should be near", _rich_teaching_how("Tavsiye.", f"The {item} should be near the window",
+                f"{W.capitalize()} pencereye yakın olmalı.", [("should be near", "yakın olmalı")])),
+        _pe(W, f"{W.capitalize()} kurmam lazım.", f"I need to assemble the {item}.", "obligation",
+            f"need to assemble", _rich_teaching_how("Kurulum.", f"I need to assemble the {item}",
+                f"{W.capitalize()} kurmam lazım.", [("assemble", "kurmak / monte etmek")])),
+        _pe(W, f"{W.capitalize()} burada olabilir.", f"The {item} might be here.", "possibility",
+            f"might be here", _rich_teaching_how("Olasılık.", f"The {item} might be here",
+                f"{W.capitalize()} burada olabilir.", [("might be", "olabilir")])),
+        _pe(W, f"Yer varsa {W} buraya koy.", f"If there is room, put the {item} here.", "conditional",
+            f"If there is room", _rich_teaching_how("Koşul.", f"If there is room, put the {item} here",
+                f"Yer varsa {W} buraya koy.", [("If there is room", "yer varsa")])),
+        _pe(W, f"A: {W.capitalize()} nerede? B: Oturma odasında.", f"A: Where is the {item}? B: In the living room.", "dialogue",
+            f"Where is the {item}", _rich_teaching_how("Diyalog.", f"Where is the {item}?",
+                f"{W.capitalize()} nerede?", [("Where is the …?", "nerede?")])),
+    ]
+
+
+def _preposition_pattern_examples(W: str, T: str) -> list[dict[str, Any]]:
+    """Edat — yer/yön/zaman; asla «yeni bir with aldım» yok."""
+    prep = _en_target_word(T)
+    return [
+        _pe(W, f"Evde {W} kalırım.", f"I stay at home {prep} evenings.", "basic",
+            f"at home / with {prep}", _rich_teaching_how(f"«{W}» edat olarak kullanılır.", f"at home with {prep}",
+                f"Evde {W} kalırım.", [("edat + isim", f"{prep} + the table / home / me")],
+                mistakes=[f"bought a {prep}", f"my {prep} is on the table"]), scenario_badge="🌅 RUTİN"),
+        _pe(W, f"Şu an arkadaşım {W} buradayım.", f"I am here with my friend right now.", "present",
+            f"with my friend", _rich_teaching_how("Birliktelik edatı.", f"I am here with my friend",
+                f"Şu an arkadaşım {W} buradayım.", [("with", f"with → {W} / ile")]), scenario_badge="🔄 ŞU AN"),
+        _pe(W, f"Dün annem {W} alışverişe gittim.", f"I went shopping with my mom yesterday.", "past",
+            f"went with", _rich_teaching_how("Geçmiş + edat.", f"I went shopping with my mom",
+                f"Dün annem {W} alışverişe gittim.", [("with + kişi", "birlikte → with")]), scenario_badge="🕐 GEÇMİŞ"),
+        _pe(W, f"Yarın sana {W} geleceğim.", f"I will come to you tomorrow.", "future",
+            f"will come to you", _rich_teaching_how("Yön edatı.", f"I will come to you",
+                f"Yarın sana {W} geleceğim.", [("to you", "sana → to you")]), scenario_badge="🔮 GELECEK"),
+        _pe(W, f"Kitap masanın {W} mi?", f"Is the book on the table?", "question",
+            f"on the table", _rich_teaching_how("Yer sorusu.", f"Is the book on the table?",
+                f"Kitap masanın {W} mi?", [("on the", "üzerinde → on the")]), scenario_badge="❓ SORU"),
+        _pe(W, f"Bugün dışarı {W} çıkmadım.", f"I didn't go out today.", "negative",
+            f"didn't go out", _rich_teaching_how("Olumsuz + edat bağlamı.", f"I didn't go out",
+                f"Bugün dışarı {W} çıkmadım.", [("go out", "dışarı çıkmak")]), scenario_badge="⛔ OLUMSUZ"),
+        _pe(W, f"Benimle {W} gel!", f"Come with me!", "imperative",
+            f"Come with me", _rich_teaching_how("Emir + edat.", f"Come with me!",
+                f"Benimle {W} gel!", [("with me", "benimle → with me")]), scenario_badge="📣 EMİR"),
+        _pe(W, f"Benimle {W} gelebilir misin?", f"Could you come with me?", "polite_request",
+            f"come with me", _rich_teaching_how("Rica.", f"Could you come with me?",
+                f"Benimle {W} gelebilir misin?", [("Could you come with", "…-le gelebilir misin?")]), scenario_badge="🙏 RİCA"),
+        _pe(W, f"Erken {W} gitmelisin.", f"You should leave early.", "advice",
+            f"should leave early", _rich_teaching_how("Tavsiye.", f"You should leave early",
+                f"Erken {W} gitmelisin.", [("leave early", "erken git")]), scenario_badge="💡 TAVSİYE"),
+        _pe(W, f"Ona {W} konuşmam lazım.", f"I need to talk to him.", "obligation",
+            f"talk to him", _rich_teaching_how("Zorunluluk.", f"I need to talk to him",
+                f"Ona {W} konuşmam lazım.", [("talk to", "ona konuşmak / talk to")]), scenario_badge="📌 ZORUNLU"),
+        _pe(W, f"O burada {W} olabilir.", f"He might be here.", "possibility",
+            f"might be here", _rich_teaching_how("Olasılık.", f"He might be here",
+                f"O burada {W} olabilir.", [("might be", "burada olabilir")]), scenario_badge="🎲 OLASILIK"),
+        _pe(W, f"Vaktin olursa benimle {W} gel.", f"If you have time, come with me.", "conditional",
+            f"If you have time, come with me", _rich_teaching_how("Koşul.", f"If you have time, come with me",
+                f"Vaktin olursa benimle {W} gel.", [("If …, come with", "olursa …-le gel")]), scenario_badge="🔀 KOŞUL"),
+        _pe(W, f"A: Neredesin? B: Evde, annem {W}.", f"A: Where are you? B: At home, with my mom.", "dialogue",
+            f"Where are you", _rich_teaching_how("Diyalog.", f"Where are you? At home, with my mom",
+                f"A: Neredesin? B: Evde, annem {W}.", [("with my mom", "annemle → with my mom")]), scenario_badge="💬 DİYALOG"),
+    ]
+
+
+def _conjunction_pattern_examples(W: str, T: str) -> list[dict[str, Any]]:
+    """Bağlaç — cümle/öbek bağlama; nesne şablonu yok."""
+    conj = _en_target_word(T)
+    return [
+        _pe(W, f"Kahve {W} çay severim.", f"I like coffee {conj} tea.", "basic",
+            f"coffee {conj} tea", _rich_teaching_how(f"«{W}» iki öğeyi bağlar.", f"coffee {conj} tea",
+                f"Kahve {W} çay severim.", [("bağlaç", f"A {conj} B → A {W} B")],
+                mistakes=[f"bought a {conj}", f"my {conj}"]), scenario_badge="🌅 RUTİN"),
+        _pe(W, f"Şu an çalışıyorum {W} yorgunum.", f"I am working {conj} I am tired.", "present",
+            f"working but tired", _rich_teaching_how("Zıtlık bağlacı.", f"I am working but I am tired",
+                f"Şu an çalışıyorum {W} yorgunum.", [("but", "ama / fakat")]), scenario_badge="🔄 ŞU AN"),
+        _pe(W, f"Dün geç kaldım {W} otobüsü kaçırdım.", f"I was late yesterday {conj} I missed the bus.", "past",
+            f"late because missed", _rich_teaching_how("Sebep bağlacı.", f"I was late because I missed the bus",
+                f"Dün geç kaldım {W} otobüsü kaçırdım.", [("because", "çünkü → because")]), scenario_badge="🕐 GEÇMİŞ"),
+        _pe(W, f"Yarın gideceğim {W} erken kalkacağım.", f"I will go tomorrow {conj} I will wake up early.", "future",
+            f"will go and wake up", _rich_teaching_how("Gelecek + bağlaç.", f"I will go and I will wake up early",
+                f"Yarın gideceğim {W} erken kalkacağım.", [("and", "ve → and")]), scenario_badge="🔮 GELECEK"),
+        _pe(W, f"Çay mı kahve mi, yoksa ikisi {W} mi?", f"Tea or coffee, or both?", "question",
+            f"or both", _rich_teaching_how("Seçenek bağlacı.", f"Tea or coffee, or both?",
+                f"Çay mı kahve mi?", [("or", "veya → or")]), scenario_badge="❓ SORU"),
+        _pe(W, f"Bugün gitmedim {W} evde kaldım.", f"I didn't go today {conj} I stayed home.", "negative",
+            f"didn't go, stayed", _rich_teaching_how("Olumsuz + bağlaç.", f"I didn't go and I stayed home",
+                f"Bugün gitmedim {W} evde kaldım.", [("and/but", "bağlaç iki cümleyi birleştirir")]), scenario_badge="⛔ OLUMSUZ"),
+        _pe(W, f"Bekle {W} geliyorum!", f"Wait {conj} I'm coming!", "imperative",
+            f"Wait and I'm coming", _rich_teaching_how("Emir + bağlaç.", f"Wait and I'm coming!",
+                f"Bekle {W} geliyorum!", [("Wait and", "bekle ve")]), scenario_badge="📣 EMİR"),
+        _pe(W, f"Biraz daha bekleyebilir misin {W} hazır olunca gideriz?", f"Could you wait a bit {conj} we'll leave when ready?", "polite_request",
+            f"wait and we'll leave", _rich_teaching_how("Rica + bağlaç.", f"Could you wait and we'll leave when ready?",
+                f"Biraz daha bekleyebilir misin {W} hazır olunca gideriz?", [("and when", "ve …-ince")]), scenario_badge="🙏 RİCA"),
+        _pe(W, f"Daha erken yatmalısın {W} yorgun olmazsın.", f"You should sleep earlier {conj} you won't be tired.", "advice",
+            f"should sleep so you won't", _rich_teaching_how("Tavsiye.", f"You should sleep earlier so you won't be tired",
+                f"Daha erken yatmalısın {W} yorgun olmazsın.", [("so that", "ki / -mesin diye")]), scenario_badge="💡 TAVSİYE"),
+        _pe(W, f"Ödevimi bitirmem lazım {W} dışarı çıkamam.", f"I need to finish my homework {conj} I can't go out.", "obligation",
+            f"need to finish so can't go", _rich_teaching_how("Zorunluluk.", f"I need to finish my homework so I can't go out",
+                f"Ödevimi bitirmem lazım {W} dışarı çıkamam.", [("so", "bu yüzden / -dığı için")]), scenario_badge="📌 ZORUNLU"),
+        _pe(W, f"Yağmur yağarsa evde kalırız {W} sinema gideriz.", f"If it rains we stay home {conj} we might go to the movies.", "possibility",
+            f"if rain stay or go", _rich_teaching_how("Olasılık.", f"If it rains we stay home, otherwise we might go",
+                f"Yağmur yağarsa evde kalırız {W} sinema gideriz.", [("if …, or", "yağarsa … yoksa")]), scenario_badge="🎲 OLASILIK"),
+        _pe(W, f"Vaktin olursa gel {W} birlikte çalışırız.", f"If you have time, come {conj} we'll study together.", "conditional",
+            f"If you have time, come and we'll study", _rich_teaching_how("Koşul.", f"If you have time, come and we'll study together",
+                f"Vaktin olursa gel {W} birlikte çalışırız.", [("If …, and", "olursa gel ve")]), scenario_badge="🔀 KOŞUL"),
+        _pe(W, f"A: Gidiyor musun? B: Evet {W} sen de gel.", f"A: Are you going? B: Yes {conj} you come too.", "dialogue",
+            f"Yes and you come", _rich_teaching_how("Diyalog.", f"Are you going? Yes, and you come too",
+                f"A: Gidiyor musun? B: Evet {W} sen de gel.", [("Yes, and", "evet ve")]), scenario_badge="💬 DİYALOG"),
+    ]
+
+
+def _interjection_pattern_examples(W: str, T: str) -> list[dict[str, Any]]:
+    """Ünlem — selamlama/duygu; nesne şablonu yok."""
+    interj = _en_target_word(T)
+    return [
+        _pe(W, f"{W.capitalize()}! Nasılsın?", f"{interj.capitalize()}! How are you?", "basic",
+            f"{interj}! + question", _rich_teaching_how(f"«{W}» selamlama ünlemidir.", f"{interj}! How are you?",
+                f"{W.capitalize()}! Nasılsın?", [("ünlem", f"{interj}! → kısa selamlama")],
+                mistakes=[f"bought a {interj}", f"my {interj} is here"]), scenario_badge="🌅 RUTİN"),
+        _pe(W, f"{W.capitalize()}! Buraya bak.", f"{interj.capitalize()}! Look over here.", "present",
+            f"{interj}! Look", _rich_teaching_how("Dikkat çekme.", f"{interj}! Look over here",
+                f"{W.capitalize()}! Buraya bak.", [("Look!", "bak / look")]), scenario_badge="🔄 ŞU AN"),
+        _pe(W, f"Dün ona {W} dedim.", f"I said {interj} to him yesterday.", "past",
+            f"said {interj}", _rich_teaching_how("Geçmişte söyleme.", f"I said {interj} to him",
+                f"Dün ona {W} dedim.", [("said hello", f"said {interj} → … dedim")]), scenario_badge="🕐 GEÇMİŞ"),
+        _pe(W, f"Yarın ona {W} diyeceğim.", f"I will say {interj} to her tomorrow.", "future",
+            f"will say {interj}", _rich_teaching_how("Gelecek.", f"I will say {interj} to her",
+                f"Yarın ona {W} diyeceğim.", [("will say", "diyeceğim")]), scenario_badge="🔮 GELECEK"),
+        _pe(W, f"{W.capitalize()} mı dedin?", f"Did you say {interj}?", "question",
+            f"Did you say {interj}", _rich_teaching_how("Soru.", f"Did you say {interj}?",
+                f"{W.capitalize()} mı dedin?", [("Did you say", "… dedin mi?")]), scenario_badge="❓ SORU"),
+        _pe(W, f"Bugün {W} demedim.", f"I didn't say {interj} today.", "negative",
+            f"didn't say {interj}", _rich_teaching_how("Olumsuz.", f"I didn't say {interj} today",
+                f"Bugün {W} demedim.", [("didn't say", "dememedim")]), scenario_badge="⛔ OLUMSUZ"),
+        _pe(W, f"{W.capitalize()}!", f"{interj.capitalize()}!", "imperative",
+            f"{interj}!", _rich_teaching_how("Kısa ünlem.", f"{interj}!",
+                f"{W.capitalize()}!", [("ünlem tek başına", "Hello! / Hey!")]), scenario_badge="📣 EMİR"),
+        _pe(W, f"Lütfen {W} de.", f"Please say {interj}, too.", "polite_request",
+            f"Please say {interj}", _rich_teaching_how("Kibar rica.", f"Please say {interj}, too",
+                f"Lütfen {W} de.", [("Please say", "lütfen … de")]), scenario_badge="🙏 RİCA"),
+        _pe(W, f"Yeni insanlara {W} demelisin.", f"You should say {interj} to new people.", "advice",
+            f"should say {interj}", _rich_teaching_how("Tavsiye.", f"You should say {interj} to new people",
+                f"Yeni insanlara {W} demelisin.", [("should say", "demelisin")]), scenario_badge="💡 TAVSİYE"),
+        _pe(W, f"Ona {W} demem lazım.", f"I need to say {interj} to him.", "obligation",
+            f"need to say {interj}", _rich_teaching_how("Zorunluluk.", f"I need to say {interj} to him",
+                f"Ona {W} demem lazım.", [("need to say", "demem lazım")]), scenario_badge="📌 ZORUNLU"),
+        _pe(W, f"Belki {W} der.", f"She might say {interj}.", "possibility",
+            f"might say {interj}", _rich_teaching_how("Olasılık.", f"She might say {interj}",
+                f"Belki {W} der.", [("might say", "der / diyebilir")]), scenario_badge="🎲 OLASILIK"),
+        _pe(W, f"Görürsen {W} de.", f"If you see him, say {interj}.", "conditional",
+            f"If you see him, say {interj}", _rich_teaching_how("Koşul.", f"If you see him, say {interj}",
+                f"Görürsen {W} de.", [("If you see, say", "görürsen de")]), scenario_badge="🔀 KOŞUL"),
+        _pe(W, f"A: {W.capitalize()}! B: {W.capitalize()}!", f"A: {interj.capitalize()}! B: {interj.capitalize()}!", "dialogue",
+            f"{interj}! exchange", _rich_teaching_how("Karşılıklı selam.", f"Hello! Hello!",
+                f"A: {W.capitalize()}! B: {W.capitalize()}!", [("greeting exchange", "selamlaşma")]), scenario_badge="💬 DİYALOG"),
+    ]
+
+
 def _verb_pattern_examples(W: str, T: str) -> list[dict[str, Any]]:
     return [
         _pe(W, f"Her gün çalışırım.", f"I {T} every day.", "basic", f"I + {T} + every day", f"1️⃣ Temel kullanım\nGeniş zaman: I + fiil(yalın)"),
@@ -3502,6 +4209,7 @@ def _llm_generate_dynamic_lesson(
         word_tr=word_tr[:80],
         target_word=target_word[:80],
         lang_name=lang_name,
+        pos_rules=get_pos_teaching_rules_for_prompt(word_tr, target_word),
     )
     user_msg = "Return JSON only."
     if prior_issues:
@@ -3653,18 +4361,37 @@ def _is_adjective_noun_misuse(
     profile: dict[str, Any] | None,
 ) -> bool:
     """Sıfatı nesne gibi kullanma: bought a new quiet, my happy is on the table."""
-    cat = (profile or {}).get("semantic_category", "")
-    if cat != "adjective" and not _is_adjective_like(word_tr, target_word):
-        return False
+    return _is_wrong_pos_usage(target, word_tr, target_word, profile)
+
+
+def _is_wrong_pos_usage(
+    target: str,
+    word_tr: str,
+    target_word: str,
+    profile: dict[str, Any] | None,
+) -> bool:
+    """Kelime türüne aykırı kullanım — sıfat/fiil/zarf/zamir nesne gibi kullanılamaz."""
+    pos = safe_str((profile or {}).get("part_of_speech")).strip().lower()
+    if not pos:
+        pos = detect_part_of_speech(word_tr, target_word)
     tw = _en_target_word(target_word)
     t = _norm(target)
-    bad = (
+    noun_misuse = (
         f"bought a new {tw}", f"buy a new {tw}", f"will buy a new {tw}",
         f"bring my {tw}", f"my {tw} is on", f"looking for my {tw}",
         f"where is my {tw}", f"have you seen my {tw}", f"need to buy a new {tw}",
-        f"hand me my {tw}", f"carry my {tw}",
+        f"hand me my {tw}", f"carry my {tw}", f"put the {tw} here",
     )
-    return any(p in t for p in bad)
+    if pos in ("adjective", "adverb", "pronoun", "verb", "conjunction", "interjection", "preposition"):
+        if any(p in t for p in noun_misuse):
+            return True
+    if pos == "verb" or _is_verb_like(word_tr, target_word):
+        if any(p in t for p in (f"a {tw}", f"my {tw}", f"the {tw} is here", f"bought a new {tw}")):
+            return True
+    if pos == "adjective" or _is_adjective_like(word_tr, target_word):
+        if any(p in t for p in noun_misuse):
+            return True
+    return False
 
 
 def _validate_word_example(
@@ -3858,6 +4585,12 @@ def collect_lesson_quality_issues(
         if _is_generic_mechanical_template(target):
             issues.append(f"Mekanik şablon cümle reddedildi: {target[:60]}")
             break
+        if _is_wrong_pos_usage(target, word_tr, target_word, profile):
+            issues.append(
+                f"Kelime türüne uymayan cümle reddedildi: {target[:60]} — "
+                f"{POS_LABELS_TR.get(detect_part_of_speech(word_tr, target_word), 'tür')} olarak doğal kullanım yaz."
+            )
+            break
         if _is_mechanical_turkish(tr, word_tr):
             issues.append(f"Doğal olmayan Türkçe: {tr[:60]} — iyelik ve tam cümle kullan.")
             break
@@ -3911,13 +4644,28 @@ def try_ai_word_lesson(
     return best_profile, best_examples, prior_issues
 
 
-def _lesson_category(word_tr: str, target_word: str) -> str:
-    """Ders için kategori; sıfatlar nesne şablonuna düşmez."""
-    if _is_adjective_like(word_tr, target_word):
+def _lesson_category(word_tr: str, target_word: str, profile: dict[str, Any] | None = None) -> str:
+    """Ders için kategori; kelime türüne göre yönlendir — sıfat/fiil/zamir nesne şablonuna düşmez."""
+    pos = safe_str((profile or {}).get("part_of_speech")).strip().lower()
+    if not pos:
+        pos = detect_part_of_speech(word_tr, target_word)
+    if pos == "adjective" or _is_adjective_like(word_tr, target_word):
         return "adjective"
+    if pos == "verb" or _is_verb_like(word_tr, target_word):
+        return "verb"
+    if pos == "pronoun" or _is_pronoun_like(word_tr, target_word):
+        return "pronoun"
+    if pos == "adverb" or _is_adverb_like(word_tr, target_word):
+        return "adverb"
+    if pos == "preposition" or _is_preposition_like(word_tr, target_word):
+        return "preposition"
+    if pos == "conjunction" or _is_conjunction_like(word_tr, target_word):
+        return "conjunction"
+    if pos == "interjection" or _is_interjection_like(word_tr, target_word):
+        return "interjection"
     category = detect_category(word_tr, target_word)
     if category == "general":
-        return "object"
+        return "object" if pos == "noun" else pos
     return category
 
 
@@ -3932,7 +4680,7 @@ def guarantee_word_lesson(
     ai_only: bool = False,
 ) -> tuple[dict[str, Any], list[dict[str, Any]], str]:
     """Ders tamamlama: ai_only modunda yalnızca AI içeriği korunur, şablon eklenmez."""
-    category = _lesson_category(word_tr, target_word)
+    category = _lesson_category(word_tr, target_word, profile)
     rich_ai = _has_rich_ai_profile(profile)
     if not ai_only and not rich_ai and (
         _profile_needs_upgrade(profile, word_tr, target_word) or not (profile.get("common_verbs") or [])

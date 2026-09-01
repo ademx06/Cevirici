@@ -56,6 +56,14 @@ def fake_translate(text: str, from_lang: str, to_lang: str) -> str:
     "eğlence": "entertainment",
     "eglence": "entertainment",
         "sessiz": "quiet",
+        "hızlı": "quickly", "hizli": "quickly",
+        "kedi": "cat",
+        "elma": "apple",
+        "çalışmak": "work", "calismak": "work",
+        "ben": "I",
+        "ile": "with",
+        "ve": "and",
+        "merhaba": "hello",
         "mutlu": "happy",
         "mutlu": "happy",
         "çalışmak": "work",
@@ -574,6 +582,29 @@ def test_sessiz_quiet_natural_lesson():
     print("TEST sessiz quiet natural OK:", len(examples))
 
 
+def test_pos_mandatory_lessons():
+    """Tüm kelime türleri nesne şablonuna düşmemeli."""
+    cases = [
+        ("sessiz", ("bought a new quiet", "yeni bir sessiz aldım", "bring my quiet")),
+        ("hızlı", ("bought a new quickly", "my quickly", "the quickly is here")),
+        ("kedi", ("i am using the cat", "bring the cat", "check the cat regularly")),
+        ("elma", ("i am using the apple", "bring the apple", "check the apple regularly")),
+        ("çalışmak", ("bought a new work", "my work is on the table", "a work is here")),
+        ("ben", ("bought a new i", "my i is on", "bring my i")),
+        ("ile", ("bought a with", "my with is on", "i am using the with")),
+        ("ve", ("bought a and", "my and is on", "bring the and")),
+        ("merhaba", ("bought a hello", "my hello is on", "i am using the hello")),
+    ]
+    for word_tr, banned in cases:
+        r = generate_word_lesson(word_tr, "en", fake_translate)
+        assert r["ok"], f"{word_tr}: {r}"
+        targets = " ".join(safe_str(ex.get("target")).lower() for ex in (r.get("examples") or []))
+        trs = " ".join(safe_str(ex.get("tr")).lower() for ex in (r.get("examples") or []))
+        for b in banned:
+            assert b not in targets and b not in trs, f"{word_tr} banned '{b}' found"
+    print("TEST pos mandatory lessons OK")
+
+
 def test_upgrade_thin_teaching_explanations():
     """Kısa AI açıklamaları zengin kalıp açıklamalarıyla güçlendirilir."""
     from word_teaching_engine import upgrade_word_lesson_teaching, teaching_explanation_is_rich
@@ -881,14 +912,17 @@ def test_universal_guarantee_many_words():
         "çanta", "anahtar", "radyo", "gözlük", "sigara", "bal", "kitap",
         "kapı", "masa", "sakız", "fatura", "eğlence", "telefon",
     ]
-    banned = ("is here", "bring the", "using the", "eat cigarette", "eating ", " a glasses", "glasses is")
+    banned = ("is here", "bring the", "using the", " a glasses", "glasses is")
+    word_banned: dict[str, tuple[str, ...]] = {
+        "sigara": ("eat cigarette", "eating cigarette"),
+    }
     for w in words:
         r = generate_word_lesson(w, "en", fake_translate)
         assert r["ok"], f"{w} failed: {r}"
         ex = r.get("examples") or []
         assert len(ex) >= 13, f"{w}: only {len(ex)} examples"
         targets = " ".join(safe_str(e.get("target")).lower() for e in ex)
-        for b in banned:
+        for b in banned + word_banned.get(w, ()):
             assert b not in targets, f"{w} banned {b!r} in {targets[:80]}"
         usage = r.get("usage") or {}
         verbs = usage.get("common_verbs") or []
@@ -1083,6 +1117,7 @@ if __name__ == "__main__":
     test_ai_only_mode_falls_back_when_api_unavailable()
     test_market_rich_teaching()
     test_sessiz_quiet_natural_lesson()
+    test_pos_mandatory_lessons()
     test_upgrade_thin_teaching_explanations()
     test_has_curated_lexicon()
     test_profile_ideas_fallback_examples()
