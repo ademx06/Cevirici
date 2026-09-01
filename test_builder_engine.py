@@ -38,6 +38,8 @@ def fake_translate(text: str, from_lang: str, to_lang: str) -> str:
     "sakız": "gum",
     "sakiz": "gum",
     "bal": "honey",
+    "sigara": "cigarette",
+    "gözlük": "glasses",
     "eğlence": "entertainment",
     "eglence": "entertainment",
         "araba": "car",
@@ -681,6 +683,69 @@ def test_eglence_natural_lesson():
     print("TEST eğlence natural lesson OK:", len(examples))
 
 
+def test_sigara_not_food_patterns():
+    """sigara → cigarette; yemek kalıbı YASAK; smoke/light/quit fiilleri."""
+    from word_teaching_engine import detect_category, _is_wrong_verb_collocation
+
+    assert detect_category("sigara", "cigarette") == "tobacco"
+    assert _is_wrong_verb_collocation("i am eating cigarette now", "sigara", "cigarette")
+    result = generate_word_lesson("sigara", "en", fake_translate)
+    assert result["ok"], result
+    assert result.get("target_word") == "cigarette"
+    assert result.get("word_icon") == "🚬"
+    examples = result["examples"]
+    assert len(examples) >= 10, f"Expected 10+ examples, got {len(examples)}"
+    targets = " ".join(safe_str(ex.get("target")).lower() for ex in examples)
+    assert "eat" not in targets and "eating" not in targets
+    assert "smoke" in targets or "smoking" in targets or "quit" in targets
+    usage = result.get("usage") or {}
+    verb_map = {v["en"]: v["tr"] for v in (usage.get("common_verbs") or [])}
+    assert "smoke" in verb_map
+    assert "kullanmak" not in verb_map.values()
+    phrases = usage.get("common_phrases") or []
+    assert len(phrases) >= 3, phrases
+    for p in phrases:
+        assert p.get("tr"), f"missing tr: {p.get('en')}"
+    articles = usage.get("article_notes_items") or []
+    assert articles and all(a.get("tr") for a in articles)
+    print("TEST sigara tobacco lesson OK:", len(examples))
+
+
+def test_gozluk_eyewear_lesson():
+    """gözlük → glasses; wear/put on; çoğul isim; mekanik şablon yok."""
+    from word_teaching_engine import detect_category
+
+    assert detect_category("gözlük", "glasses") == "eyewear"
+    assert detect_category("sigara", "cigarette") != "food"
+    result = generate_word_lesson("gözlük", "en", fake_translate)
+    assert result["ok"], result
+    assert result.get("target_word") == "glasses"
+    assert result.get("word_icon") == "👓"
+    examples = result["examples"]
+    assert len(examples) >= 10, f"Expected 10+ examples, got {len(examples)}"
+    targets = " ".join(safe_str(ex.get("target")).lower() for ex in examples)
+    assert "glasses is" not in targets
+    assert "a glasses" not in targets
+    assert "wear" in targets or "put on" in targets
+    banned = ("i am using the glasses", "bring the glasses", "the glasses is here")
+    for b in banned:
+        assert b not in targets, f"Banned: {b}"
+    usage = result.get("usage") or {}
+    verbs = {v["en"] for v in (usage.get("common_verbs") or [])}
+    assert "wear" in verbs
+    assert "use" not in verbs or len(verbs) > 1
+    phrases = usage.get("common_phrases") or []
+    assert len(phrases) >= 3
+    for p in phrases:
+        assert p.get("tr") and p.get("pronunciation_tr")
+    articles = usage.get("article_notes_items") or []
+    assert articles and all(a.get("tr") for a in articles)
+    for ex in examples:
+        tr = safe_str(ex.get("tr")).strip()
+        assert tr and len(tr.replace(".", "").split()) >= 2, f"Short TR: {tr!r}"
+    print("TEST gözlük eyewear lesson OK:", len(examples))
+
+
 def test_bal_honey_usage_and_icon():
     """bal → honey: doğru ikon, fiil çevirileri ve ifade TR/IPA."""
     from word_icons import lookup_emoji
@@ -786,6 +851,8 @@ if __name__ == "__main__":
     test_placeholder_turkish_rejected()
     test_eglence_natural_lesson()
     test_bal_honey_usage_and_icon()
+    test_gozluk_eyewear_lesson()
+    test_sigara_not_food_patterns()
     test_has_curated_lexicon()
     test_profile_ideas_fallback_examples()
     test_masa_icon()

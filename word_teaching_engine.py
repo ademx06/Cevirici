@@ -130,6 +130,9 @@ VERBS_TR: dict[str, str] = {
     "taste": "tatmak / tadına bakmak", "dilute": "sulandırmak",
     "stir": "karıştırmak", "mix": "karıştırmak", "sweeten": "tatlandırmak",
     "harvest": "hasat etmek / toplamak",
+    "smoke": "içmek (sigara)", "light": "yakmak (sigara)", "quit": "bırakmak",
+    "put out": "söndürmek", "take off": "çıkarmak",
+    "prescribe": "reçete etmek",
 }
 
 PHRASES_TR: dict[str, str] = {
@@ -146,6 +149,16 @@ PHRASES_TR: dict[str, str] = {
     "manuka honey": "manuka balı",
     "wildflower honey": "çiçek balı",
     "clover honey": "yonca balı",
+    "wear glasses": "gözlük takmak",
+    "a pair of glasses": "bir gözlük (çift)",
+    "reading glasses": "yakın gözlüğü",
+    "prescription glasses": "numaralı gözlük",
+    "sunglasses": "güneş gözlüğü",
+    "smoke a cigarette": "sigara içmek",
+    "light a cigarette": "sigara yakmak",
+    "a pack of cigarettes": "bir paket sigara",
+    "quit smoking": "sigarayı bırakmak",
+    "cigarette smoke": "sigara dumanı",
 }
 
 GRAMMAR_BADGES: dict[str, str] = {
@@ -221,6 +234,11 @@ GENERIC_STRUCTURE_LABEL_RE = re.compile(
     re.I,
 )
 
+QUALITY_RULE_CATEGORIES = frozenset({
+    "beverage", "furniture", "footwear", "eyewear", "tobacco", "plumbing",
+    "vehicle", "drinkware", "food", "snack", "abstract", "document",
+})
+
 CATEGORY_PHRASES: dict[str, list[dict[str, str]]] = {
     "furniture": [
         {"en": "sit at the table", "tr": "masada oturmak"},
@@ -237,6 +255,22 @@ CATEGORY_PHRASES: dict[str, list[dict[str, str]]] = {
         {"en": "try on shoes", "tr": "ayakkabı denemek"},
         {"en": "buy new shoes", "tr": "yeni ayakkabı almak"},
         {"en": "take off your shoes", "tr": "ayakkabılarını çıkarmak"},
+    ],
+    "eyewear": [
+        {"en": "wear glasses", "tr": "gözlük takmak"},
+        {"en": "a pair of glasses", "tr": "bir gözlük (çift)"},
+        {"en": "reading glasses", "tr": "yakın gözlüğü"},
+        {"en": "prescription glasses", "tr": "numaralı gözlük"},
+        {"en": "take off your glasses", "tr": "gözlüğünü çıkarmak"},
+        {"en": "clean your glasses", "tr": "gözlüğünü temizlemek"},
+    ],
+    "tobacco": [
+        {"en": "smoke a cigarette", "tr": "sigara içmek"},
+        {"en": "light a cigarette", "tr": "sigara yakmak"},
+        {"en": "a pack of cigarettes", "tr": "bir paket sigara"},
+        {"en": "quit smoking", "tr": "sigarayı bırakmak"},
+        {"en": "cigarette smoke", "tr": "sigara dumanı"},
+        {"en": "put out a cigarette", "tr": "sigarayı söndürmek"},
     ],
     "object": [],
     "plumbing": [
@@ -464,6 +498,9 @@ KNOWN_CATEGORIES: dict[str, str] = {
     "şeker": "snack", "seker": "snack", "candy": "snack", "çikolata": "snack", "cikolata": "snack",
     "chocolate": "snack", "bisküvi": "snack", "biskivi": "snack", "cookie": "snack",
     "eğlence": "abstract", "eglence": "abstract", "entertainment": "abstract",
+    "gözlük": "eyewear", "gozluk": "eyewear", "glasses": "eyewear", "sunglasses": "eyewear",
+    "sigara": "tobacco", "cigarette": "tobacco", "cigarettes": "tobacco",
+    "tütün": "tobacco", "tutun": "tobacco", "tobacco": "tobacco",
 }
 
 # Çeviri başarısız olunca bilinen TR→EN eşleşmeleri
@@ -487,6 +524,7 @@ KNOWN_TR_TO_EN: dict[str, str] = {
     "semsiye": "umbrella", "gözlük": "glasses", "gozluk": "glasses",
     "sakız": "gum", "sakiz": "gum",
     "bal": "honey",
+    "sigara": "cigarette", "tütün": "tobacco", "tutun": "tobacco",
     "eğlence": "entertainment", "eglence": "entertainment",
     "koltuk": "sofa", "yatak": "bed", "dolap": "wardrobe", "mutfak": "kitchen",
     "okul": "school", "hastane": "hospital", "bisiklet": "bicycle",
@@ -578,6 +616,22 @@ def _norm(s: str) -> str:
     return re.sub(r"\s+", " ", safe_str(s).strip().lower())
 
 
+def _category_hint_matches(word_tr: str, target_word: str, hint: str) -> bool:
+    """Kategori ipucu eşleşmesi — sigara→et (et) gibi yanlış alt dize eşleşmelerini önler."""
+    from word_icons import _term_matches
+    wt, tw = _norm(word_tr), _norm(target_word)
+    h = _norm(hint)
+    if not h:
+        return False
+    if wt == h or tw == h:
+        return True
+    return _term_matches(h, wt) or _term_matches(h, tw)
+
+
+def _any_category_hint(word_tr: str, target_word: str, hints: tuple[str, ...]) -> bool:
+    return any(_category_hint_matches(word_tr, target_word, h) for h in hints)
+
+
 def detect_category(word_tr: str, target_word: str) -> str:
     for w in (_norm(word_tr), _norm(target_word)):
         if w in KNOWN_CATEGORIES:
@@ -591,6 +645,10 @@ def detect_category(word_tr: str, target_word: str) -> str:
 def _infer_semantic_category(word_tr: str, target_word: str) -> str:
     """Sözlükte yoksa hedef kelimeden kategori çıkar."""
     wt, tw = _norm(word_tr), _norm(target_word)
+    if _is_eyewear_like(wt, tw):
+        return "eyewear"
+    if _is_tobacco_like(wt, tw):
+        return "tobacco"
     if _is_beverage_like(wt, tw):
         return "beverage"
     food_hints = (
@@ -598,22 +656,22 @@ def _infer_semantic_category(word_tr: str, target_word: str) -> str:
         "bread", "cheese", "meat", "chicken", "fish", "apple", "banana", "tomato",
         "rice", "pasta", "pizza", "soup", "salad", "fruit", "vegetable",
     )
-    if any(h in wt or h in tw for h in food_hints):
+    if _any_category_hint(word_tr, target_word, food_hints):
         return "food"
     animal_hints = ("kedi", "köpek", "kuş", "cat", "dog", "bird", "horse", "cow")
-    if any(h in wt or h in tw for h in animal_hints):
+    if _any_category_hint(word_tr, target_word, animal_hints):
         return "animal"
     place_hints = ("ev", "okul", "hastane", "market", "home", "school", "hospital", "store")
-    if any(h in wt or h in tw for h in place_hints):
+    if _any_category_hint(word_tr, target_word, place_hints):
         return "place"
     vehicle_hints = ("araba", "otobüs", "tren", "car", "bus", "train", "plane", "bike")
-    if any(h in wt or h in tw for h in vehicle_hints):
+    if _any_category_hint(word_tr, target_word, vehicle_hints):
         return "vehicle"
     document_hints = (
         "fatura", "invoice", "makbuz", "receipt", "bill", "dekont", "fiş", "fis",
         "contract", "sözleşme", "sozlesme", "document", "belge",
     )
-    if any(h in wt or h in tw for h in document_hints):
+    if _any_category_hint(word_tr, target_word, document_hints):
         return "document"
     if _is_snack_like(wt, tw):
         return "snack"
@@ -621,11 +679,21 @@ def _infer_semantic_category(word_tr: str, target_word: str) -> str:
         return "abstract"
     object_hints = (
         "çanta", "canta", "bag", "valiz", "suitcase", "cüzdan", "wallet",
-        "şemsiye", "umbrella", "gözlük", "glasses", "saat", "watch",
+        "şemsiye", "umbrella", "saat", "watch",
     )
-    if any(h in wt or h in tw for h in object_hints):
+    if _any_category_hint(word_tr, target_word, object_hints):
         return "object"
     return "general"
+
+
+def _is_eyewear_like(word_tr: str, target_word: str) -> bool:
+    hints = ("gözlük", "gozluk", "glasses", "sunglasses", "eyeglasses", "spectacles")
+    return _any_category_hint(word_tr, target_word, hints)
+
+
+def _is_tobacco_like(word_tr: str, target_word: str) -> bool:
+    hints = ("sigara", "cigarette", "cigarettes", "tütün", "tutun", "tobacco", "vape", "nargile", "hookah")
+    return _any_category_hint(word_tr, target_word, hints)
 
 
 def _is_beverage_like(word_tr: str, target_word: str) -> bool:
@@ -689,6 +757,8 @@ def _is_absurd_example(target: str, word_tr: str, target_word: str) -> bool:
     if _is_generic_mechanical_template(target):
         return True
     t = _norm(target)
+    if _is_wrong_verb_collocation(t, word_tr, target_word):
+        return True
     if not _is_beverage_like(word_tr, target_word):
         return False
     absurd = (
@@ -697,6 +767,28 @@ def _is_absurd_example(target: str, word_tr: str, target_word: str) -> bool:
         "regularly", "repair",
     )
     return any(p in t for p in absurd)
+
+
+def _is_wrong_verb_collocation(target_norm: str, word_tr: str, target_word: str) -> bool:
+    """Kelimeye uygun olmayan fiil eşleşmeleri — sigara ye, gözlük ye vb."""
+    cat = detect_category(word_tr, target_word)
+    tw = _en_target_word(target_word)
+    eat_drink = (" eat ", " eating ", " ate ", " drink ", " drinking ", " drank ", " chew ", " chewing ")
+    if cat == "tobacco" or _is_tobacco_like(_norm(word_tr), tw):
+        if any(p in f" {target_norm} " for p in eat_drink):
+            return True
+        if "like cigarette" in target_norm or "love cigarette" in target_norm:
+            return True
+    if cat == "eyewear" or _is_eyewear_like(_norm(word_tr), tw):
+        if any(p in f" {target_norm} " for p in eat_drink):
+            return True
+        if " a glasses" in target_norm or "glasses is " in target_norm:
+            return True
+    if cat not in ("food", "snack", "beverage") and not _is_beverage_like(word_tr, target_word):
+        if any(p in f" {target_norm} " for p in (" eat ", " eating ", " ate ")):
+            if tw and tw in target_norm and tw not in ("corn", "fish"):
+                return True
+    return False
 
 
 def _canonical_beverage_phrase(target_word: str) -> str:
@@ -1168,6 +1260,64 @@ def _rule_word_profile(
             "avoid_patterns": ["These socks are warm", "I love socks"],
             "avoid_reason_tr": "Ayakkabı öğretirken çorap (socks) ana konu olmamalı.",
         },
+        "eyewear": {
+            "part_of_speech": "noun",
+            "countability": "plural",
+            "semantic_category": "eyewear",
+            "meaning_tr": word_tr,
+            "usage_notes_tr": (
+                f"«{word_tr}» İngilizcede glasses (çoğul) olarak kullanılır. "
+                "wear, put on, take off, clean, lose gibi fiillerle doğal cümleler kurulur. "
+                "❌ a glasses yok — ✅ a pair of glasses."
+            ),
+            "common_verbs": ["wear", "put on", "take off", "clean", "lose", "need", "buy", "break"],
+            "common_collocations": [
+                "wear glasses", "a pair of glasses", "reading glasses",
+                "prescription glasses", "take off your glasses", "clean your glasses",
+            ],
+            "common_patterns": [
+                "I wear glasses every day.",
+                "I lost my glasses.",
+                "Can you help me find my glasses?",
+            ],
+            "article_notes_items": [
+                {"en": "my glasses", "tr": "gözlüğüm"},
+                {"en": "a pair of glasses", "tr": "bir gözlük (çift)"},
+                {"en": "the glasses", "tr": "gözlükler"},
+            ],
+            "article_notes_tr": "my glasses → gözlüğüm / a pair of glasses → bir gözlük",
+            "avoid_patterns": ["a glasses", "glasses is", "eat glasses", "drink glasses"],
+            "avoid_reason_tr": "Gözlük çoğul isimdir (glasses are). Yemek/içmek fiilleri kullanılmaz.",
+        },
+        "tobacco": {
+            "part_of_speech": "noun",
+            "countability": "countable",
+            "semantic_category": "tobacco",
+            "meaning_tr": word_tr,
+            "usage_notes_tr": (
+                f"«{word_tr}» için doğal fiil smoke (içmek) kullanılır. "
+                "light a cigarette, quit smoking, a pack of cigarettes yaygındır. "
+                "❌ eat cigarette — sigara yenmez."
+            ),
+            "common_verbs": ["smoke", "light", "quit", "buy", "offer", "put out", "share"],
+            "common_collocations": [
+                "smoke a cigarette", "light a cigarette", "a pack of cigarettes",
+                "quit smoking", "cigarette smoke", "put out a cigarette",
+            ],
+            "common_patterns": [
+                "Do you smoke?",
+                "I need to quit smoking.",
+                "He lit a cigarette outside.",
+            ],
+            "article_notes_items": [
+                {"en": "a cigarette", "tr": "bir sigara"},
+                {"en": "cigarettes", "tr": "sigaralar"},
+                {"en": "a pack of cigarettes", "tr": "bir paket sigara"},
+            ],
+            "article_notes_tr": "a cigarette → bir sigara / cigarettes → sigaralar",
+            "avoid_patterns": ["eat cigarette", "drink cigarette", "I like cigarette"],
+            "avoid_reason_tr": "Sigara içilir (smoke), yenmez veya sevilmez gibi yiyecek kalıbıyla kullanılmaz.",
+        },
         "verb": {
             "part_of_speech": "verb",
             "countability": "n/a",
@@ -1451,6 +1601,10 @@ def _thirteen_pattern_examples_en(
         return _beverage_pattern_examples(W, T, wt, tw)
     if category == "footwear":
         return _footwear_pattern_examples(W, T)
+    if category == "eyewear" or _is_eyewear_like(wt, tw):
+        return _eyewear_pattern_examples(W, T, wt, tw)
+    if category == "tobacco" or _is_tobacco_like(wt, tw):
+        return _tobacco_pattern_examples(W, T, wt, tw)
     if category == "vehicle":
         return _vehicle_pattern_examples(W, T)
     if category == "plumbing":
@@ -1683,6 +1837,109 @@ def _abstract_noun_pattern_examples(W: str, T: str, wt: str, tw: str) -> list[di
         _pe(W, f"A: {W.capitalize()} var mı? B: Evet, canlı müzik var.", f"A: Is there any {T}? B: Yes, there's live music.", "dialogue",
             f"Is there any {T}",
             f"Diyalog: Is there any {T}? — günlük soru."),
+    ]
+
+
+def _eyewear_pattern_examples(W: str, T: str, wt: str, tw: str) -> list[dict[str, Any]]:
+    """Gözlük — glasses (çoğul); wear/put on/take off kalıpları."""
+    glasses = "glasses" if "glass" in tw else T
+    return [
+        _pe(W, "Her gün gözlük takarım.", f"I wear {glasses} every day.", "routine",
+            f"I + wear + {glasses}",
+            f"Günlük rutin: wear glasses → gözlük takmak. Glasses çoğul isimdir.",
+            scenario_badge="🌅 RUTİN"),
+        _pe(W, "Şu an gözlüğümü temizliyorum.", f"I am cleaning my {glasses} right now.", "present",
+            f"I + am + cleaning + my {glasses}",
+            f"Şu an: am cleaning my glasses. My glasses → gözlüğüm.",
+            scenario_badge="🔄 ŞU AN"),
+        _pe(W, "Dün gözlüğümü kaybettim.", f"I lost my {glasses} yesterday.", "past",
+            f"I + lost + my {glasses}",
+            f"Geçmiş: lost my glasses → gözlüğümü kaybettim.",
+            scenario_badge="🕐 GEÇMİŞ"),
+        _pe(W, "Yarın yeni gözlük alacağım.", f"I will buy a new pair of {glasses} tomorrow.", "future",
+            f"a new pair of {glasses}",
+            f"Gelecek: a pair of glasses → bir gözlük (çift). ❌ a glasses değil.",
+            scenario_badge="🔮 GELECEK"),
+        _pe(W, "Gözlüğün var mı?", f"Do you wear {glasses}?", "question",
+            f"Do you wear + {glasses}",
+            f"Soru: Do you wear glasses? → Gözlük takıyor musun?"),
+        _pe(W, "Gözlük takmıyorum.", f"I don't wear {glasses}.", "negative",
+            f"I + don't + wear + {glasses}",
+            f"Olumsuz: don't wear glasses.",
+            scenario_badge="⛔ OLUMSUZ"),
+        _pe(W, "Gözlüğünü tak.", f"Put on your {glasses}.", "imperative",
+            f"Put on + your {glasses}",
+            f"Emir: Put on your glasses → Gözlüğünü tak."),
+        _pe(W, "Gözlüğümü bulmama yardım eder misin?", f"Could you help me find my {glasses}?", "polite_request",
+            f"help me find my {glasses}",
+            f"Kibar rica: Could you help me find my glasses?"),
+        _pe(W, "Gözlüğünü düzenli temizlemelisin.", f"You should clean your {glasses} regularly.", "advice",
+            f"clean your {glasses}",
+            f"Tavsiye: clean your glasses regularly."),
+        _pe(W, "Gözlükçüye gitmem lazım.", f"I need to go to the optician for new {glasses}.", "obligation",
+            f"go to the optician",
+            f"Gereklilik: optician → gözlükçü / optik."),
+        _pe(W, "Gözlüğüm masada olabilir.", f"My {glasses} might be on the table.", "possibility",
+            f"My {glasses} might be",
+            f"Olasılık: might be on the table."),
+        _pe(W, "Gözlüğünü takmazsan iyi görmezsin.", f"If you don't wear your {glasses}, you can't see well.", "conditional",
+            f"If you don't wear your {glasses}",
+            f"Koşul: If you don't wear your glasses…"),
+        _pe(W, f"A: {W.capitalize()} takıyor musun? B: Evet, her gün.", f"A: Do you wear {glasses}? B: Yes, every day.", "dialogue",
+            f"Do you wear {glasses}",
+            f"Diyalog: Do you wear glasses? — günlük soru."),
+    ]
+
+
+def _tobacco_pattern_examples(W: str, T: str, wt: str, tw: str) -> list[dict[str, Any]]:
+    """Sigara — smoke/light/quit; asla eat değil."""
+    cig = "cigarettes" if tw in ("cigarette", "cigarettes", "tobacco") else T
+    a_cig = "a cigarette" if "cigarette" in tw or wt == "sigara" else f"a {cig}"
+    return [
+        _pe(W, "Sigara içmem.", f"I don't smoke {cig}.", "routine",
+            f"I + don't + smoke",
+            f"Genel tercih: don't smoke → sigara içmem. ❌ don't eat cigarette.",
+            scenario_badge="🌅 RUTİN"),
+        _pe(W, "Şu an dışarıda sigara içiyor.", f"He is smoking a cigarette outside right now.", "present",
+            f"is smoking + a cigarette",
+            f"Şu an: is smoking a cigarette → sigara içiyor.",
+            scenario_badge="🔄 ŞU AN"),
+        _pe(W, "Dün akşam iki sigara içti.", f"He smoked two cigarettes last night.", "past",
+            f"smoked + two cigarettes",
+            f"Geçmiş: smoked two cigarettes → iki sigara içti.",
+            scenario_badge="🕐 GEÇMİŞ"),
+        _pe(W, "Yarın sigarayı bırakacağım.", f"I will quit smoking tomorrow.", "future",
+            f"will quit smoking",
+            f"Gelecek: quit smoking → sigarayı bırakmak.",
+            scenario_badge="🔮 GELECEK"),
+        _pe(W, "Sigara içiyor musun?", f"Do you smoke?", "question",
+            f"Do you smoke",
+            f"Soru: Do you smoke? → Sigara içiyor musun?"),
+        _pe(W, "İç mekanlarda sigara içilmez.", f"You can't smoke indoors.", "negative",
+            f"can't smoke indoors",
+            f"Olumsuz/yasak: can't smoke indoors.",
+            scenario_badge="⛔ OLUMSUZ"),
+        _pe(W, "Sigarayı söndür lütfen.", f"Put out your cigarette, please.", "imperative",
+            f"Put out + your cigarette",
+            f"Emir: Put out your cigarette → Sigarayı söndür."),
+        _pe(W, "Bir sigara verebilir misin?", f"Could I have a cigarette?", "polite_request",
+            f"Could I have + a cigarette",
+            f"Kibar rica: Could I have a cigarette?"),
+        _pe(W, "Sigarayı bırakmalısın.", f"You should quit smoking.", "advice",
+            f"should quit smoking",
+            f"Tavsiye: should quit smoking → sigarayı bırakmalısın."),
+        _pe(W, "Marketten sigara almam lazım.", f"I need to buy cigarettes at the store.", "obligation",
+            f"need to buy cigarettes",
+            f"Gereklilik: buy cigarettes at the store."),
+        _pe(W, "Cebinde sigara olabilir.", f"There might be a cigarette in his pocket.", "possibility",
+            f"might be a cigarette",
+            f"Olasılık: might be a cigarette in his pocket."),
+        _pe(W, "Stresliyse sigara içer.", f"If he's stressed, he smokes.", "conditional",
+            f"If he's stressed, he smokes",
+            f"Koşul: If he's stressed, he smokes."),
+        _pe(W, f"A: {W.capitalize()} içer misin? B: Hayır, bıraktım.", f"A: Do you smoke? B: No, I quit.", "dialogue",
+            f"Do you smoke",
+            f"Diyalog: Do you smoke? B: No, I quit."),
     ]
 
 
@@ -2330,19 +2587,27 @@ def generate_examples_from_profile(
         if examples:
             return sanitize_word_examples(examples[:13], word_tr, target_word, profile)
 
-    # 2) AI birincil — lexicon dışı HER kelime için
+    # 2) Kategori kuralları — gözlük, sigara, içecek vb. (LLM'den önce)
+    if target_lang == "en" and category in QUALITY_RULE_CATEGORIES:
+        for ex in _category_examples_en(word_tr, target_word, category):
+            if _validate_word_example(ex, word_tr, target_word, profile):
+                examples.append(ex)
+        if len(examples) >= 8:
+            return sanitize_word_examples(examples[:13], word_tr, target_word, profile)
+
+    # 3) AI — lexicon/kategori dışı kelimeler
     if llm_available() and target_lang == "en":
         llm_ex = _llm_generate_examples_from_profile(profile, word_tr, target_word, target_lang)
         if len(llm_ex) >= 8:
             return llm_ex[:13]
 
-    # 3) Kategori kuralları (içecek, mobilya, yiyecek vb.)
+    # 4) Kategori kuralları (genel)
     if target_lang == "en":
         for ex in _category_examples_en(word_tr, target_word, category):
             if _validate_word_example(ex, word_tr, target_word, profile):
                 examples.append(ex)
 
-    # 4) AI tekrar (kategori kuralları yetersizse)
+    # 5) AI tekrar (kategori kuralları yetersizse)
     if llm_available() and target_lang == "en" and len(examples) < 8:
         llm_ex = _llm_generate_examples_from_profile(profile, word_tr, target_word, target_lang)
         for ex in llm_ex:
@@ -2440,8 +2705,8 @@ def validate_lesson_quality(
             for bad in ("i love", "do you want", "don't drink", "don't like"):
                 if bad in safe_str(ex.get("target")).lower():
                     return False
-        if profile.get("semantic_category") in ("plumbing", "furniture", "vehicle"):
-            for bad in ("i love", "do you want", "don't drink", "drink the", "eat the"):
+        if profile.get("semantic_category") in ("plumbing", "furniture", "vehicle", "tobacco", "eyewear"):
+            for bad in ("i love", "do you want", "don't drink", "drink the", "eat the", "eat cigarette", "eating cigarette"):
                 if bad in safe_str(ex.get("target")).lower():
                     return False
     return True
@@ -2549,7 +2814,7 @@ def build_usage_from_profile(
                 continue
             tr = phrase_lookup.get(en.lower(), "") or _phrase_meaning_tr(en)
             phrase_src.append({"en": en, "tr": tr})
-    if not phrase_src and category != "object":
+    if not phrase_src and category in CATEGORY_PHRASES:
         phrase_src = [p for p in CATEGORY_PHRASES.get(category, []) if isinstance(p, dict) and p.get("tr")]
     phrases_enriched: list[dict[str, str]] = []
     for item in phrase_src[:6]:
