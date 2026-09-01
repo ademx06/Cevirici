@@ -3295,18 +3295,21 @@ def pronounce_text(text: str, lang: str = "en") -> str:
         user_msg = f"{lang_name} text:\n{text[:200]}"
         provider = _active_llm_provider()
         raw = None
-        if provider == "groq":
-            raw = _groq_chat(
-                [{"role": "system", "content": sys_msg}, {"role": "user", "content": user_msg}],
-                max_tokens=80,
-            )
-        elif provider == "gemini":
-            raw = _gemini_chat(sys_msg, user_msg, max_tokens=80)
-        else:
-            raw = _openai_chat(
-                [{"role": "system", "content": sys_msg}, {"role": "user", "content": user_msg}],
-                max_tokens=80,
-            )
+        for prov in _llm_providers_in_order() or ([provider] if provider else []):
+            if prov == "groq":
+                raw = _groq_chat(
+                    [{"role": "system", "content": sys_msg}, {"role": "user", "content": user_msg}],
+                    max_tokens=80,
+                )
+            elif prov == "gemini":
+                raw = _gemini_chat(sys_msg, user_msg, max_tokens=80)
+            else:
+                raw = _openai_chat(
+                    [{"role": "system", "content": sys_msg}, {"role": "user", "content": user_msg}],
+                    max_tokens=80,
+                )
+            if raw:
+                break
         if raw:
             line = raw.strip().strip('"').split("\n")[0].strip()
             if line and len(line) > 2:
@@ -3368,8 +3371,30 @@ def _parse_vocab_tts_pairs(vocab_tr: str) -> list[dict[str, str]]:
     return pairs[:10]
 
 
+def _gemini_api_request(body: dict[str, Any], max_tokens: int) -> str | None:
+    """Gemini generateContent — AIza ve yeni AQ. anahtar formatlarını destekler."""
+    key = os.environ.get("GEMINI_API_KEY", "").strip()
+    model = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+    if not key:
+        return None
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+    headers = _api_headers({
+        "Content-Type": "application/json",
+        "x-goog-api-key": key,
+    })
+    try:
+        req = Request(url, data=json.dumps(body).encode(), headers=headers, method="POST")
+        with urlopen(req, timeout=_llm_request_timeout(max_tokens)) as resp:
+            data = json.loads(resp.read().decode())
+        parts = data["candidates"][0]["content"]["parts"]
+        return "".join(p.get("text", "") for p in parts).strip()
+    except Exception:
+        return None
+
+
 def ai_provider_info() -> dict[str, str | None]:
-    p = _active_llm_provider()
+    providers = _llm_providers_in_order()
+    primary = providers[0] if providers else None
     labels = {
         "groq": "Groq (ücretsiz)",
         "gemini": "Google Gemini (ücretsiz)",
@@ -3380,17 +3405,22 @@ def ai_provider_info() -> dict[str, str | None]:
         "gemini": os.environ.get("GEMINI_MODEL", "gemini-2.0-flash"),
         "openai": os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
     }
+    label = labels.get(primary or "", None)
+    if len(providers) > 1:
+        fallbacks = " → ".join(labels.get(p, p) for p in providers[1:])
+        label = f"{label} (+ yedek: {fallbacks})" if label else fallbacks
     return {
-        "provider": p,
-        "label": labels.get(p or "", None),
-        "model": models.get(p or "", None),
+        "provider": primary,
+        "label": label,
+        "model": models.get(primary or "", None),
+        "providers": providers,
+        "fallback_enabled": len(providers) > 1,
     }
 
 
 def _llm(messages: list[dict], target_lang: str, level: str, roleplay: str | None = None,
            extra: str = "") -> str | None:
-    provider = _active_llm_provider()
-    if not provider:
+    if not _llm_providers_in_order():
         return None
     sys = SYSTEM_PROMPT + f"\nTarget language: {LANG_NAMES.get(target_lang, target_lang)}. User level: {level}."
     if roleplay and roleplay in ROLEPLAYS:
@@ -3400,11 +3430,16 @@ def _llm(messages: list[dict], target_lang: str, level: str, roleplay: str | Non
     if extra:
         sys += f"\n{extra}"
     full_messages = [{"role": "system", "content": sys}] + messages
-    if provider == "groq":
-        return _groq_chat(full_messages, max_tokens=280)
-    if provider == "gemini":
-        return _gemini_chat(sys, messages[-1]["content"] if messages else "", max_tokens=280)
-    return _openai_chat(full_messages, json_mode=False, max_tokens=280)
+    for provider in _llm_providers_in_order():
+        if provider == "groq":
+            raw = _groq_chat(full_messages, max_tokens=280)
+        elif provider == "gemini":
+            raw = _gemini_chat(sys, messages[-1]["content"] if messages else "", max_tokens=280)
+        else:
+            raw = _openai_chat(full_messages, json_mode=False, max_tokens=280)
+        if raw:
+            return raw
+    return None
 
 
 def _openai_chat(messages: list[dict], json_mode: bool = False, max_tokens: int = 520) -> str | None:
@@ -3459,24 +3494,13 @@ def _groq_chat(messages: list[dict], max_tokens: int = 520, json_mode: bool = Fa
 
 
 def _gemini_chat(system: str, user: str, max_tokens: int = 520) -> str | None:
-    key = os.environ.get("GEMINI_API_KEY", "").strip()
-    model = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
-    if not key:
+    if not os.environ.get("GEMINI_API_KEY", "").strip():
         return None
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
-    body = json.dumps({
+    return _gemini_api_request({
         "systemInstruction": {"parts": [{"text": system}]},
         "contents": [{"role": "user", "parts": [{"text": user}]}],
         "generationConfig": {"temperature": 0.72, "maxOutputTokens": max_tokens},
-    }).encode()
-    try:
-        req = Request(url, data=body, headers=_api_headers(), method="POST")
-        with urlopen(req, timeout=_llm_request_timeout(max_tokens)) as resp:
-            data = json.loads(resp.read().decode())
-        parts = data["candidates"][0]["content"]["parts"]
-        return "".join(p.get("text", "") for p in parts).strip()
-    except Exception:
-        return None
+    }, max_tokens)
 
 
 def _llm_providers_in_order() -> list[str]:
@@ -3502,12 +3526,7 @@ def _llm_chat_json_raw(
     if provider == "groq":
         return _groq_chat(messages, max_tokens=max_tokens, json_mode=True)
     if provider == "gemini":
-        url = (
-            f"https://generativelanguage.googleapis.com/v1beta/models/"
-            f"{os.environ.get('GEMINI_MODEL', 'gemini-2.0-flash')}:generateContent"
-            f"?key={os.environ.get('GEMINI_API_KEY', '').strip()}"
-        )
-        body = json.dumps({
+        return _gemini_api_request({
             "systemInstruction": {"parts": [{"text": system}]},
             "contents": [{"role": "user", "parts": [{"text": user}]}],
             "generationConfig": {
@@ -3515,15 +3534,7 @@ def _llm_chat_json_raw(
                 "temperature": 0.72,
                 "maxOutputTokens": max_tokens,
             },
-        }).encode()
-        try:
-            req = Request(url, data=body, headers=_api_headers(), method="POST")
-            with urlopen(req, timeout=_llm_request_timeout(max_tokens)) as resp:
-                data = json.loads(resp.read().decode())
-            parts = data["candidates"][0]["content"]["parts"]
-            return "".join(p.get("text", "") for p in parts).strip()
-        except Exception:
-            return None
+        }, max_tokens)
     if provider == "openai":
         return _openai_chat(messages, json_mode=True, max_tokens=max_tokens)
     return None

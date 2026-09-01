@@ -25,7 +25,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.09.01-v36"
+APP_VERSION = "2026.09.01-v37"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -924,6 +924,8 @@ class Handler(SimpleHTTPRequestHandler):
                 "ai_provider": info.get("provider"),
                 "ai_provider_label": info.get("label"),
                 "ai_model": info.get("model"),
+                "ai_providers": info.get("providers") or [],
+                "ai_fallback_enabled": bool(info.get("fallback_enabled")),
             },
             ensure_ascii=False,
         ).encode()
