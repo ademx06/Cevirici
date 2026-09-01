@@ -144,6 +144,63 @@ def _pronunciation_bundle(
     return build_pronunciation_bundle(text, target_lang, focus_words)
 
 
+# ── Can you + fiil + nesne kalıbı — zengin örnek kütüphanesi ──
+CAN_YOU_PATTERN_EXAMPLES: list[dict[str, str]] = [
+    {"tr": "Kapıyı açabilir misin?", "target": "Can you open the door?"},
+    {"tr": "Bana yardım edebilir misin?", "target": "Can you help me?"},
+    {"tr": "Pencereyi kapatabilir misin?", "target": "Can you close the window?"},
+    {"tr": "Bana biraz su getirebilir misin?", "target": "Can you bring me some water?"},
+    {"tr": "Bana bunu gösterebilir misin?", "target": "Can you show me this?"},
+    {"tr": "Bana bir kalem verebilir misin?", "target": "Can you give me a pen?"},
+    {"tr": "Buraya gelebilir misin?", "target": "Can you come here?"},
+    {"tr": "Bir dakika bekleyebilir misin?", "target": "Can you wait a minute?"},
+    {"tr": "Bana bunu açıklayabilir misin?", "target": "Can you explain this to me?"},
+    {"tr": "Rezervasyon yapabilir misin?", "target": "Can you make a reservation?"},
+    {"tr": "Kapıyı açabilir misiniz?", "target": "Could you open the door?"},
+    {"tr": "Bana bir kahve getirebilir misin?", "target": "Can you bring me a coffee?"},
+]
+
+
+def _is_can_you_pattern(parsed: dict[str, Any], tr_sentence: str) -> bool:
+    target = safe_str(parsed.get("target_sentence")).lower()
+    pattern = safe_str(parsed.get("pattern_tr")).lower()
+    tr = safe_str(tr_sentence).lower()
+    if target.startswith("can you") or target.startswith("could you"):
+        return True
+    if "can you" in pattern or "could you" in pattern:
+        return True
+    if re.search(r"(?:ebilir|abilir)\s+misin", tr):
+        return True
+    return False
+
+
+def _supplement_can_you_patterns(
+    parsed: dict[str, Any],
+    tr_sentence: str,
+    target_lang: str,
+) -> None:
+    if target_lang != "en" or not _is_can_you_pattern(parsed, tr_sentence):
+        return
+    if not safe_str(parsed.get("pattern_tr")).strip():
+        parsed["pattern_tr"] = "Can you + verb + object?"
+    existing = parsed.get("pattern_examples") or []
+    if isinstance(existing, list) and len(existing) >= 8:
+        return
+    seen = {_norm(safe_str(e.get("target") if isinstance(e, dict) else e)) for e in existing}
+    merged: list[dict[str, str]] = []
+    for item in existing:
+        if isinstance(item, dict) and item.get("target"):
+            merged.append({"tr": safe_str(item.get("tr")), "target": safe_str(item["target"])})
+        elif isinstance(item, str) and item.strip():
+            merged.append({"tr": "", "target": item.strip()})
+    for ex in CAN_YOU_PATTERN_EXAMPLES:
+        key = _norm(ex["target"])
+        if key not in seen:
+            merged.append(dict(ex))
+            seen.add(key)
+    parsed["pattern_examples"] = merged[:12]
+
+
 def _merge_teaching_fields(ex: dict[str, Any]) -> dict[str, Any]:
     """Eski alan adlarını yeni şemaya map et."""
     out = dict(ex)
@@ -318,8 +375,10 @@ def _analyze_sentence_structured(
     parsed["ipa"] = bundle.get("ipa") or parsed.get("ipa") or ""
     parsed["word_pronunciations"] = bundle["word_pronunciations"]
     focus = [w.get("token", "") for w in (parsed.get("word_breakdown") or []) if isinstance(w, dict)]
+    _supplement_can_you_patterns(parsed, tr_sentence, target_lang)
+    pat_max = 12 if _is_can_you_pattern(parsed, tr_sentence) else 4
     parsed["pattern_examples"] = enrich_pattern_examples(
-        parsed.get("pattern_examples") or [], target_lang, focus,
+        parsed.get("pattern_examples") or [], target_lang, focus, max_examples=pat_max,
     )
     # new_words telaffuz zenginleştir
     nw = parsed.get("new_words") or []

@@ -6,6 +6,7 @@ from builder_engine import (
     _compute_weighted_score,
     _dedupe_explanations,
     _is_generic_explanation,
+    _norm,
     _rule_pronunciation_en,
     _similarity,
     analyze_sentence_for_builder,
@@ -180,6 +181,29 @@ def test_sentence_analysis():
     print("TEST sentence analysis OK:", result["target_sentence"])
 
 
+def test_can_you_pattern_examples():
+    tr = "Bana bir kahve getirebilir misin?"
+    result = analyze_sentence_for_builder(tr, "en", fake_translate)
+    assert result["ok"], result
+    examples = result.get("pattern_examples") or []
+    assert len(examples) >= 10, f"expected 10+ examples, got {len(examples)}"
+    targets = {_norm(safe_str(e.get("target"))) for e in examples}
+    assert "can you open the door?" in targets
+    assert "can you help me?" in targets
+    assert "can you close the window?" in targets
+    for ex in examples:
+        assert safe_str(ex.get("tr")).strip(), f"missing TR: {ex.get('target')}"
+        assert safe_str(ex.get("pronunciation_tr")).strip(), f"missing pron: {ex.get('target')}"
+    print("TEST can-you pattern examples OK:", len(examples))
+
+
+def test_door_icon():
+    result = generate_word_lesson("kapı", "en", fake_translate)
+    assert result["ok"], result
+    assert result.get("word_icon") == "🚪"
+    print("TEST door icon OK")
+
+
 def test_grade_word_correct():
     result = grade_word_answer("kahve", "coffee", "I drink coffee every morning.", "en", fake_translate)
     assert result["ok"], result
@@ -219,6 +243,8 @@ if __name__ == "__main__":
     test_pronunciation_rules()
     test_market_sentence_teaching()
     test_sentence_analysis()
+    test_can_you_pattern_examples()
+    test_door_icon()
     test_grade_word_correct()
     test_grade_honest_pronunciation()
     test_similarity_and_srs()

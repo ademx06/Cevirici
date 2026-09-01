@@ -157,6 +157,20 @@ EN_CANONICAL: dict[str, str] = {
     "sundays": "san-deyz",
     "why": "vay",
     "could": "kud",
+    "open": "open",
+    "close": "klouz",
+    "door": "dor",
+    "window": "window",
+    "help": "help",
+    "bring": "bring",
+    "show": "şou",
+    "this": "dis",
+    "pen": "pen",
+    "here": "hir",
+    "wait": "weyt",
+    "minute": "minıt",
+    "explain": "ikspleyn",
+    "reservation": "rezervayşın",
 }
 
 EN_IPA: dict[str, str] = {
@@ -353,6 +367,18 @@ SENTENCE_NATURAL_EN: dict[str, str] = {
     ),
     "i drink coffee every morning.": "Ay drink kofi evri mor-ning.",
     "can i have a coffee?": "Ken ay hev e kofi?",
+    "can you bring me a coffee?": "Ken yu bring mi e kofi",
+    "can you open the door?": "Ken yu open dı door",
+    "can you help me?": "Ken yu help mi",
+    "can you close the window?": "Ken yu klouz dı window",
+    "can you bring me some water?": "Ken yu bring mi sam wotır",
+    "can you show me this?": "Ken yu şou mi dis",
+    "can you give me a pen?": "Ken yu giv mi e pen",
+    "can you come here?": "Ken yu kam hir",
+    "can you wait a minute?": "Ken yu weyt e minıt",
+    "can you explain this to me?": "Ken yu ikspleyn dis tu mi",
+    "can you make a reservation?": "Ken yu meyk e rezervayşın",
+    "could you open the door?": "Kud yu open dı door",
 }
 
 
@@ -517,9 +543,10 @@ def enrich_pattern_examples(
     lang: str,
     focus_words: list[str],
     known_words: set[str] | None = None,
+    max_examples: int = 4,
 ) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
-    for ex in (examples or [])[:4]:
+    for ex in (examples or [])[:max_examples]:
         card = enrich_pattern_card(ex, lang, focus_words, known_words)
         if card.get("target"):
             result.append(card)

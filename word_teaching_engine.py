@@ -127,6 +127,9 @@ KNOWN_CATEGORIES: dict[str, str] = {
     "mutlu": "adjective", "happy": "adjective",
     "çalışmak": "verb", "work": "verb", "çalış": "verb",
     "kitap": "object", "book": "object", "telefon": "object", "phone": "object",
+    "kapı": "object", "kapi": "object", "door": "object",
+    "pencere": "object", "window": "object",
+    "kalem": "object", "pen": "object",
     "ev": "place", "home": "place", "market": "place", "pazar": "place",
 }
 
@@ -139,6 +142,10 @@ WORD_ICONS: dict[str, str] = {
     "çalışmak": "💼", "work": "💼", "çalış": "💼",
     "ev": "🏠", "home": "🏠", "kitap": "📚", "book": "📚",
     "su": "💧", "water": "💧", "market": "🛒", "pazar": "🛒",
+    "kapı": "🚪", "kapi": "🚪", "door": "🚪",
+    "pencere": "🪟", "window": "🪟",
+    "telefon": "📱", "phone": "📱",
+    "kalem": "✏️", "pen": "✏️",
 }
 
 CATEGORY_ICONS: dict[str, str] = {
@@ -174,10 +181,12 @@ SENTENCE_TYPE_LABELS: dict[str, str] = {
 
 
 def word_icon_for(word_tr: str, target_word: str, category: str = "general") -> str:
+    """İkon — kelime sözlüğü öncelikli; kategori LLM'den değil kural tabanlı."""
     for w in (_norm(word_tr), _norm(target_word)):
         if w in WORD_ICONS:
             return WORD_ICONS[w]
-    return CATEGORY_ICONS.get(category, "📖")
+    cat = detect_category(word_tr, target_word)
+    return CATEGORY_ICONS.get(cat, "📖")
 
 
 def _norm(s: str) -> str:

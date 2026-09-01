@@ -35,6 +35,22 @@
     return d.innerHTML;
   }
 
+  function resolveWordIcon(wordOrData, apiIcon) {
+    const word = typeof wordOrData === 'string'
+      ? wordOrData
+      : (wordOrData?.word_tr || wordOrData?.word || '');
+    if (apiIcon && apiIcon !== '☕') return apiIcon;
+    const key = String(word || '').trim().toLowerCase();
+    const map = {
+      kahve: '☕', coffee: '☕', musluk: '🚰', faucet: '🚰', tap: '🚰',
+      kapı: '🚪', kapi: '🚪', door: '🚪', araba: '🚗', car: '🚗', ev: '🏠', house: '🏠', home: '🏠',
+      telefon: '📱', phone: '📱', kitap: '📖', book: '📖', masa: '🪑', table: '🪑',
+      sandalye: '💺', chair: '💺', pencere: '🪟', window: '🪟', su: '💧', water: '💧',
+      kalem: '✏️', pen: '✏️', mutlu: '😊', happy: '😊',
+    };
+    return map[key] || apiIcon || '📖';
+  }
+
   function setUi(text, live) {
     const dot = $('statusDot');
     const st = $('statusText');
@@ -110,8 +126,8 @@
         </button>`).join('');
       return `
         <li class="mod-pattern-card">
-          <div class="mod-card-line mod-card-target"><span class="mod-flag">🇬🇧</span>${esc(p.target)}</div>
           ${p.tr ? `<div class="mod-card-line mod-card-tr"><span class="mod-flag">🇹🇷</span>${esc(p.tr)}</div>` : ''}
+          <div class="mod-card-line mod-card-target"><span class="mod-flag">🇬🇧</span>${esc(p.target)}</div>
           ${p.pronunciation_tr ? `<div class="mod-pron-row"><span class="mod-pron-label">🗣️ Okunuş</span><span class="mod-pron-value">${esc(p.pronunciation_tr)}</span></div>` : ''}
           <button type="button" class="mod-listen-btn builder-listen mod-listen-sm" data-text="${esc(p.target)}" data-lang="${lang}">🔊 Dinle</button>
           ${nw ? `<div class="mod-new-words"><strong>📖 Yeni kelimeler</strong>${nw}</div>` : ''}
@@ -290,7 +306,7 @@
     const usage = data.usage || {};
     const patterns = (usage.patterns || []).map((p) => `<li>${esc(p)}</li>`).join('');
     const usageMap = renderUsageMap(usage);
-    const icon = data.word_icon || '📖';
+    const icon = resolveWordIcon(data, data.word_icon);
     const examples = (data.examples || []).map((ex, i) => renderExampleCard(ex, lang, i)).join('');
     box.innerHTML = `
       <div class="mod-hero mod-hero-green">
@@ -527,7 +543,7 @@
       wBox.innerHTML = words.length
         ? words.map((w) => `
           <button type="button" class="mod-saved-item" data-word-id="${w.id}">
-            <span class="mod-saved-icon">☕</span>
+            <span class="mod-saved-icon">${resolveWordIcon(w, w.word_icon)}</span>
             <span class="mod-saved-text">${esc(w.word_tr)}<small>${LS.learningLevel(w.stats)}</small></span>
           </button>`).join('')
         : '<p class="mod-empty">Henüz kelime yok</p>';
