@@ -120,7 +120,10 @@ VERBS_TR: dict[str, str] = {
     "sign": "imzalamak", "grab": "kapmak / almak",
     "be": "olmak", "feel": "hissetmek", "look": "görünmek", "seem": "gibi görünmek",
     "want": "istemek", "eat": "yemek yemek", "cook": "pişirmek", "boil": "kaynatmak",
-    "grill": "ızgara yapmak", "grow": "yetiştirmek", "bring": "getirmek", "prefer": "tercih etmek",
+    "grill": "ızgara yapmak",     "grow": "yetiştirmek", "bring": "getirmek", "prefer": "tercih etmek",
+    "pay": "ödemek", "send": "göndermek", "receive": "almak / teslim almak",
+    "check": "kontrol etmek", "issue": "düzenlemek / kesmek (fatura)",
+    "review": "incelemek / gözden geçirmek", "attach": "eklemek (ek dosya)",
 }
 
 GRAMMAR_BADGES: dict[str, str] = {
@@ -376,6 +379,8 @@ KNOWN_CATEGORIES: dict[str, str] = {
     "domates": "vegetable", "tomato": "vegetable", "havuç": "vegetable", "carrot": "vegetable",
     "ekmek": "food", "bread": "food", "peynir": "food", "cheese": "food",
     "kedi": "animal", "cat": "animal", "köpek": "animal", "dog": "animal",
+    "fatura": "document", "invoice": "document", "makbuz": "document", "receipt": "document",
+    "bill": "document", "dekont": "document", "fiş": "document", "fis": "document",
 }
 
 # Çeviri başarısız olunca bilinen TR→EN eşleşmeleri
@@ -394,6 +399,7 @@ KNOWN_TR_TO_EN: dict[str, str] = {
     "havuç": "carrot", "havuc": "carrot", "patates": "potato", "ekmek": "bread", "peynir": "cheese",
     "yumurta": "egg", "tavuk": "chicken", "balık": "fish", "balik": "fish",
     "kedi": "cat", "köpek": "dog", "kopek": "dog", "kuş": "bird", "kus": "bird",
+    "fatura": "invoice", "makbuz": "receipt", "dekont": "bank receipt",
     "koltuk": "sofa", "yatak": "bed", "dolap": "wardrobe", "mutfak": "kitchen",
     "okul": "school", "hastane": "hospital", "bisiklet": "bicycle",
 }
@@ -514,6 +520,12 @@ def _infer_semantic_category(word_tr: str, target_word: str) -> str:
     vehicle_hints = ("araba", "otobüs", "tren", "car", "bus", "train", "plane", "bike")
     if any(h in wt or h in tw for h in vehicle_hints):
         return "vehicle"
+    document_hints = (
+        "fatura", "invoice", "makbuz", "receipt", "bill", "dekont", "fiş", "fis",
+        "contract", "sözleşme", "sozlesme", "document", "belge",
+    )
+    if any(h in wt or h in tw for h in document_hints):
+        return "document"
     return "general"
 
 
@@ -1665,9 +1677,18 @@ def build_rich_word_explanation(
         parts.append(regional)
     text = " ".join(parts)
     if len(text) < 120:
+        cat = profile.get("semantic_category") or "general"
+        verb_hints = {
+            "beverage": "have, drink, order",
+            "document": "pay, send, receive, check",
+            "furniture": "sit at, set, clear, wipe",
+            "plumbing": "turn on, turn off, fix",
+            "footwear": "wear, buy, try on",
+            "vehicle": "drive, park, wash",
+        }.get(cat, "doğal fiillerle")
         text += (
-            f" Bu kelimeyi günlük cümlelerde doğal fiillerle "
-            f"(have, drink, order vb.) birlikte öğren."
+            f" Bu kelimeyi günlük cümlelerde {verb_hints} gibi "
+            f"kelimeye özel fiillerle birlikte öğren."
         )
     return text.strip()
 

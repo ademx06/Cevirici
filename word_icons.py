@@ -57,6 +57,8 @@ EMOJI_BY_WORD: dict[str, str] = {
     "tabak": "🍽️", "plate": "🍽️", "kase": "🥣", "bowl": "🥣", "çatal": "🍴", "fork": "🍴",
     "bıçak": "🔪", "bicak": "🔪", "knife": "🔪", "kaşık": "🥄", "kasik": "🥄", "spoon": "🥄",
     "saat": "⌚", "watch": "⌚", "clock": "🕐",
+    "fatura": "🧾", "invoice": "🧾", "makbuz": "🧾", "receipt": "🧾", "bill": "🧾",
+    "dekont": "🧾", "fiş": "🧾",
     # Hayvanlar
     "kedi": "🐱", "cat": "🐱", "köpek": "🐶", "kopek": "🐶", "dog": "🐶",
     "kuş": "🐦", "kus": "🐦", "bird": "🐦", "at": "🐴", "horse": "🐴",
@@ -100,7 +102,23 @@ CATEGORY_EMOJI: dict[str, str] = {
     "animal": "🐾",
     "weather": "🌤️",
     "clothing": "👕",
+    "document": "🧾",
 }
+
+_SHORT_TERM_MIN_LEN = 4
+
+
+def _term_matches(term: str, text: str) -> bool:
+    """Kısa anahtarlar (at, ay) yalnızca tam kelime olarak eşleşir — fatura→at hatası önlenir."""
+    term = _norm(term)
+    text = _norm(text)
+    if not term or not text:
+        return False
+    if term == text:
+        return True
+    if len(term) < _SHORT_TERM_MIN_LEN:
+        return bool(re.search(rf"(?<![a-zçğıöşüâîû]){re.escape(term)}(?![a-zçğıöşüâîû])", text))
+    return term in text
 
 # Uzun anahtarlar önce — yanlış kısmi eşleşmeyi önler
 KEYWORD_EMOJI: tuple[tuple[str, ...], str] = (
@@ -116,6 +134,7 @@ KEYWORD_EMOJI: tuple[tuple[str, ...], str] = (
     (("araba", "car", "otomobil", "taksi", "taxi", "otobüs", "bus"), "🚗"),
     (("musluk", "faucet", "tap", "lavabo", "sink", "banyo", "bathroom"), "🚰"),
     (("kapı", "kapi", "door", "pencere", "window"), "🪟"),
+    (("fatura", "invoice", "makbuz", "receipt", "bill", "dekont", "fiş", "fis"), "🧾"),
     (("kitap", "book", "defter", "notebook", "gazete", "newspaper"), "📚"),
     (("telefon", "phone", "bilgisayar", "computer", "laptop", "tablet"), "📱"),
     (("kedi", "cat", "köpek", "kopek", "dog", "kuş", "bird"), "🐾"),
@@ -148,6 +167,7 @@ _TARGET_HINT_EMOJI: tuple[tuple[str, ...], str] = (
     (("dog", "cat", "bird", "fish", "animal"), "🐾"),
     (("phone", "computer", "laptop", "tablet"), "📱"),
     (("book", "novel", "magazine"), "📚"),
+    (("invoice", "receipt", "bill", "fatura"), "🧾"),
     (("chair", "sofa", "bed", "desk"), "🛋️"),
     (("door", "window", "wall"), "🪟"),
     (("car", "bus", "train", "plane", "bike"), "🚗"),
@@ -207,17 +227,17 @@ def lookup_emoji(word_tr: str, target_word: str, category: str = "general") -> s
     # Çok kelimeli ifadeler
     for key in keys:
         for dict_key, emoji in sorted(EMOJI_BY_WORD.items(), key=lambda x: -len(x[0])):
-            if dict_key in key or key in dict_key:
+            if _term_matches(dict_key, key) or _term_matches(key, dict_key):
                 return emoji
     # Anahtar kelime (Türkçe girdi)
     wt = _norm(word_tr)
     for group, emoji in KEYWORD_EMOJI:
-        if any(k in wt for k in group):
+        if any(_term_matches(k, wt) for k in group):
             return emoji
     # İngilizce hedef
     tw = _norm(target_word)
     for group, emoji in KEYWORD_EMOJI:
-        if any(k in tw for k in group):
+        if any(_term_matches(k, tw) for k in group):
             return emoji
     # Kategori
     cat = _norm(category)

@@ -34,6 +34,7 @@ def fake_translate(text: str, from_lang: str, to_lang: str) -> str:
         "maden suyu": "mineral water",
         "misir": "sweet corn",
         "bardak": "glass",
+        "fatura": "invoice",
         "araba": "car",
         "mutlu": "happy",
         "çalışmak": "work",
@@ -428,6 +429,39 @@ def test_word_icons_module():
     print("TEST word_icons OK")
 
 
+def test_fatura_invoice_lesson():
+    """fatura → invoice; at emoji sızıntısı yok; doğal fatura cümleleri."""
+    result = generate_word_lesson("fatura", "en", fake_translate)
+    assert result["ok"], result
+    assert result.get("target_word") == "invoice", result.get("target_word")
+    assert result.get("word_icon") == "🧾", result.get("word_icon")
+    examples = result["examples"]
+    assert len(examples) >= 10, f"Expected 10+ examples, got {len(examples)}"
+    targets = " ".join(safe_str(ex.get("target")).lower() for ex in examples)
+    assert "pay" in targets or "send" in targets or "due" in targets
+    banned = ("the invoice is here", "i am using the invoice", "bring the invoice")
+    for b in banned:
+        assert b not in targets, f"Banned: {b}"
+    usage = result.get("usage") or {}
+    verb_map = {v["en"]: v["tr"] for v in (usage.get("common_verbs") or [])}
+    assert verb_map.get("pay") == "ödemek"
+    assert verb_map.get("send") == "göndermek"
+    phrases_blob = " ".join(safe_str(p.get("en")).lower() for p in (usage.get("common_phrases") or []))
+    assert "pay the invoice" in phrases_blob
+    assert "window" not in phrases_blob and "door" not in phrases_blob
+    expl = result.get("word_explanation_tr") or ""
+    assert "drink" not in expl.lower() or "pay" in expl.lower()
+    print("TEST fatura/invoice lesson OK:", len(examples), "examples")
+
+
+def test_fatura_not_horse_icon():
+    from word_icons import lookup_emoji
+    assert lookup_emoji("fatura", "invoice") == "🧾"
+    assert lookup_emoji("fatura", "fatura") == "🧾"
+    assert lookup_emoji("at", "horse") == "🐴"
+    print("TEST fatura icon not horse OK")
+
+
 def test_kitap_usage_verbs_and_pronunciation():
     """kitap — fiil Türkçeleri doğru; okunuş/IPA ve kalıp çevirileri dolu."""
     result = generate_word_lesson("kitap", "en", fake_translate)
@@ -562,6 +596,8 @@ if __name__ == "__main__":
     test_door_natural_lesson()
     test_kitap_usage_verbs_and_pronunciation()
     test_kitap_no_cross_word_leak()
+    test_fatura_invoice_lesson()
+    test_fatura_not_horse_icon()
     test_masa_icon()
     test_door_icon()
     test_grade_word_correct()

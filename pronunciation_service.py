@@ -91,6 +91,7 @@ EN_CANONICAL: dict[str, str] = {
     "home": "houm",
     "there": "der",
     "book": "buk",
+    "invoice": "invoyce",
     "soda": "sou-da",
     "corn": "korn",
     "sweetcorn": "korn",
@@ -256,6 +257,7 @@ EN_IPA: dict[str, str] = {
     "the": "/ðə/",
     "eat": "/iːt/",
     "order": "/ˈɔːrdər/",
+    "invoice": "/ˈɪnvɔɪs/",
 }
 
 # Kalıp örnekleri için sabit kelime anlamları
@@ -306,6 +308,7 @@ EN_WORD_MEANINGS: dict[str, str] = {
     "window": "pencere",
     "door": "kapı",
     "book": "kitap",
+    "invoice": "fatura",
     "phone": "telefon",
     "reading": "okumak",
     "riding": "binmek / sürmek",

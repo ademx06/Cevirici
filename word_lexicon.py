@@ -1,6 +1,7 @@
 """Kelimeye özel doğal örnek cümleler — mekanik şablon yok, gerçek kullanım senaryoları."""
 from __future__ import annotations
 
+import re
 from typing import Any, Callable
 
 
@@ -30,6 +31,8 @@ def build_lexicon_examples(
         return _pen_examples(W, T, pe)
     if wt in ("anahtar",) or T == "key":
         return _key_examples(W, T, pe)
+    if wt in ("fatura",) or T == "invoice":
+        return _invoice_examples(W, T, pe)
     return []
 
 
@@ -296,6 +299,50 @@ def _key_examples(W: str, T: str, pe: Callable[..., dict[str, Any]]) -> list[dic
     ]
 
 
+def _invoice_examples(W: str, T: str, pe: Callable[..., dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        pe(W, "Faturayı e-postayla aldım.", f"I received the {T} by email.", "basic",
+           f"received + the {T} + by email",
+           "Fatura genelde e-posta ile gelir: receive/get the invoice by email."),
+        pe(W, "Şu an faturayı kontrol ediyorum.", f"I am checking the {T} right now.", "present",
+           f"checking + the {T}",
+           "check the invoice — faturayı kontrol etmek (çok yaygın iş kalıbı)."),
+        pe(W, "Dün faturayı ödedik.", f"We paid the {T} yesterday.", "past",
+           f"paid + the {T}",
+           "pay the invoice — faturayı ödemek."),
+        pe(W, "Yarın faturayı göndereceğiz.", f"We will send the {T} tomorrow.", "future",
+           f"will send + the {T}",
+           "send the invoice — faturayı göndermek."),
+        pe(W, "Faturanın son ödeme tarihi ne?", f"When is the {T} due?", "question",
+           f"When is + the {T} + due",
+           "due — son ödeme tarihi; When is the invoice due? çok yaygın."),
+        pe(W, "Fatura henüz ödenmedi.", f"The {T} hasn't been paid yet.", "negative",
+           f"hasn't been paid + yet",
+           "Ödenmemiş fatura: hasn't been paid yet."),
+        pe(W, "Lütfen faturayı inceleyin.", f"Please review the {T}.", "imperative",
+           f"review + the {T}",
+           "review the invoice — faturayı incelemek/gözden geçirmek."),
+        pe(W, "Faturayı bana gönderebilir misiniz?", f"Could you send me the {T}?", "polite_request",
+           f"Could you send + me + the {T}",
+           "Could you send me the invoice? — resmi ve günlük rica."),
+        pe(W, "Faturayı zamanında ödemelisiniz.", f"You should pay the {T} on time.", "advice",
+           f"pay + the {T} + on time",
+           "Zamanında ödeme tavsiyesi: pay on time."),
+        pe(W, "Bu faturayı bugün ödemem lazım.", f"I need to pay this {T} today.", "obligation",
+           f"need to pay + this {T}",
+           "Ödeme zorunluluğu: need to pay the invoice."),
+        pe(W, "Fatura yanlış olabilir.", f"The {T} might be incorrect.", "possibility",
+           f"might be incorrect",
+           "Hatalı fatura ihtimali: incorrect / wrong amount."),
+        pe(W, "Fatura hatalıysa muhasebeyle iletişime geç.", f"If the {T} is wrong, contact accounting.", "conditional",
+           f"If the {T} is wrong",
+           "Hatalı fatura senaryosu: contact accounting."),
+        pe(W, "A: Faturayı aldın mı? B: Evet, bugün ödeyeceğim.", f"A: Did you get the {T}? B: Yes, I'll pay it today.", "dialogue",
+           f"Did you get + the {T}",
+           "Günlük diyalog: fatura alma ve ödeme."),
+    ]
+
+
 def _lexicon_key(word_tr: str, target_word: str) -> str | None:
     wt = word_tr.lower().strip()
     tw = target_word.lower().strip()
@@ -315,6 +362,8 @@ def _lexicon_key(word_tr: str, target_word: str) -> str | None:
         return "pen"
     if wt == "anahtar" or tw == "key":
         return "key"
+    if wt in ("fatura",) or tw == "invoice":
+        return "invoice"
     return None
 
 
@@ -500,6 +549,31 @@ WORD_USAGE_PROFILES: dict[str, dict[str, Any]] = {
         "avoid_patterns": ["open the key", "drink the key"],
         "avoid_reason_tr": "Anahtar kilit açmak için kullanılır; 'açılmaz' veya içilmez.",
     },
+    "invoice": {
+        "semantic_category": "document",
+        "usage_notes_tr": (
+            "«Fatura» iş ve günlük hayatta pay/send/receive/check fiilleriyle kullanılır. "
+            "❌ open the invoice, drink the invoice — ✅ pay the invoice, send the invoice."
+        ),
+        "common_verbs": ["pay", "send", "receive", "check", "issue", "review", "attach"],
+        "common_collocations": [
+            "pay the invoice", "send the invoice", "receive an invoice",
+            "the invoice is due", "review the invoice", "outstanding invoice",
+        ],
+        "common_patterns": [
+            {"en": "I received the invoice by email.", "tr": "Faturayı e-postayla aldım."},
+            {"en": "When is the invoice due?", "tr": "Faturanın son ödeme tarihi ne?"},
+            {"en": "Could you send me the invoice?", "tr": "Faturayı bana gönderebilir misiniz?"},
+        ],
+        "article_notes_items": [
+            {"en": "an invoice", "tr": "bir fatura"},
+            {"en": "the invoice", "tr": "belirli fatura"},
+            {"en": "this invoice", "tr": "bu fatura"},
+        ],
+        "article_notes_tr": "an invoice (bir fatura) / the invoice (belirli fatura) / this invoice (bu fatura)",
+        "avoid_patterns": ["open the invoice", "bring the invoice", "I am using the invoice"],
+        "avoid_reason_tr": "Fatura açılıp kapatılmaz; ödenir, gönderilir, kontrol edilir.",
+    },
 }
 
 WORD_USAGE_PHRASES: dict[str, list[dict[str, str]]] = {
@@ -566,6 +640,14 @@ WORD_USAGE_PHRASES: dict[str, list[dict[str, str]]] = {
         {"en": "lose my keys", "tr": "anahtarlarımı kaybetmek"},
         {"en": "find the keys", "tr": "anahtarları bulmak"},
         {"en": "borrow your keys", "tr": "anahtarlarını ödünç almak"},
+    ],
+    "invoice": [
+        {"en": "pay the invoice", "tr": "faturayı ödemek"},
+        {"en": "send the invoice", "tr": "faturayı göndermek"},
+        {"en": "receive an invoice", "tr": "fatura almak"},
+        {"en": "the invoice is due", "tr": "faturanın son ödeme tarihi geldi"},
+        {"en": "review the invoice", "tr": "faturayı incelemek"},
+        {"en": "outstanding invoice", "tr": "ödenmemiş fatura"},
     ],
 }
 
