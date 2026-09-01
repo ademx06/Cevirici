@@ -2676,6 +2676,39 @@ body {
   color: #CBD5E1;
 }
 
+.mod-clauses, .mod-patterns-block {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(30,41,59,0.4);
+  border: 1px solid rgba(148,163,184,0.15);
+}
+
+.mod-clause, .mod-pattern-item {
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.mod-pattern-mini {
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(15,23,42,0.5);
+  font-size: 12px;
+}
+
+.mod-inferred {
+  font-size: 13px;
+  color: #FCD34D;
+  margin: 8px 0;
+}
+
+.mod-alts {
+  font-size: 12px;
+  color: #94A3B8;
+  margin: 8px 0;
+}
+
 .mod-pron-note {
   font-size: 12px;
   color: #94A3B8;

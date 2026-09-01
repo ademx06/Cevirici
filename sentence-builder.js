@@ -220,6 +220,57 @@
     });
   }
 
+  function renderUsageMap(usage) {
+    if (!usage || typeof usage !== 'object') return '';
+    const rows = [];
+    if (usage.part_of_speech_tr) rows.push(`<p><strong>Tür:</strong> ${esc(usage.part_of_speech_tr)}</p>`);
+    if (usage.countability_tr) rows.push(`<p><strong>Sayılabilirlik:</strong> ${esc(usage.countability_tr)}</p>`);
+    if (usage.meaning_tr) rows.push(`<p><strong>Anlam:</strong> ${esc(usage.meaning_tr)}</p>`);
+    if (usage.common_verbs_tr) rows.push(`<p><strong>Yaygın fiiller:</strong> ${esc(usage.common_verbs_tr)}</p>`);
+    if (usage.collocations_tr) rows.push(`<p><strong>Yaygın ifadeler:</strong> ${esc(usage.collocations_tr)}</p>`);
+    if (usage.article_notes_tr) rows.push(`<p><strong>Artikel:</strong> ${esc(usage.article_notes_tr)}</p>`);
+    if (usage.usage_notes_tr) rows.push(`<p>${esc(usage.usage_notes_tr)}</p>`);
+    return rows.length ? rows.join('') : '';
+  }
+
+  function renderImportantPatterns(patterns, lang) {
+    if (!patterns?.length) return '';
+    const blocks = patterns.map((p) => {
+      const exs = (p.examples || []).map((e) => `
+        <div class="mod-pattern-mini">
+          <span class="mod-flag">🇬🇧</span>${esc(e.target)}
+          ${e.tr ? `<br><span class="mod-flag">🇹🇷</span>${esc(e.tr)}` : ''}
+        </div>`).join('');
+      return `
+        <div class="mod-pattern-item">
+          <strong>⭐ ${esc(p.pattern_tr)}</strong>
+          ${p.explanation_tr ? `<p>${esc(p.explanation_tr)}</p>` : ''}
+          ${exs}
+        </div>`;
+    }).join('');
+    return `<div class="mod-patterns-block"><h4>⭐ Bu cümleden öğrenilecek kalıplar</h4>${blocks}</div>`;
+  }
+
+  function renderClauseBreakdown(clauses) {
+    if (!clauses?.length) return '';
+    const rows = clauses.map((c) => `
+      <div class="mod-clause">
+        <div><span class="mod-flag">🇹🇷</span>${esc(c.clause_tr)}</div>
+        <div><span class="mod-flag">🇬🇧</span>${esc(c.target)}</div>
+        ${c.role_tr ? `<small>${esc(c.role_tr)}</small>` : ''}
+      </div>`).join('');
+    return `<div class="mod-clauses"><h4>Cümle parçaları</h4>${rows}</div>`;
+  }
+
+  function renderNewWordsList(words, lang) {
+    if (!words?.length) return '';
+    const chips = words.map((w) => `
+      <button type="button" class="mod-nw-chip builder-word-chip" data-word="${esc(w.word)}" data-meaning="${esc(w.meaning_tr || '')}" data-pron="${esc(w.pronunciation_tr || '')}" data-example-target="${esc(w.example_target || '')}" data-example-tr="${esc(w.example_tr || '')}" data-lang="${lang}">
+        ${esc(w.word)} → ${esc(w.meaning_tr || '')}
+      </button>`).join('');
+    return `<div class="mod-new-words"><strong>📖 Yeni kelimeler</strong>${chips}</div>`;
+  }
+
   function renderWordLesson(data) {
     const box = $('wordResult');
     if (!box || !data?.ok) return;
@@ -227,6 +278,7 @@
     const lang = data.target_lang;
     const usage = data.usage || {};
     const patterns = (usage.patterns || []).map((p) => `<li>${esc(p)}</li>`).join('');
+    const usageMap = renderUsageMap(usage);
     const examples = (data.examples || []).map((ex, i) => renderExampleCard(ex, lang, i)).join('');
     box.innerHTML = `
       <div class="mod-hero mod-hero-green">
@@ -238,11 +290,8 @@
       </div>
       ${data.word_explanation_tr ? `<p class="mod-lead">${esc(data.word_explanation_tr)}</p>` : ''}
       <div class="mod-info-card">
-        <h3>Kelime kullanımı</h3>
-        ${usage.noun_tr ? `<p>${esc(usage.noun_tr)}</p>` : ''}
-        ${usage.verb_tr ? `<p><strong>Fiil:</strong> ${esc(usage.verb_tr)}</p>` : ''}
-        ${usage.formal_tr ? `<p><strong>Resmi:</strong> ${esc(usage.formal_tr)}</p>` : ''}
-        ${usage.informal_tr ? `<p><strong>Samimi:</strong> ${esc(usage.informal_tr)}</p>` : ''}
+        <h3>📖 Kelime kullanım haritası</h3>
+        ${usageMap || (usage.noun_tr ? `<p>${esc(usage.noun_tr)}</p>` : '')}
         ${patterns ? `<ul class="mod-tags">${patterns}</ul>` : ''}
         ${usage.common_mistakes_tr ? `<p class="mod-warn">⚠️ ${esc(usage.common_mistakes_tr)}</p>` : ''}
       </div>
@@ -280,17 +329,27 @@
     const chunks = (data.pronunciation_chunks || []).map(
       (c) => `<div class="mod-chunk"><span>${esc(c.target)}</span><em>${esc(c.pronunciation_tr)}</em>${c.ipa ? `<small class="mod-chunk-ipa hidden" data-ipa-for="${cardId}">${esc(c.ipa)}</small>` : ''}</div>`,
     ).join('');
+    const inferred = data.inferred_turkish_tr ? `<p class="mod-inferred">💡 Sanırım demek istediğin: «${esc(data.inferred_turkish_tr)}»</p>` : '';
+    const meaning = data.meaning_summary_tr ? `<p class="mod-lead">${esc(data.meaning_summary_tr)}</p>` : '';
+    const alts = (data.alternatives || []).filter(Boolean);
+    const altBlock = alts.length ? `<div class="mod-alts"><strong>Alternatif:</strong> ${alts.map((a) => esc(a)).join(' · ')}</div>` : '';
     box.innerHTML = `
       <div class="mod-hero mod-hero-blue">
         <div class="mod-hero-icon">💬</div>
         <div><h2>Cümle analizi</h2></div>
       </div>
+      ${inferred}
+      ${meaning}
       <article class="mod-card mod-card-featured">
         <div class="mod-card-line mod-card-tr"><span class="mod-flag">🇹🇷</span>${esc(data.tr_sentence)}</div>
         <div class="mod-card-line mod-card-target"><span class="mod-flag">🌍</span>${esc(data.target_sentence)}</div>
+        ${altBlock}
         <button type="button" class="mod-listen-btn builder-listen" data-text="${esc(data.target_sentence)}" data-lang="${data.target_lang}">🔊 Cümleyi dinle</button>
         ${renderPronunciationBlock(data, data.target_lang, cardId)}
         ${chunks ? `<div class="mod-chunks"><h4>Telaffuz parçaları</h4>${chunks}</div>` : ''}
+        ${renderClauseBreakdown(data.clause_breakdown)}
+        ${renderImportantPatterns(data.important_patterns, data.target_lang)}
+        ${renderNewWordsList(data.new_words, data.target_lang)}
         ${renderTeachingBlock(data, data.target_lang)}
       </article>
       <button type="button" id="saveSentenceBtn" class="mod-action-btn mod-action-save">⭐ Kaydet</button>`;
@@ -310,6 +369,11 @@
       pronunciation_tr: currentSentence.pronunciation_tr,
       ipa: currentSentence.ipa,
       word_pronunciations: currentSentence.word_pronunciations,
+      meaning_summary_tr: currentSentence.meaning_summary_tr,
+      clause_breakdown: currentSentence.clause_breakdown,
+      important_patterns: currentSentence.important_patterns,
+      new_words: currentSentence.new_words,
+      inferred_turkish_tr: currentSentence.inferred_turkish_tr,
       how_it_is_formed_tr: currentSentence.how_it_is_formed_tr,
       grammar_explanation_tr: currentSentence.grammar_explanation_tr,
       structure_tr: currentSentence.structure_tr,

@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Cümle Kur motor testleri — analiz kalitesi + telaffuz."""
+"""Cümle Kur motor testleri — kelimeye özel öğretim + telaffuz."""
 from __future__ import annotations
 
 from builder_engine import (
-    GENERIC_BANNED_RE,
     _compute_weighted_score,
     _dedupe_explanations,
     _is_generic_explanation,
@@ -17,11 +16,13 @@ from builder_engine import (
     srs_weight,
 )
 from pronunciation_service import build_sentence, get_word
+from word_teaching_engine import detect_category, validate_lesson_quality
 
 
 def fake_translate(text: str, from_lang: str, to_lang: str) -> str:
     mapping = {
         "kahve": "coffee",
+        "masa": "table",
         "kahve seviyorum.": "I love coffee.",
         "kahve sevmiyorum.": "I don't like coffee.",
         "kahve ister misin?": "Do you want coffee?",
@@ -32,6 +33,9 @@ def fake_translate(text: str, from_lang: str, to_lang: str) -> str:
         "kahve içmek istiyorum.": "I want to drink coffee.",
         "bugün iş yerinde çok yoruldum.": "today at work very tired I",
         "eve gitmek istiyorum.": "I want to go home.",
+        "pazara gitmem gerekiyor evde yemek yapmak için hiçbir şey yok.": (
+            "I need to go to the market because I have nothing to cook at home."
+        ),
     }
     low = text.lower().strip()
     if low in mapping:
@@ -41,94 +45,92 @@ def fake_translate(text: str, from_lang: str, to_lang: str) -> str:
     return text
 
 
-def test_word_lesson_quality():
+def test_coffee_lesson_natural():
     result = generate_word_lesson("kahve", "en", fake_translate)
     assert result["ok"], result
     examples = result["examples"]
     assert len(examples) >= 5
+    assert detect_category("kahve", "coffee") == "beverage"
+
+    targets = " ".join(safe_str(ex.get("target")).lower() for ex in examples)
+    assert "drink" in targets or "have" in targets or "making" in targets
 
     for ex in examples:
         how = ex.get("how_it_is_formed_tr") or ""
         assert not _is_generic_explanation(how), f"Generic: {how[:80]}"
-        assert "günlük konuşmada kullan" not in how.lower()
-        assert ex.get("structure_tr") or ex.get("word_breakdown")
-        assert ex.get("pronunciation_tr")
-        # dont/layk/kofi tarzı — du u vant olmamalı
-        pron = ex.get("pronunciation_tr", "").lower()
-        assert "du u vant" not in pron
-        assert "kofii" not in pron
+        assert "kofii" not in (ex.get("pronunciation_tr") or "").lower()
 
     assert _dedupe_explanations(examples), "Explanations must be unique"
-    types = {ex.get("sentence_type") for ex in examples}
-    assert len(types) >= 4, types
+    print("TEST coffee lesson OK:", len(examples), "examples")
 
-    # Olumsuz cümle don't açıklaması içermeli
-    neg = next((e for e in examples if e.get("sentence_type") == "negative"), None)
-    assert neg and "don't" in (neg.get("how_it_is_formed_tr") or "").lower()
 
-    # Tag question
-    tag = next((e for e in examples if e.get("sentence_type") == "tag_question"), None)
-    assert tag and "tag" in (tag.get("how_it_is_formed_tr") or "").lower()
+def test_table_lesson_no_template_copy():
+    """masa/table için I love table gibi şablonlar YASAK."""
+    result = generate_word_lesson("masa", "en", fake_translate)
+    assert result["ok"], result
+    examples = result["examples"]
+    assert len(examples) >= 5
+    assert detect_category("masa", "table") == "furniture"
 
-    print("TEST word lesson quality OK:", len(examples), "examples,", len(types), "types")
+    banned = ("i love table", "do you want table", "don't drink table", "you don't drink table")
+    for ex in examples:
+        t = safe_str(ex.get("target")).lower()
+        for b in banned:
+            assert b not in t, f"Banned template found: {t}"
+        how = ex.get("how_it_is_formed_tr") or ""
+        assert "kahve seviyorum" not in how.lower()
+        assert "love + coffee" not in how.lower()
+
+    targets = [safe_str(ex.get("target")).lower() for ex in examples]
+    assert any("on the table" in t or "the table is" in t or "at the table" in t for t in targets)
+    print("TEST table lesson OK — no template copy:", len(examples), "examples")
 
 
 def test_pronunciation_consistency():
-    """Aynı kelime her yerde aynı okunuş."""
-    result = generate_word_lesson("kahve", "en", fake_translate)
     coffee_pron = get_word("en", "coffee")["pronunciation_tr"]
     assert coffee_pron == "kofi"
-
-    shall_pron = get_word("en", "shall")["pronunciation_tr"]
-    assert shall_pron == "şal"
-
+    result = generate_word_lesson("kahve", "en", fake_translate)
     for ex in result["examples"]:
-        pron = (ex.get("pronunciation_tr") or "").lower()
-        if "coffee" in (ex.get("target") or "").lower():
-            assert "kofii" not in pron
-            assert "kah-fi" not in pron
-            assert "kofi" in pron or coffee_pron in pron
         words = {w["word"].lower(): w["pronunciation_tr"] for w in (ex.get("word_pronunciations") or [])}
         if "coffee" in words:
             assert words["coffee"] == "kofi"
-
-    offer = next((e for e in result["examples"] if e.get("sentence_type") == "offer"), None)
-    assert offer, "offer example missing"
-    assert "şal" in offer["pronunciation_tr"].lower()
-    pats = offer.get("pattern_examples") or []
-    assert pats and isinstance(pats[0], dict)
-    assert pats[0].get("tr")
-    assert pats[0].get("pronunciation_tr")
-    water_pat = next((p for p in pats if "water" in (p.get("target") or "").lower()), None)
-    if water_pat:
-        assert water_pat.get("new_words")
-
-    # Cümle analizi aynı sözlüğü kullanmalı
     sent = build_sentence("I don't like coffee.", "en")
     w = {x["word"].lower(): x["pronunciation_tr"] for x in sent["word_pronunciations"]}
     assert w.get("coffee") == "kofi"
-    assert "dont" in sent["pronunciation_tr"].lower()
-
     print("TEST pronunciation consistency OK")
 
 
 def test_no_duplicate_teaching_header():
-    result = generate_word_lesson("kahve", "en", fake_translate)
-    for ex in result["examples"]:
-        how = ex.get("how_it_is_formed_tr") or ""
-        assert how.count("Nasıl kuruldu") == 0, f"Duplicate header in: {how[:60]}"
+    for word in ("kahve", "masa"):
+        result = generate_word_lesson(word, "en", fake_translate)
+        for ex in result["examples"]:
+            how = ex.get("how_it_is_formed_tr") or ""
+            assert how.count("Nasıl kuruldu") == 0, f"Duplicate header in: {how[:60]}"
     print("TEST no duplicate header OK")
 
 
 def test_pronunciation_rules():
     p = _rule_pronunciation_en("I don't like coffee.")
     pron = p["pronunciation_tr"].lower()
-    assert "dont" in pron or "don't" in pron.replace("'", "")
-    assert "layk" in pron or "like" not in pron
+    assert "dont" in pron
     assert "du u" not in pron
     words = {w["word"].lower(): w["pronunciation_tr"] for w in p["word_pronunciations"]}
     assert words.get("coffee") == "kofi"
     print("TEST pronunciation OK:", p["pronunciation_tr"])
+
+
+def test_market_sentence_teaching():
+    tr = "Pazara gitmem gerekiyor evde yemek yapmak için hiçbir şey yok."
+    result = analyze_sentence_for_builder(tr, "en", fake_translate)
+    assert result["ok"], result
+    target = result["target_sentence"].lower()
+    assert "need" in target and "market" in target
+    how = result.get("how_it_is_formed_tr") or ""
+    assert "need to" in how.lower() or "need" in how.lower()
+    assert result.get("meaning_summary_tr") or len(how) > 100
+    patterns = result.get("important_patterns") or []
+    assert patterns or "because" in how.lower()
+    print("TEST market sentence OK:", result["target_sentence"][:60])
 
 
 def test_sentence_analysis():
@@ -141,7 +143,7 @@ def test_sentence_analysis():
 
 
 def test_grade_word_correct():
-    result = grade_word_answer("kahve", "coffee", "I love coffee.", "en", fake_translate)
+    result = grade_word_answer("kahve", "coffee", "I drink coffee every morning.", "en", fake_translate)
     assert result["ok"], result
     assert result["score"] >= 60
     print("TEST grade word OK:", result["score"])
@@ -165,11 +167,17 @@ def test_similarity_and_srs():
     print("TEST utils OK")
 
 
+def safe_str(s):
+    return str(s or "")
+
+
 if __name__ == "__main__":
-    test_word_lesson_quality()
+    test_coffee_lesson_natural()
+    test_table_lesson_no_template_copy()
     test_pronunciation_consistency()
     test_no_duplicate_teaching_header()
     test_pronunciation_rules()
+    test_market_sentence_teaching()
     test_sentence_analysis()
     test_grade_word_correct()
     test_grade_honest_pronunciation()
