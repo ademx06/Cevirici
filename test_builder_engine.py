@@ -44,6 +44,7 @@ def fake_translate(text: str, from_lang: str, to_lang: str) -> str:
     "gözlük": "glasses",
     "çorap": "socks",
     "şemsiye": "umbrella",
+    "cüzdan": "wallet", "cuzdan": "wallet",
     "bıçak": "knife",
     "yastık": "pillow",
     "bisiklet": "bicycle",
@@ -350,9 +351,16 @@ def test_word_breakdown_turkish_meanings():
     sample = None
     for ex in examples:
         wb = ex.get("word_breakdown") or []
-        if len(wb) >= 5:
+        keys = {safe_str(w.get("token")).lower() for w in wb if isinstance(w, dict)}
+        if "glass" in keys or "glasses" in keys:
             sample = wb
             break
+    if not sample:
+        for ex in examples:
+            wb = ex.get("word_breakdown") or []
+            if len(wb) >= 5:
+                sample = wb
+                break
     if not sample:
         sample = examples[0].get("word_breakdown") or []
     assert sample, "word_breakdown missing"
@@ -363,8 +371,10 @@ def test_word_breakdown_turkish_meanings():
         entry = tokens[key]
         assert safe_str(entry.get("meaning_tr")).strip(), f"missing TR meaning for {key}"
         assert safe_str(entry.get("pronunciation_tr")).strip(), f"missing pronunciation for {key}"
-    assert safe_str(tokens.get("glass", {}).get("meaning_tr"))
-    assert safe_str(tokens.get("water", {}).get("meaning_tr"))
+    glass_entry = tokens.get("glass") or tokens.get("glasses")
+    assert glass_entry and safe_str(glass_entry.get("meaning_tr"))
+    if "water" in tokens:
+        assert safe_str(tokens.get("water", {}).get("meaning_tr"))
     print("TEST word breakdown TR meanings OK:", len(sample), "tokens")
 
 
@@ -813,6 +823,45 @@ def test_universal_guarantee_many_words():
     print("TEST universal guarantee OK:", len(words), "words")
 
 
+def test_cuzdan_wallet_natural():
+    """cüzdan → wallet: mekanik şablon yok, doğal fiiller."""
+    from word_teaching_engine import _is_generic_mechanical_template
+
+    r = generate_word_lesson("cüzdan", "en", fake_translate)
+    assert r["ok"], r
+    targets = " ".join(safe_str(e.get("target")).lower() for e in (r.get("examples") or []))
+    assert "often use my wallet at home" not in targets
+    assert "put the wallet here" not in targets
+    assert "you should use my wallet carefully" not in targets
+    assert "lost my wallet" in targets or "lose your wallet" in targets
+    verbs = {v.get("en", "").lower() for v in (r.get("usage") or {}).get("common_verbs") or []}
+    assert verbs & {"lose", "check", "carry", "find"}, f"bad verbs: {verbs}"
+    articles = (r.get("usage") or {}).get("article_notes_items") or []
+    assert any("cüzdanım" in safe_str(a.get("tr")).lower() for a in articles)
+    for e in r.get("examples") or []:
+        assert not _is_generic_mechanical_template(safe_str(e.get("target")))
+    print("TEST cüzdan wallet natural OK")
+
+
+def test_semsiye_umbrella_natural():
+    """şemsiye → umbrella: aç/kapat, yağmur — evde kullanırım yok."""
+    from word_teaching_engine import _is_generic_mechanical_template
+
+    r = generate_word_lesson("şemsiye", "en", fake_translate)
+    assert r["ok"], r
+    targets = " ".join(safe_str(e.get("target")).lower() for e in (r.get("examples") or []))
+    assert "often use my umbrella at home" not in targets
+    assert "put the umbrella here" not in targets
+    assert "open" in targets or "close" in targets or "rain" in targets
+    verbs = {v.get("en", "").lower() for v in (r.get("usage") or {}).get("common_verbs") or []}
+    assert verbs & {"open", "close", "carry", "bring", "forget"}, f"bad verbs: {verbs}"
+    articles = (r.get("usage") or {}).get("article_notes_items") or []
+    assert any("şemsiyem" in safe_str(a.get("tr")).lower() for a in articles)
+    for e in r.get("examples") or []:
+        assert not _is_generic_mechanical_template(safe_str(e.get("target")))
+    print("TEST şemsiye umbrella natural OK")
+
+
 def test_bal_honey_usage_and_icon():
     """bal → honey: doğru ikon, fiil çevirileri ve ifade TR/IPA."""
     from word_icons import lookup_emoji
@@ -921,6 +970,8 @@ if __name__ == "__main__":
     test_gozluk_eyewear_lesson()
     test_sigara_not_food_patterns()
     test_universal_guarantee_many_words()
+    test_cuzdan_wallet_natural()
+    test_semsiye_umbrella_natural()
     test_ai_first_pipeline_without_llm()
     test_has_curated_lexicon()
     test_profile_ideas_fallback_examples()

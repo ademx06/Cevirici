@@ -116,6 +116,7 @@ VERBS_TR: dict[str, str] = {
     "fill": "doldurmak", "break": "kırmak", "dry": "kurulamak",
     "raise": "kaldırmak", "hold": "tutmak", "collect": "toplamak",
     "borrow": "ödünç almak", "lend": "ödünç vermek", "finish": "bitirmek",
+    "pick up": "almak", "put down": "bırakmak", "look for": "aramak", "forget": "unutmak",
     "recommend": "tavsiye etmek",     "write": "yazmak", "lock": "kilitlemek",
     "unlock": "kilidini açmak", "look out of": "…-den dışarı bakmak",
     "eat at": "…-de yemek yemek", "sit on": "…-e oturmak",
@@ -230,7 +231,13 @@ GENERIC_MECHANICAL_RE = [
     re.compile(r"\bis the \w+ ready\b", re.I),
     re.compile(r"\bif you can'?t find the \w+", re.I),
     re.compile(r"\byou should use the \w+ carefully", re.I),
+    re.compile(r"\byou should use my \w+ carefully", re.I),
     re.compile(r"\bcould you bring the \w+", re.I),
+    re.compile(r"\boften use my \w+", re.I),
+    re.compile(r"\bi am looking for my \w+ right now", re.I),
+    re.compile(r"\bput the \w+ here", re.I),
+    re.compile(r"\bcould you pass me my \w+", re.I),
+    re.compile(r"\bhave you seen my \w+\? b: yes, on the table", re.I),
 ]
 
 GENERIC_STRUCTURE_LABEL_RE = re.compile(
@@ -518,6 +525,7 @@ KNOWN_CATEGORIES: dict[str, str] = {
     "çorap": "clothing", "corap": "clothing", "sock": "clothing", "socks": "clothing",
     "gömlek": "clothing", "gomlek": "clothing", "shirt": "clothing",
     "şemsiye": "object", "semsiye": "object", "umbrella": "object",
+    "cüzdan": "object", "cuzdan": "object", "wallet": "object",
     "yastık": "object", "yastik": "object", "pillow": "object",
     "bıçak": "object", "bicak": "object", "knife": "object",
     "kalem": "object", "pen": "object", "radyo": "object", "radio": "object",
@@ -542,7 +550,7 @@ KNOWN_TR_TO_EN: dict[str, str] = {
     "kedi": "cat", "köpek": "dog", "kopek": "dog", "kuş": "bird", "kus": "bird",
     "fatura": "invoice", "makbuz": "receipt", "dekont": "bank receipt",
     "çanta": "bag", "canta": "bag", "valiz": "suitcase", "şemsiye": "umbrella",
-    "semsiye": "umbrella", "gözlük": "glasses", "gozluk": "glasses",
+    "semsiye": "umbrella", "cüzdan": "wallet", "cuzdan": "wallet", "gözlük": "glasses", "gozluk": "glasses",
     "sakız": "gum", "sakiz": "gum",
     "bal": "honey",
     "sigara": "cigarette", "tütün": "tobacco", "tutun": "tobacco",
@@ -744,6 +752,42 @@ def _infer_semantic_category(word_tr: str, target_word: str) -> str:
     if _any_category_hint(word_tr, target_word, object_hints):
         return "object"
     return "general"
+
+
+def _is_umbrella_like(word_tr: str, target_word: str) -> bool:
+    hints = ("şemsiye", "semsiye", "umbrella", "parasol")
+    return _any_category_hint(word_tr, target_word, hints)
+
+
+def _is_wallet_like(word_tr: str, target_word: str) -> bool:
+    hints = ("cüzdan", "cuzdan", "wallet", "billfold")
+    return _any_category_hint(word_tr, target_word, hints)
+
+
+def _possessive_tr(word_tr: str) -> str:
+    """Türkçe iyelik: cüzdan → cüzdanım, şemsiye → şemsiyem."""
+    w = safe_str(word_tr).strip()
+    if not w:
+        return w
+    low = w.lower()
+    known = {
+        "cüzdan": "cüzdanım", "cuzdan": "cüzdanım", "şemsiye": "şemsiyem", "semsiye": "şemsiyem",
+        "çanta": "çantam", "canta": "çantam", "anahtar": "anahtarım", "kitap": "kitabım",
+        "telefon": "telefonum", "gözlük": "gözlüğüm", "gozluk": "gözlüğüm",
+    }
+    if low in known:
+        return known[low]
+    last = low[-1]
+    vowels = [c for c in low if c in "aıouöüei"]
+    if not vowels:
+        return f"benim {low}"
+    v = vowels[-1]
+    suffix = {"a": "ım", "ı": "ım", "e": "im", "i": "im", "o": "um", "ö": "üm", "u": "um", "ü": "üm"}.get(v, "ım")
+    if last in "aeıioöuü":
+        if last in "aı":
+            return w[:-1] + "m" if low.endswith(("ye", "ya")) else w + "m"
+        return w + "m"
+    return w + suffix
 
 
 def _is_eyewear_like(word_tr: str, target_word: str) -> bool:
@@ -1307,22 +1351,25 @@ def _rule_word_profile(
                 f"«{word_tr}» günlük hayatta kullanılan bir nesnedir. "
                 "buy, find, use, carry, need gibi fiillerle doğal cümleler kurulur."
             ),
-            "common_verbs": ["buy", "find", "use", "carry", "need", "pick up", "put down", "look for"],
+            "common_verbs": ["buy", "find", "carry", "need", "lose", "forget"],
             "common_collocations": [
                 f"my {target_word}", f"a new {target_word}", f"where is my {target_word}",
-                f"look for my {target_word}", f"buy a new {target_word}",
+                f"look for my {target_word}", f"lost my {target_word}",
             ],
             "common_patterns": [
-                f"I often use my {target_word} at home.",
                 f"Where is my {target_word}?",
+                f"I lost my {target_word}.",
                 f"I need to buy a new {target_word}.",
             ],
             "article_notes_items": [
-                {"en": f"my {target_word}", "tr": f"benim {word_tr}"},
-                {"en": f"a new {target_word}", "tr": f"yeni bir {word_tr}"},
-                {"en": f"the {target_word}", "tr": f"{word_tr}"},
+                {"en": f"my {target_word}", "tr": _possessive_tr(word_tr)},
+                {"en": f"a new {target_word}", "tr": f"yeni bir {word_tr.lower()}"},
+                {"en": f"the {target_word}", "tr": word_tr.lower()},
             ],
-            "article_notes_tr": f"my {target_word} → benim {word_tr} / a new {target_word} → yeni bir {word_tr}",
+            "article_notes_tr": (
+                f"my {target_word} → {_possessive_tr(word_tr)} / "
+                f"a new {target_word} → yeni bir {word_tr.lower()}"
+            ),
             "avoid_patterns": ["I love X", "Do you want X", "Bring the X", "I am using the X", "eat the", "drink the"],
             "avoid_reason_tr": "Her nesne için aynı şablon kullanılmaz; yemek/içmek fiilleri nesnelerle kullanılmaz.",
         },
@@ -1724,6 +1771,10 @@ def _thirteen_pattern_examples_en(
         return _snack_pattern_examples(W, T, wt, tw)
     if category == "abstract" or _is_abstract_like(wt, tw):
         return _abstract_noun_pattern_examples(W, T, wt, tw)
+    if _is_umbrella_like(wt, tw):
+        return _umbrella_pattern_examples(W, T)
+    if _is_wallet_like(wt, tw):
+        return _wallet_pattern_examples(W, T)
     return _safe_object_pattern_examples(W, T, category)
 
 
@@ -2127,39 +2178,116 @@ def _safe_object_pattern_examples(W: str, T: str, category: str) -> list[dict[st
     return _universal_object_pattern_examples(W, T)
 
 
+def _wallet_pattern_examples(W: str, T: str) -> list[dict[str, Any]]:
+    """Cüzdan/wallet — kaybetme, taşıma, kontrol etme."""
+    tw, my = _en_target_word(T), f"my {_en_target_word(T)}"
+    return [
+        _pe(W, "Cüzdanım masanın üzerinde.", f"{my.capitalize()} is on the table.", "basic",
+            f"{my} + is + on the table", "Temel: yer bildirimi — on the table → masanın üzerinde.", scenario_badge="🌅 RUTİN"),
+        _pe(W, "Her gün cüzdanımı yanımda taşırım.", f"I carry {my} with me every day.", "present",
+            f"carry {my}", "Şimdiki zaman: carry → taşımak.", scenario_badge="🔄 ŞU AN"),
+        _pe(W, "Dün markette cüzdanımı kaybettim.", f"I lost {my} at the market yesterday.", "past",
+            f"lost {my}", "Geçmiş: lose → kaybetmek. Cüzdan için en doğal fiil.", scenario_badge="🕐 GEÇMİŞ"),
+        _pe(W, "Yarın yeni bir cüzdan alacağım.", f"I will buy a new {tw} tomorrow.", "future",
+            f"will buy a new {tw}", "Gelecek: will buy → alacağım.", scenario_badge="🔮 GELECEK"),
+        _pe(W, "Cüzdanın yanında mı?", f"Do you have your {tw} with you?", "question",
+            f"Do you have your {tw}", "Soru: Do you have your wallet? → Cüzdanın yanında mı?"),
+        _pe(W, "Cüzdanımda nakit yok.", f"I don't have any cash in {my}.", "negative",
+            f"don't have cash in {my}", "Olumsuz: in my wallet → cüzdanımda.", scenario_badge="⛔ OLUMSUZ"),
+        _pe(W, "Cüzdanını kontrol et!", f"Check your {tw}!", "imperative",
+            f"Check your {tw}", "Emir: Check your wallet → Cüzdanını kontrol et."),
+        _pe(W, "Cüzdanımı görüyor musun?", f"Can you see {my}?", "polite_request",
+            f"Can you see {my}", "Rica: Can you see my wallet?"),
+        _pe(W, "Kalabalık yerlerde cüzdanını ön cebinde taşımalısın.",
+            "You should keep your wallet in your front pocket in crowded places.", "advice",
+            f"keep your {tw} in your front pocket", "Tavsiye: keep → taşımak/bulundurmak."),
+        _pe(W, "Pasaport kontrolünden önce cüzdanımı çıkarmam gerekiyor.",
+            f"I need to take {my} out before the passport check.", "obligation",
+            f"need to take {my} out", "Zorunluluk: need to take out → çıkarmam gerekiyor."),
+        _pe(W, "Cüzdanım arabada olabilir.", f"{my.capitalize()} might be in the car.", "possibility",
+            f"might be in the car", "Olasılık: might be → olabilir."),
+        _pe(W, "Cüzdanımı bulursam sana haber veririm.", f"If I find {my}, I will let you know.", "conditional",
+            f"If I find {my}", "Koşul: If I find → bulursam."),
+        _pe(W, "A: Cüzdanını mı kaybettin? B: Evet, dün akşam.",
+            f"A: Did you lose your {tw}? B: Yes, last night.", "dialogue",
+            f"Did you lose your {tw}", "Diyalog: lose your wallet → cüzdanını kaybetmek."),
+    ]
+
+
+def _umbrella_pattern_examples(W: str, T: str) -> list[dict[str, Any]]:
+    """Şemsiye/umbrella — açma, kapatma, yağmur."""
+    tw, my, an = _en_target_word(T), f"my {_en_target_word(T)}", f"an {_en_target_word(T)}"
+    return [
+        _pe(W, "Bugün şemsiyemi yanıma aldım.", f"I brought {my} with me today.", "basic",
+            f"brought {my}", "Temel: bring → yanına almak.", scenario_badge="🌅 RUTİN"),
+        _pe(W, "Dışarıda yağmur yağıyor, şemsiyemi açıyorum.",
+            f"It's raining outside, so I'm opening {my}.", "present",
+            f"opening {my}", "Şimdiki zaman: open → açmak.", scenario_badge="🔄 ŞU AN"),
+        _pe(W, "Dün işe giderken şemsiyemi evde unuttum.",
+            f"I forgot {my} at home yesterday on my way to work.", "past",
+            f"forgot {my}", "Geçmiş: forget → unutmak.", scenario_badge="🕐 GEÇMİŞ"),
+        _pe(W, "Yarın yağmur yağacak, şemsiye alacağım.",
+            f"It will rain tomorrow, so I will take {an}.", "future",
+            f"will take {an}", "Gelecek: take an umbrella → şemsiye almak.", scenario_badge="🔮 GELECEK"),
+        _pe(W, "Şemsiyen var mı?", f"Do you have {an}?", "question",
+            f"Do you have {an}", "Soru: Do you have an umbrella?"),
+        _pe(W, "Şemsiyem yok, yağmura yakalandım.", f"I don't have {an}, so I got caught in the rain.", "negative",
+            f"got caught in the rain", "Olumsuz: got caught in the rain → yağmura yakalandım.", scenario_badge="⛔ OLUMSUZ"),
+        _pe(W, "İçeri girmeden önce şemsiyeni kapat!", f"Close your {tw} before you come inside!", "imperative",
+            f"Close your {tw}", "Emir: Close your umbrella → Şemsiyeni kapat."),
+        _pe(W, "Şemsiyemi ödünç alabilir miyim?", f"Can I borrow your {tw}?", "polite_request",
+            f"Can I borrow your {tw}", "Rica: borrow → ödünç almak."),
+        _pe(W, "Hava bulutlu, yanına bir şemsiye almalısın.",
+            f"The sky looks cloudy, you should take {an} with you.", "advice",
+            f"should take {an}", "Tavsiye: take an umbrella → şemsiye al."),
+        _pe(W, "Fırtına var, şemsiye almam gerekiyor.", f"There's a storm coming, so I need to take {an}.", "obligation",
+            f"need to take {an}", "Zorunluluk: need to take → almam gerekiyor."),
+        _pe(W, "Şemsiyem arabada olabilir.", f"{my.capitalize()} might be in the car.", "possibility",
+            f"might be in the car", "Olasılık: might be → olabilir."),
+        _pe(W, "Yağmur yağarsa şemsiyemi açarım.", f"If it rains, I will open {my}.", "conditional",
+            f"If it rains, open {my}", "Koşul: If it rains → yağmur yağarsa."),
+        _pe(W, "A: Yağmur başladı, şemsiyen var mı? B: Yok, bir tane alalım.",
+            f"A: It started raining. Do you have {an}? B: No, let's buy one.", "dialogue",
+            f"It started raining", "Diyalog: yağmur + şemsiye."),
+    ]
+
+
 def _universal_object_pattern_examples(W: str, T: str) -> list[dict[str, Any]]:
-    """Her nesne için 13 doğal cümle — mekanik şablon yok."""
+    """Son çare nesne örnekleri — mekanik 'use at home' şablonu YASAK."""
+    if _is_wallet_like(W, T):
+        return _wallet_pattern_examples(W, T)
+    if _is_umbrella_like(W, T):
+        return _umbrella_pattern_examples(W, T)
     tw = _en_target_word(T)
     my = f"my {tw}"
     a_new = f"a new {tw}"
-    the = f"the {tw}"
     return [
-        _pe(W, f"Evde sık {W} kullanırım.", f"I often use {my} at home.", "routine",
-            f"often use {my}", f"Günlük kullanım: often use my … → sık kullanırım.", scenario_badge="🌅 RUTİN"),
+        _pe(W, f"{W.capitalize()} masanın üzerinde.", f"{my.capitalize()} is on the table.", "basic",
+            f"{my} is on the table", f"Temel kullanım: {my} → {_possessive_tr(W)}.", scenario_badge="🌅 RUTİN"),
         _pe(W, f"Şu an {W} arıyorum.", f"I am looking for {my} right now.", "present",
-            f"looking for {my}", f"Şu an: looking for → arıyorum.", scenario_badge="🔄 ŞU AN"),
-        _pe(W, f"Dün yeni {W} aldım.", f"I bought {a_new} yesterday.", "past",
-            f"bought {a_new}", f"Geçmiş: bought a new … → yeni … aldım.", scenario_badge="🕐 GEÇMİŞ"),
+            f"looking for {my}", "Şu an: looking for → arıyorum.", scenario_badge="🔄 ŞU AN"),
+        _pe(W, f"Dün yeni bir {W} aldım.", f"I bought {a_new} yesterday.", "past",
+            f"bought {a_new}", "Geçmiş: bought → aldım.", scenario_badge="🕐 GEÇMİŞ"),
         _pe(W, f"Yarın {W} alacağım.", f"I will buy {a_new} tomorrow.", "future",
-            f"will buy {a_new}", f"Gelecek: will buy → alacağım.", scenario_badge="🔮 GELECEK"),
+            f"will buy {a_new}", "Gelecek: will buy → alacağım.", scenario_badge="🔮 GELECEK"),
         _pe(W, f"{W.capitalize()} nerede?", f"Where is {my}?", "question",
             f"Where is {my}", f"Soru: Where is my …? → … nerede?"),
         _pe(W, f"{W.capitalize()} bulamıyorum.", f"I can't find {my}.", "negative",
-            f"can't find {my}", f"Olumsuz: can't find → bulamıyorum.", scenario_badge="⛔ OLUMSUZ"),
-        _pe(W, f"{W.capitalize()} buraya koy.", f"Put {the} here, please.", "imperative",
-            f"Put {the} here", f"Emir: Put … here → buraya koy."),
-        _pe(W, f"{W.capitalize()} uzatabilir misin?", f"Could you pass me {my}?", "polite_request",
-            f"pass me {my}", f"Kibar rica: Could you pass me …?"),
-        _pe(W, f"{W.capitalize()} dikkatli kullanmalısın.", f"You should use {my} carefully.", "advice",
-            f"use {my} carefully", f"Tavsiye: use … carefully → dikkatli kullan."),
+            f"can't find {my}", "Olumsuz: can't find → bulamıyorum.", scenario_badge="⛔ OLUMSUZ"),
+        _pe(W, f"Lütfen {W} getir.", f"Please bring {my}.", "imperative",
+            f"bring {my}", "Emir: bring → getir."),
+        _pe(W, f"{W.capitalize()} uzatabilir misin?", f"Could you hand me {my}?", "polite_request",
+            f"hand me {my}", "Rica: Could you hand me …?"),
+        _pe(W, f"{W.capitalize()} dikkatli taşımalısın.", f"You should carry {my} carefully.", "advice",
+            f"carry {my} carefully", "Tavsiye: carry carefully → dikkatli taşı."),
         _pe(W, f"Yeni {W} almam lazım.", f"I need to buy {a_new}.", "obligation",
-            f"need to buy {a_new}", f"Gereklilik: need to buy → almam lazım."),
+            f"need to buy {a_new}", "Zorunluluk: need to buy → almam lazım."),
         _pe(W, f"{W.capitalize()} arabada olabilir.", f"{my.capitalize()} might be in the car.", "possibility",
-            f"might be in the car", f"Olasılık: might be in the car."),
+            f"might be in the car", "Olasılık: might be in the car."),
         _pe(W, f"Görürsen {W} söyle.", f"If you see {my}, tell me.", "conditional",
-            f"If you see {my}", f"Koşul: If you see …, tell me."),
-        _pe(W, f"A: {W.capitalize()} gördün mü? B: Evet, masada.", f"A: Have you seen {my}? B: Yes, on the table.", "dialogue",
-            f"Have you seen {my}", f"Diyalog: Have you seen my …?"),
+            f"If you see {my}", "Koşul: If you see …, tell me."),
+        _pe(W, f"A: {W.capitalize()} gördün mü? B: Evet, orada.", f"A: Have you seen {my}? B: Yes, over there.", "dialogue",
+            f"Have you seen {my}", "Diyalog: Have you seen my …?"),
     ]
 
 
@@ -2908,7 +3036,20 @@ def validate_lesson_quality(
     return True
 
 
-GENERIC_OBJECT_VERBS = frozenset({"use", "need", "find", "buy", "see", "have"})
+GENERIC_OBJECT_VERBS = frozenset({"use", "need", "find", "buy", "see", "have", "carry", "pick up", "put down", "look for"})
+
+
+def _has_rich_ai_profile(profile: dict[str, Any]) -> bool:
+    """AI profili zengin mi? (jenerik nesne şablonu değil)"""
+    notes = safe_str(profile.get("usage_notes_tr"))
+    if "günlük hayatta kullanılan bir nesnedir" in notes:
+        return False
+    if len(notes) > 100:
+        return True
+    verbs = {safe_str(v).strip().lower() for v in (profile.get("common_verbs") or []) if safe_str(v).strip()}
+    if verbs and not verbs <= GENERIC_OBJECT_VERBS:
+        return True
+    return False
 
 
 def _profile_needs_upgrade(profile: dict[str, Any], word_tr: str, target_word: str) -> bool:
@@ -2951,6 +3092,10 @@ def collect_lesson_quality_issues(
         issues.append("Hiç geçerli örnek üretilmedi.")
     for ex in examples:
         tr = safe_str(ex.get("tr")).strip()
+        target = safe_str(ex.get("target")).strip()
+        if _is_generic_mechanical_template(target):
+            issues.append(f"Mekanik şablon cümle reddedildi: {target[:60]}")
+            break
         if _is_placeholder_turkish(tr, word_tr):
             issues.append(f'Türkçe alan tam cümle olmalı; yalnızca «{word_tr}» yazılamaz.')
             break
@@ -3011,35 +3156,76 @@ def guarantee_word_lesson(
     examples: list[dict[str, Any]],
     translate_fn: Callable[[str, str, str], str] | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]], str]:
-    """Her kelime için garanti: profil + en az 13 doğal örnek; asla boş dönme."""
+    """Her kelime için garanti: profil + en az 13 doğal örnek; mevcut iyi içeriği ezme."""
     category = _lesson_category(word_tr, target_word)
-    if _profile_needs_upgrade(profile, word_tr, target_word) or not (profile.get("common_verbs") or []):
+    rich_ai = _has_rich_ai_profile(profile)
+    if not rich_ai and (
+        _profile_needs_upgrade(profile, word_tr, target_word) or not (profile.get("common_verbs") or [])
+    ):
         rule_profile = _rule_word_profile(word_tr, target_word, target_lang, category)
+        if _is_wallet_like(word_tr, target_word):
+            rule_profile["common_verbs"] = ["lose", "find", "check", "carry", "buy", "forget"]
+        elif _is_umbrella_like(word_tr, target_word):
+            rule_profile["common_verbs"] = ["open", "close", "carry", "bring", "forget", "buy"]
         profile = {**rule_profile, **{
             k: v for k, v in profile.items()
-            if k in ("meaning_tr", "usage_notes_tr", "regional_variants") and v
+            if k in ("meaning_tr", "usage_notes_tr", "regional_variants", "common_verbs",
+                     "common_collocations", "article_notes_items", "article_notes_tr") and v
         }}
     profile["semantic_category"] = category
 
     examples = sanitize_word_examples(examples, word_tr, target_word, profile, translate_fn)
     seen = {_norm(safe_str(ex.get("target"))) for ex in examples if safe_str(ex.get("target")).strip()}
 
-    for source in (
-        _thirteen_pattern_examples_en(word_tr, target_word, category),
-        build_rule_examples_for_word(word_tr, target_word, profile),
-    ):
-        for ex in source:
+    if len(examples) < 13:
+        for source in (
+            _examples_from_profile_content(profile, word_tr, target_word),
+            _thirteen_pattern_examples_en(word_tr, target_word, category),
+            build_rule_examples_for_word(word_tr, target_word, profile),
+        ):
+            for ex in source:
+                key = _norm(safe_str(ex.get("target")))
+                if not key or key in seen:
+                    continue
+                cand = dict(ex)
+                if not _validate_word_example(cand, word_tr, target_word, profile):
+                    continue
+                if _is_generic_mechanical_template(safe_str(cand.get("target"))):
+                    continue
+                examples.append(cand)
+                seen.add(key)
+                if len(examples) >= 13:
+                    break
+            if len(examples) >= 13:
+                break
+
+    if len(examples) < 13 and llm_available() and target_lang == "en":
+        ai_profile, ai_examples, ai_issues = try_ai_word_lesson(word_tr, target_word, target_lang, profile)
+        if ai_examples:
+            if _has_rich_ai_profile(ai_profile):
+                profile = {**profile, **ai_profile}
+            for ex in ai_examples:
+                key = _norm(safe_str(ex.get("target")))
+                if not key or key in seen:
+                    continue
+                if _validate_word_example(ex, word_tr, target_word, profile):
+                    examples.append(dict(ex))
+                    seen.add(key)
+                if len(examples) >= 13:
+                    break
+
+    examples = sanitize_word_examples(examples[:13], word_tr, target_word, profile, translate_fn)
+    if len(examples) < 13:
+        for ex in _thirteen_pattern_examples_en(word_tr, target_word, category):
             key = _norm(safe_str(ex.get("target")))
             if not key or key in seen:
                 continue
-            cand = dict(ex)
-            if _validate_word_example(cand, word_tr, target_word, profile):
-                examples.append(cand)
-                seen.add(key)
+            if _is_generic_mechanical_template(safe_str(ex.get("target"))):
+                continue
+            examples.append(dict(ex))
+            seen.add(key)
             if len(examples) >= 13:
                 break
-        if len(examples) >= 13:
-            break
 
     if len(examples) < 13:
         for ex in _thirteen_pattern_examples_en(word_tr, target_word, category):
@@ -3051,9 +3237,10 @@ def guarantee_word_lesson(
             if len(examples) >= 13:
                 break
 
-    examples = sanitize_word_examples(examples[:13], word_tr, target_word, profile, translate_fn)
-    if len(examples) < 13:
-        examples = _thirteen_pattern_examples_en(word_tr, target_word, category)[:13]
+    if _is_wallet_like(word_tr, target_word):
+        profile["common_verbs"] = ["lose", "find", "check", "carry", "buy", "forget"]
+    elif _is_umbrella_like(word_tr, target_word):
+        profile["common_verbs"] = ["open", "close", "carry", "bring", "forget", "buy"]
 
     category = profile.get("semantic_category") or category
     return profile, examples[:13], category
