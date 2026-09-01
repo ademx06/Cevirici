@@ -152,6 +152,36 @@
     if (pron) return `🗣️ ${pron}`;
     return '';
   }
+
+  function renderUsageLineItem(item, lang, opts = {}) {
+    if (!item?.en) return '';
+    const listen = opts.listen !== false;
+    const pronLine = formatPronLine(item.pronunciation_tr, item.ipa);
+    return `
+      <div class="mod-phrase-item">
+        <div class="mod-card-line"><span class="mod-flag">🇺🇸</span>${esc(item.en)}</div>
+        ${item.tr ? `<div class="mod-card-line"><span class="mod-flag">🇹🇷</span>${esc(item.tr)}</div>` : ''}
+        ${pronLine ? `<div class="mod-pron-row"><span class="mod-pron-label">${pronLine}</span></div>` : ''}
+        ${listen ? `<button type="button" class="mod-listen-btn builder-listen mod-listen-sm" data-text="${esc(item.en)}" data-lang="${lang || 'en'}">🔊 Dinle</button>` : ''}
+      </div>`;
+  }
+
+  function renderUsageVerbs(verbs, lang) {
+    if (!verbs?.length) return '';
+    return `<div class="mod-verb-list-wrap"><strong>Yaygın fiiller</strong><ul class="mod-verb-list">${
+      verbs.map((v) => {
+        const pronLine = formatPronLine(v.pronunciation_tr, v.ipa);
+        return `<li>${esc(v.en)} → ${esc(v.tr || '')}${pronLine ? `<span class="mod-pron-inline">${pronLine}</span>` : ''}</li>`;
+      }).join('')
+    }</ul></div>`;
+  }
+
+  function renderUsagePatterns(patterns, lang) {
+    if (!patterns?.length) return '';
+    return `<div class="mod-patterns-usage"><strong>Örnek kalıplar</strong>${
+      patterns.map((p) => renderUsageLineItem(p, lang)).join('')
+    }</div>`;
+  }
   function renderWordBreakdown(ex) {
     const items = ex.word_breakdown || ex.parts || [];
     if (!items.length) return '';
@@ -336,26 +366,29 @@
     if (usage.meaning_tr) rows.push(`<p><strong>Anlam:</strong> ${esc(usage.meaning_tr)}</p>`);
     if (usage.usage_notes_tr) rows.push(`<p class="mod-usage-note">${esc(usage.usage_notes_tr)}</p>`);
     if (usage.common_verbs?.length) {
-      rows.push(`<div class="mod-verb-list-wrap"><strong>Yaygın fiiller</strong><ul class="mod-verb-list">${
-        usage.common_verbs.map((v) => `<li>${esc(v.en)} → ${esc(v.tr || '')}</li>`).join('')
-      }</ul></div>`);
+      rows.push(renderUsageVerbs(usage.common_verbs, lang));
     } else if (usage.common_verbs_tr) {
       rows.push(`<p><strong>Yaygın fiiller:</strong> ${esc(usage.common_verbs_tr)}</p>`);
     }
     if (usage.common_phrases?.length) {
       rows.push(`<div class="mod-phrases-block"><strong>Yaygın ifadeler</strong>${
-        usage.common_phrases.map((p) => `
-          <div class="mod-phrase-item">
-            <div class="mod-card-line"><span class="mod-flag">🇺🇸</span>${esc(p.en)}</div>
-            ${p.tr ? `<div class="mod-card-line"><span class="mod-flag">🇹🇷</span>${esc(p.tr)}</div>` : ''}
-            ${formatPronLine(p.pronunciation_tr, p.ipa) ? `<div class="mod-pron-row"><span class="mod-pron-label">${formatPronLine(p.pronunciation_tr, p.ipa)}</span></div>` : ''}
-            <button type="button" class="mod-listen-btn builder-listen mod-listen-sm" data-text="${esc(p.en)}" data-lang="${lang || 'en'}">🔊 Dinle</button>
-          </div>`).join('')
+        usage.common_phrases.map((p) => renderUsageLineItem(p, lang)).join('')
       }</div>`);
     } else if (usage.collocations_tr) {
       rows.push(`<p><strong>Yaygın ifadeler:</strong> ${esc(usage.collocations_tr)}</p>`);
     }
-    if (usage.article_notes_tr) rows.push(`<p><strong>Artikel/Konteyner Notu:</strong> ${esc(usage.article_notes_tr)}</p>`);
+    if (usage.article_notes_items?.length) {
+      rows.push(`<div class="mod-article-notes"><strong>Artikel/Konteyner Notu</strong>${
+        usage.article_notes_items.map((item) => renderUsageLineItem(item, lang, { listen: true })).join('')
+      }</div>`);
+    } else if (usage.article_notes_tr) {
+      rows.push(`<p><strong>Artikel/Konteyner Notu:</strong> ${esc(usage.article_notes_tr)}</p>`);
+    }
+    if (usage.pattern_examples?.length) {
+      rows.push(renderUsagePatterns(usage.pattern_examples, lang));
+    } else if (usage.patterns?.length) {
+      rows.push(`<ul class="mod-tags">${usage.patterns.map((p) => `<li>${esc(typeof p === 'string' ? p : p.en || '')}</li>`).join('')}</ul>`);
+    }
     if (usage.alternative_terms_tr?.length) {
       rows.push(`<div class="mod-alt-terms"><strong>💡 Alternatif ifadeler</strong>${
         usage.alternative_terms_tr.map((t) => `
@@ -417,7 +450,6 @@
     currentWordLesson = data;
     const lang = data.target_lang;
     const usage = data.usage || {};
-    const patterns = (usage.patterns || []).map((p) => `<li>${esc(p)}</li>`).join('');
     const usageMap = renderUsageMap(usage, lang);
     const icon = resolveWordIcon(data, data.word_icon);
     const examples = (data.examples || []).map((ex, i) => renderExampleCard(ex, lang, i, true)).join('');
@@ -435,7 +467,6 @@
       <div class="mod-info-card">
         <h3>📖 Kelime kullanım haritası</h3>
         ${usageMap || (usage.noun_tr ? `<p>${esc(usage.noun_tr)}</p>` : '')}
-        ${patterns ? `<ul class="mod-tags">${patterns}</ul>` : ''}
         ${usage.common_mistakes_tr ? `<p class="mod-warn">⚠️ ${esc(usage.common_mistakes_tr)}</p>` : ''}
       </div>
       <h3 class="mod-section-title">Örnek cümleler <small class="mod-section-hint">kelimeye özel doğal kullanım</small></h3>

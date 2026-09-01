@@ -428,6 +428,30 @@ def test_word_icons_module():
     print("TEST word_icons OK")
 
 
+def test_kitap_usage_verbs_and_pronunciation():
+    """kitap — fiil Türkçeleri doğru; okunuş/IPA ve kalıp çevirileri dolu."""
+    result = generate_word_lesson("kitap", "en", fake_translate)
+    assert result["ok"], result
+    usage = result.get("usage") or {}
+    verb_map = {v["en"]: v["tr"] for v in (usage.get("common_verbs") or [])}
+    assert verb_map.get("borrow") == "ödünç almak", verb_map
+    assert verb_map.get("finish") == "bitirmek", verb_map
+    assert verb_map.get("recommend") == "tavsiye etmek", verb_map
+    assert verb_map.get("lend") == "ödünç vermek", verb_map
+    assert verb_map.get("write") == "yazmak", verb_map
+    for v in usage.get("common_verbs") or []:
+        assert v.get("pronunciation_tr"), f"Missing verb pron: {v.get('en')}"
+    articles = usage.get("article_notes_items") or []
+    assert len(articles) >= 3
+    for a in articles:
+        assert a.get("tr") and a.get("pronunciation_tr"), a
+    patterns = usage.get("pattern_examples") or []
+    assert len(patterns) >= 3
+    for p in patterns:
+        assert p.get("tr") and p.get("pronunciation_tr"), p
+    print("TEST kitap usage verbs/pron OK")
+
+
 def test_kitap_no_cross_word_leak():
     """kitap dersinde pencere/kapı ifadeleri YASAK."""
     result = generate_word_lesson("kitap", "en", fake_translate)
@@ -536,6 +560,7 @@ if __name__ == "__main__":
     test_bardak_glass_lesson()
     test_word_sequence_isolation()
     test_door_natural_lesson()
+    test_kitap_usage_verbs_and_pronunciation()
     test_kitap_no_cross_word_leak()
     test_masa_icon()
     test_door_icon()

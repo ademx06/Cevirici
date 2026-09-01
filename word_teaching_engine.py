@@ -105,13 +105,22 @@ VERBS_TR: dict[str, str] = {
     "fix": "tamir etmek", "wash": "yıkamak", "rent": "kiralamak",
     "turn on": "açmak", "turn off": "kapatmak", "repair": "tamir etmek",
     "replace": "değiştirmek", "install": "takmak / kurmak",
-    "go to": "gitmek", "be at": "bulunmak", "visit": "ziyaret etmek",
+    "go to": "gitmek", "be at": "bulunmak", "visit": "ziyaret etmek", "leave": "ayrılmak",
     "read": "okumak", "charge": "şarj etmek", "answer": "cevaplamak / açmak",
-    "knock": "çalmak", "wipe": "silmek", "clear": "toplamak",
-    "order": "sipariş etmek", "sip": "yudumlamak", "serve": "servis etmek",
-    "pour": "dökmek", "chill": "soğutmak",
-    "fill": "doldurmak", "break": "kırmak", "wash": "yıkamak", "dry": "kurulamak",
+    "knock on": "çalmak (kapı)", "knock": "çalmak", "wipe": "silmek", "clear": "toplamak",
+    "sip": "yudumlamak", "serve": "servis etmek", "pour": "dökmek", "chill": "soğutmak",
+    "fill": "doldurmak", "break": "kırmak", "dry": "kurulamak",
     "raise": "kaldırmak", "hold": "tutmak", "collect": "toplamak",
+    "borrow": "ödünç almak", "lend": "ödünç vermek", "finish": "bitirmek",
+    "recommend": "tavsiye etmek", "write": "yazmak", "lock": "kilitlemek",
+    "unlock": "kilidini açmak", "look out of": "…-den dışarı bakmak",
+    "eat at": "…-de yemek yemek", "sit on": "…-e oturmak",
+    "pull up": "çekmek (sandalye)", "pull out": "çekip çıkarmak", "take": "almak",
+    "ring": "çalmak (telefon)", "call": "aramak", "text": "mesaj atmak",
+    "sign": "imzalamak", "grab": "kapmak / almak",
+    "be": "olmak", "feel": "hissetmek", "look": "görünmek", "seem": "gibi görünmek",
+    "want": "istemek", "eat": "yemek yemek", "cook": "pişirmek", "boil": "kaynatmak",
+    "grill": "ızgara yapmak", "grow": "yetiştirmek", "bring": "getirmek", "prefer": "tercih etmek",
 }
 
 GRAMMAR_BADGES: dict[str, str] = {
@@ -1839,6 +1848,45 @@ def validate_lesson_quality(
     return True
 
 
+def _verb_meaning_tr(verb_key: str) -> str:
+    key = safe_str(verb_key).strip().lower()
+    if not key:
+        return ""
+    if key in VERBS_TR:
+        return VERBS_TR[key]
+    parts = key.split()
+    if len(parts) > 1:
+        phrase = " ".join(parts)
+        if phrase in VERBS_TR:
+            return VERBS_TR[phrase]
+        if f"{parts[0]} {parts[1]}" in VERBS_TR:
+            return VERBS_TR[f"{parts[0]} {parts[1]}"]
+    return VERBS_TR.get(parts[-1], "")
+
+
+def _parse_article_notes_tr(text: str) -> list[dict[str, str]]:
+    items: list[dict[str, str]] = []
+    for part in re.split(r"\s*/\s*", safe_str(text)):
+        part = part.strip()
+        if not part:
+            continue
+        m = re.match(r"(.+?)\s*\(([^)]+)\)\s*$", part)
+        if m:
+            items.append({"en": m.group(1).strip(), "tr": m.group(2).strip()})
+    return items
+
+
+def _enrich_usage_entry(en: str, tr: str, target_lang: str) -> dict[str, str]:
+    en = safe_str(en).strip()
+    tr = safe_str(tr).strip()
+    pron, ipa = "", ""
+    if en and target_lang == "en":
+        bundle = build_pronunciation_bundle(en, target_lang)
+        pron = bundle.get("pronunciation_tr", "")
+        ipa = bundle.get("ipa", "")
+    return {"en": en, "tr": tr, "pronunciation_tr": pron, "ipa": ipa}
+
+
 def build_usage_from_profile(
     profile: dict[str, Any],
     target_lang: str,
@@ -1863,10 +1911,11 @@ def build_usage_from_profile(
         key = safe_str(v).strip()
         if not key:
             continue
-        tr_mean = VERBS_TR.get(key.lower()) or VERBS_TR.get(key.split()[-1].lower(), "")
+        tr_mean = _verb_meaning_tr(key)
         if not tr_mean:
             tr_mean = "kullanmak"
-        verbs_enriched.append({"en": key, "tr": tr_mean})
+        entry = _enrich_usage_entry(key, tr_mean, target_lang)
+        verbs_enriched.append(entry)
 
     phrase_lookup: dict[str, str] = {}
     for items in CATEGORY_PHRASES.values():
@@ -1897,13 +1946,30 @@ def build_usage_from_profile(
         tr = safe_str(item.get("tr") if isinstance(item, dict) else "").strip()
         if not tr:
             continue
-        pron = ""
-        ipa = ""
-        if target_lang == "en":
-            bundle = build_pronunciation_bundle(en, target_lang)
-            pron = bundle.get("pronunciation_tr", "")
-            ipa = bundle.get("ipa", "")
-        phrases_enriched.append({"en": en, "tr": tr, "pronunciation_tr": pron, "ipa": ipa})
+        phrases_enriched.append(_enrich_usage_entry(en, tr, target_lang))
+
+    article_items: list[dict[str, str]] = []
+    for item in profile.get("article_notes_items") or []:
+        if not isinstance(item, dict):
+            continue
+        en = safe_str(item.get("en")).strip()
+        tr = safe_str(item.get("tr")).strip()
+        if en and tr:
+            article_items.append(_enrich_usage_entry(en, tr, target_lang))
+    if not article_items and profile.get("article_notes_tr"):
+        for item in _parse_article_notes_tr(profile.get("article_notes_tr", "")):
+            article_items.append(_enrich_usage_entry(item["en"], item["tr"], target_lang))
+
+    patterns_enriched: list[dict[str, str]] = []
+    for p in (profile.get("common_patterns") or patterns)[:4]:
+        if isinstance(p, dict):
+            en = safe_str(p.get("en") or p.get("target")).strip()
+            tr = safe_str(p.get("tr")).strip()
+        else:
+            en = safe_str(p).strip()
+            tr = ""
+        if en:
+            patterns_enriched.append(_enrich_usage_entry(en, tr, target_lang))
 
     alt_terms: list[dict[str, str]] = []
     for item in profile.get("alternative_terms_tr") or []:
@@ -1943,8 +2009,10 @@ def build_usage_from_profile(
         "common_verbs_tr": verbs_line,
         "common_phrases": phrases_enriched,
         "alternative_terms_tr": alt_terms,
-        "patterns": patterns[:4],
+        "patterns": [p.get("en", "") for p in patterns_enriched if p.get("en")],
+        "pattern_examples": patterns_enriched,
         "article_notes_tr": profile.get("article_notes_tr"),
+        "article_notes_items": article_items,
         "avoid_reason_tr": profile.get("avoid_reason_tr"),
         "regional_note_tr": (profile.get("regional_variants") or {}).get("note_tr")
             or US_UK_VARIANT_NOTES.get(_en_target_word(target_word), ""),
