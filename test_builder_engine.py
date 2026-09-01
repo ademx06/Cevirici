@@ -56,6 +56,8 @@ def fake_translate(text: str, from_lang: str, to_lang: str) -> str:
     "eğlence": "entertainment",
     "eglence": "entertainment",
         "araba": "car",
+        "market": "market",
+        "pazar": "market",
         "mutlu": "happy",
         "çalışmak": "work",
         "kahve seviyorum.": "I love coffee.",
@@ -531,6 +533,23 @@ def test_ai_only_mode_falls_back_when_api_unavailable():
             os.environ.pop("GROQ_API_KEY", None)
         else:
             os.environ["GROQ_API_KEY"] = old_groq
+
+
+def test_market_rich_teaching():
+    """market → doğal cümleler + derin öğretici açıklamalar."""
+    result = generate_word_lesson("market", "en", fake_translate)
+    assert result["ok"], result
+    assert result.get("target_word") == "market"
+    examples = result["examples"]
+    assert len(examples) >= 13
+    for ex in examples:
+        how = safe_str(ex.get("how_it_is_formed_tr"))
+        assert len(how) >= 120, f"Explanation too short for: {ex.get('target')}"
+        assert "1️⃣" in how and "2️⃣" in how, f"Missing steps for: {ex.get('target')}"
+    usage = result.get("usage") or {}
+    verbs = {v["en"] for v in (usage.get("common_verbs") or [])}
+    assert "go" in verbs or "buy" in verbs
+    print("TEST market rich teaching OK:", len(examples))
 
 
 def test_has_curated_lexicon():
@@ -1023,6 +1042,7 @@ if __name__ == "__main__":
     test_semsiye_umbrella_natural()
     test_ai_first_pipeline_without_llm()
     test_ai_only_mode_falls_back_when_api_unavailable()
+    test_market_rich_teaching()
     test_has_curated_lexicon()
     test_profile_ideas_fallback_examples()
     test_masa_icon()

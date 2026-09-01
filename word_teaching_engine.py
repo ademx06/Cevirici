@@ -388,7 +388,7 @@ KELİME PROFİLİ (SADECE BU KELİME — önceki kelime yok):
 2. Hedef kelime her örnek cümlede geçmeli; başka kelime ana konu olamaz (shoe→socks yasak).
 3. Türkçe okunuşlar Türkçe fonetik olmalı (table→teybıl, soda→sou-da, could→kud).
 4. Yaygın fiiller/ifadelerde Türkçe anlam boş bırakılamaz.
-5. Her örnekte "how_it_is_formed_tr" en az 40 karakter; cümleye özel, doğal kullanım açıklaması.
+5. Her örnekte "how_it_is_formed_tr" en az 200 karakter; numaralı adımlar (1️⃣ 2️⃣ 3️⃣); genel anlam + ana yapı + kritik dil bilgisi + yaygın hata (❌).
 6. "structure_label_tr" asla "Kelimeye özel doğal yapı" olamaz — gerçek formül yaz.
 7. En az 10 farklı kalıp: Temel kullanım, Şimdiki zaman, Geçmiş zaman, Gelecek zaman, Soru, Olumsuz, Emir, Rica, Tavsiye, Zorunluluk, İhtimal, Koşul, Diyalog.
 8. sentence_type_label numaralı Türkçe kalıp adı olmalı (ör. "6. Olumsuz cümle").
@@ -469,7 +469,7 @@ JSON:
       "target": "English sentence with {target_word}",
       "sentence_type": "basic|present|past|future|question|negative|imperative|polite_request|advice|obligation|possibility|conditional|dialogue",
       "structure_tr": "özne + fiil + ...",
-      "how_it_is_formed_tr": "en az 40 karakter; bu cümleye özel açıklama"
+      "how_it_is_formed_tr": "en az 200 karakter; 1️⃣ genel anlam 2️⃣ ana yapı 3️⃣ dil bilgisi adımları"
     }}
   ]
 }}"""
@@ -789,6 +789,11 @@ def _is_umbrella_like(word_tr: str, target_word: str) -> bool:
 
 def _is_wallet_like(word_tr: str, target_word: str) -> bool:
     hints = ("cüzdan", "cuzdan", "wallet", "billfold")
+    return _any_category_hint(word_tr, target_word, hints)
+
+
+def _is_market_like(word_tr: str, target_word: str) -> bool:
+    hints = ("market", "pazar", "grocery", "supermarket", "bakkal")
     return _any_category_hint(word_tr, target_word, hints)
 
 
@@ -1833,6 +1838,8 @@ def _thirteen_pattern_examples_en(
         return _adjective_pattern_examples(W, T)
     if category == "verb":
         return _verb_pattern_examples(W, T)
+    if _is_market_like(wt, tw):
+        return _market_pattern_examples(W, T)
     if category == "place":
         return _place_pattern_examples(W, T)
     if category == "beverage" or _is_beverage_like(wt, tw):
@@ -2630,6 +2637,182 @@ def _verb_pattern_examples(W: str, T: str) -> list[dict[str, Any]]:
     ]
 
 
+def _market_pattern_examples(W: str, T: str) -> list[dict[str, Any]]:
+    """Market — alışveriş, gitme, satın alma; derin öğretici açıklamalar."""
+    tw = _en_target_word(T)
+    the_market = f"the {tw}"
+    to_market = f"to {the_market}"
+    at_market = f"at {the_market}"
+    return [
+        _pe(W, "Market evimize yakın.", f"{the_market.capitalize()} is near our house.", "basic",
+            f"{the_market} + is + near our house",
+            _rich_teaching_how(
+                "Mahalle marketinin konumunu anlatırsınız.",
+                f"{the_market} is near our house",
+                "Market evimize yakın.",
+                [
+                    ("the market", f"the {tw} → belirli market (mahalle marketi)\n"
+                     "İngilizcede yer isimlerinde genelde the kullanılır."),
+                    ("is near", "is near → yakın\nnear + our house → evimize yakın\n"
+                     "Türkçede «yakın» tek kelime; İngilizcede is near ile kurulur."),
+                ],
+                mistakes=[f"I am near market — the eksik", "Market is near — the market daha doğal"],
+            ),
+            scenario_badge="🌅 RUTİN"),
+        _pe(W, "Şu an marketteyim.", f"I am at {the_market} now.", "present",
+            f"I + am + at {the_market} + now",
+            _rich_teaching_how(
+                "Şu anda markette olduğunuzu söylersiniz.",
+                f"I am at {the_market} now",
+                "Şu an marketteyim.",
+                [
+                    ("am at", f"at {the_market} → markette (konum)\n"
+                     "go to the market → markete gitmek (yön)\n"
+                     "at the market → markette (bulunma)"),
+                    ("now", "now → şu an / şimdi\nŞimdiki zaman: am + at"),
+                ],
+                mistakes=["I am in the market — at the market daha yaygın (ABD)"],
+            ),
+            scenario_badge="🔄 ŞU AN"),
+        _pe(W, "Dün marketten meyve aldım.", f"I bought some fruit at {the_market} yesterday.", "past",
+            f"I + bought + some fruit + at {the_market} + yesterday",
+            _rich_teaching_how(
+                "Dün marketten alışveriş yaptığınızı anlatırsınız.",
+                f"I bought some fruit at {the_market} yesterday",
+                "Dün marketten meyve aldım.",
+                [
+                    ("bought", "buy → almak\nbought → aldım (düzensiz fiil)\n❌ I buyed fruit"),
+                    ("at the market", f"at {the_market} → marketten\n"
+                     "Türkçede -den eki; İngilizcede at kullanılır."),
+                    ("some fruit", "some fruit → biraz meyve\nsome → sayılamayan/çoğul için «biraz»"),
+                ],
+            ),
+            scenario_badge="🕐 GEÇMİŞ"),
+        _pe(W, "Yarın markete gideceğim.", f"I will go {to_market} tomorrow.", "future",
+            f"I + will + go {to_market} + tomorrow",
+            _rich_teaching_how(
+                "Yarın markete gitme planınızı söylersiniz.",
+                f"I will go {to_market} tomorrow",
+                "Yarın markete gideceğim.",
+                [
+                    ("will go", "will + go → gideceğim\nGelecek zaman için will + fiil kökü"),
+                    (f"to {the_market}", f"go {to_market} → markete gitmek\n"
+                     "to → yön (-e/-a)\nthe → belirli market"),
+                ],
+                mistakes=[f"I will go {the_market} — to eksik"],
+            ),
+            scenario_badge="🔮 GELECEK"),
+        _pe(W, "Market açık mı?", f"Is {the_market} open?", "question",
+            f"Is + {the_market} + open",
+            _rich_teaching_how(
+                "Marketin açık olup olmadığını sorarsınız.",
+                f"Is {the_market} open?",
+                "Market açık mı?",
+                [
+                    ("Is … open?", f"Is {the_market} open? → Market açık mı?\n"
+                     "Soru: Is + özne + sıfat"),
+                    ("open", "open → açık (sıfat)\nclosed → kapalı"),
+                ],
+            ),
+            scenario_badge="❓ SORU"),
+        _pe(W, "Bugün markete gitmiyorum.", f"I'm not going {to_market} today.", "negative",
+            f"I + am + not + going {to_market}",
+            _rich_teaching_how(
+                "Bugün markete gitmeyeceğinizi söylersiniz.",
+                f"I'm not going {to_market} today",
+                "Bugün markete gitmiyorum.",
+                [
+                    ("am not going", "am not going → gitmiyorum\nŞimdiki zaman planı için kullanılır."),
+                    ("today", "today → bugün\nZaman ifadesi cümle sonunda veya başında olabilir."),
+                ],
+            ),
+            scenario_badge="⛔ OLUMSUZ"),
+        _pe(W, "Markete git ve süt al.", f"Go {to_market} and buy some milk.", "imperative",
+            f"Go {to_market} + and + buy some milk",
+            _rich_teaching_how(
+                "Birine markete gidip süt almasını söylersiniz.",
+                f"Go {to_market} and buy some milk",
+                "Markete git ve süt al.",
+                [
+                    ("Go to the market", f"Emir kipi: Go {to_market}\nÖzne yazılmaz (sen anlaşılır)."),
+                    ("and buy", "and buy some milk → ve süt al\nİki eylem and ile bağlanır."),
+                ],
+            )),
+        _pe(W, "Markete birlikte gidebilir miyiz?", f"Could we go {to_market} together?", "polite_request",
+            f"Could + we + go {to_market} + together",
+            _rich_teaching_how(
+                "Birlikte markete gitmeyi kibarca önerirsiniz.",
+                f"Could we go {to_market} together?",
+                "Markete birlikte gidebilir miyiz?",
+                [
+                    ("Could we …?", "Could we go …? → …-ebilir miyiz?\nKibar teklif/rica kalıbı."),
+                    ("together", "together → birlikte"),
+                ],
+            )),
+        _pe(W, "Hafta sonu markete erken gitmelisin.", f"You should go {to_market} early on weekends.", "advice",
+            f"You + should + go {to_market} + early",
+            _rich_teaching_how(
+                "Kalabalık olmaması için erken gitme tavsiyesi verirsiniz.",
+                f"You should go {to_market} early on weekends",
+                "Hafta sonu markete erken gitmelisin.",
+                [
+                    ("should go", "should + fiil → …-melisin / …-malısın\nTavsiye veya uyarı."),
+                    ("on weekends", "on weekends → hafta sonları\nweekend → hafta sonu (tekil)"),
+                ],
+            )),
+        _pe(W, "Evde yiyecek kalmadı, markete gitmem lazım.",
+            f"We're out of food at home, so I need to go {to_market}.", "obligation",
+            f"I + need to + go {to_market}",
+            _rich_teaching_how(
+                "Evde yiyecek bitince markete gitme zorunluluğunu anlatırsınız.",
+                f"I need to go {to_market}",
+                "Markete gitmem lazım.",
+                [
+                    ("need to + fiil", "need to go → gitmem lazım / gitmem gerekiyor\n"
+                     "need'ten sonra to + fiil gelir.\n❌ I need go to the market"),
+                    (f"to {the_market}", f"go {to_market} → markete gitmek"),
+                    ("because / so", "Sebep Türkçede virgülle; İngilizcede so veya because ile bağlanır."),
+                ],
+                mistakes=["I need go — to eksik", "I must to go — must'tan sonra to gelmez"],
+            )),
+        _pe(W, "Market bugün kapalı olabilir.", f"{the_market.capitalize()} might be closed today.", "possibility",
+            f"{the_market} + might + be + closed",
+            _rich_teaching_how(
+                "Marketin bugün kapalı olma ihtimalini söylersiniz.",
+                f"{the_market} might be closed today",
+                "Market bugün kapalı olabilir.",
+                [
+                    ("might be", "might be → … olabilir\nİhtimal bildirir; kesin değil."),
+                    ("closed", "closed → kapalı\nopen → açık (zıt anlamlı)"),
+                ],
+            )),
+        _pe(W, "Açıksa marketten ekmek alırım.", f"If it's open, I'll buy bread {at_market}.", "conditional",
+            f"If + it + is open, + I will + buy bread {at_market}",
+            _rich_teaching_how(
+                "Market açıksa ekmek alacağınızı söylersiniz.",
+                f"If it's open, I'll buy bread {at_market}",
+                "Açıksa marketten ekmek alırım.",
+                [
+                    ("If …", "If it's open → açıksa\nKoşul cümlesi cümlenin başında."),
+                    ("I'll buy", "I'll = I will → alırım / alacağım\nGelecek zaman koşula bağlı."),
+                    (f"at {the_market}", f"buy bread {at_market} → marketten ekmek almak"),
+                ],
+            )),
+        _pe(W, "A: Markete gidelim mi? B: Olur, ne alalım?",
+            f"A: Shall we go {to_market}? B: Sure, what should we get?", "dialogue",
+            f"Shall we go {to_market}",
+            _rich_teaching_how(
+                "Günlük konuşmada markete gitme teklifi.",
+                f"Shall we go {to_market}?",
+                "Markete gidelim mi?",
+                [
+                    ("Shall we …?", "Shall we go …? → …-elim mi?\nBirlikte yapma teklifi."),
+                    ("what should we get", "what should we get → ne alalım\nAlışveriş listesi sorusu."),
+                ],
+            )),
+    ]
+
+
 def _place_pattern_examples(W: str, T: str) -> list[dict[str, Any]]:
     return [
         _pe(W, f"{W.capitalize()} yakın.", f"The {T} is nearby.", "basic", f"The + {T} + is + nearby", f"1️⃣ Temel kullanım\nThe {T} → belirli yer"),
@@ -2765,6 +2948,26 @@ def build_rich_word_explanation(
             f"kelimeye özel fiillerle birlikte öğren."
         )
     return text.strip()
+
+
+def _rich_teaching_how(
+    meaning: str,
+    structure_en: str,
+    structure_tr_gloss: str,
+    steps: list[tuple[str, str]],
+    *,
+    mistakes: list[str] | None = None,
+) -> str:
+    """Öğretici adım adım cümle analizi — ChatGPT kalitesinde."""
+    parts = [
+        f"1️⃣ Genel anlam\n{meaning}",
+        f"2️⃣ Ana yapı\n{structure_en}\n«{structure_tr_gloss}»",
+    ]
+    for i, (title, body) in enumerate(steps, start=3):
+        parts.append(f"{i}️⃣ {title}\n{body}")
+    if mistakes:
+        parts.append("⚠️ Sık yapılan hatalar\n" + "\n".join(f"❌ {m}" for m in mistakes))
+    return "\n\n".join(parts)
 
 
 def _ensure_min_how(how: str, word_tr: str, structure_tr: str, min_len: int = 20) -> str:
@@ -3289,6 +3492,8 @@ def guarantee_word_lesson(
             rule_profile["common_verbs"] = ["lose", "find", "check", "carry", "buy", "forget"]
         elif _is_umbrella_like(word_tr, target_word):
             rule_profile["common_verbs"] = ["open", "close", "carry", "bring", "forget", "buy"]
+        elif _is_market_like(word_tr, target_word):
+            rule_profile["common_verbs"] = ["go", "buy", "shop", "visit", "check", "need"]
         profile = {**rule_profile, **{
             k: v for k, v in profile.items()
             if k in ("meaning_tr", "usage_notes_tr", "regional_variants", "common_verbs",
@@ -3368,6 +3573,8 @@ def guarantee_word_lesson(
             profile["common_verbs"] = ["lose", "find", "check", "carry", "buy", "forget"]
         elif _is_umbrella_like(word_tr, target_word):
             profile["common_verbs"] = ["open", "close", "carry", "bring", "forget", "buy"]
+        elif _is_market_like(word_tr, target_word):
+            profile["common_verbs"] = ["go", "buy", "shop", "visit", "check", "need"]
 
     category = profile.get("semantic_category") or category
     return profile, examples[:13], category
