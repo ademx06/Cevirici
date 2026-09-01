@@ -4659,13 +4659,15 @@ def collect_lesson_quality_issues(
     if len(examples) < 11:
         issues.append(f"En az 11 örnek gerekli; şu an {len(examples)} örnek var.")
     verbs = [v for v in (profile.get("common_verbs") or []) if safe_str(v).strip()]
-    if len(verbs) < 5:
-        issues.append(f"common_verbs en az 5 fiil içermeli; şu an {len(verbs)}.")
+    if len(verbs) < 3:
+        issues.append(f"common_verbs en az 3 fiil içermeli; şu an {len(verbs)}.")
     coll = [c for c in (profile.get("common_collocations") or []) if safe_str(c).strip()]
-    if len(coll) < 4:
-        issues.append(f"common_collocations en az 4 kalıp içermeli; şu an {len(coll)}.")
+    if len(coll) < 2:
+        issues.append(f"common_collocations en az 2 kalıp içermeli; şu an {len(coll)}.")
     if not profile.get("article_notes_items") and not profile.get("article_notes_tr"):
-        issues.append("article_notes_items veya article_notes_tr eksik.")
+        pos = safe_str(profile.get("part_of_speech")).lower()
+        if pos in ("noun", "determiner", ""):
+            issues.append("article_notes_items veya article_notes_tr eksik.")
     if examples and not validate_lesson_quality(examples, word_tr, target_word, profile):
         issues.append("Örnekler kalite doğrulamasından geçmedi (şablon, yasak fiil veya eksik TR).")
     elif not examples:
