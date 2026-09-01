@@ -13,7 +13,7 @@ from pronunciation_service import (
     word_role_tr,
 )
 from word_icons import lookup_emoji
-from word_lexicon import build_lexicon_examples, get_word_usage_phrases, get_word_usage_profile
+from word_lexicon import build_lexicon_examples, get_word_usage_phrases, get_word_usage_profile, has_curated_lexicon
 
 # Varsayılan İngilizce varyantı — Amerikan İngilizcesi
 ENGLISH_VARIANT = "en-US"
@@ -313,6 +313,61 @@ JSON:
   "examples": [...]
 }}"""
 
+WORD_LESSON_DIRECT_PROMPT = """Sen kıdemli bir sözlük bilimci ve ESL müfredat tasarımcısısın.
+
+Türkçe kelime: "{word_tr}"
+İngilizce hedef kelime: "{target_word}"
+Hedef dil: {lang_name}
+
+[GÖREV]
+Bu kelime için TAM bir kelime dersi üret. Her cümle yalnızca bu kelimenin gerçek hayattaki kullanımını yansıtmalı.
+
+[ÖNCE DÜŞÜN — sonra yaz]
+Bu kelimeyle insanlar günlük hayatta ne yapar? Hangi fiiller doğal? (kapı→knock/lock, kitap→read/borrow, fatura→pay/send, çanta→carry/pack)
+
+[YASAK — mekanik şablon]
+❌ I am using the {target_word}
+❌ Bring the {target_word}
+❌ This is my {target_word}
+❌ The {target_word} is here
+❌ Check the {target_word} regularly
+
+[ZORUNLU]
+- Tam 13 örnek cümle; her biri farklı dil bilgisi kalıbı:
+  basic, present, past, future, question, negative, imperative, polite_request, advice, obligation, possibility, conditional, dialogue
+- Her örnekte hedef kelime geçmeli
+- Türkçe cümleler doğal Türkçe; İngilizce cümleler Amerikan İngilizcesi
+- common_verbs: bu kelimeyle gerçekten kullanılan fiiller (en az 5)
+- common_collocations: ana dili İngilizce konuşanların söylediği kalıplar (en az 4)
+- article_notes_items: a/an/the kullanımı (en az 2)
+
+JSON:
+{{
+  "meaning_tr": "temel Türkçe anlam",
+  "usage_notes_tr": "en az 3 cümle pedagojik açıklama",
+  "part_of_speech": "noun|verb|adjective",
+  "countability": "countable|uncountable|both|n/a",
+  "semantic_category": "beverage|furniture|document|object|place|food|vehicle|other",
+  "common_verbs": ["fiil1", "fiil2"],
+  "common_collocations": ["doğal kalıp 1", "doğal kalıp 2"],
+  "common_patterns": [
+    {{"en": "İngilizce örnek cümle", "tr": "Türkçe karşılık"}}
+  ],
+  "article_notes_items": [
+    {{"en": "a {target_word}", "tr": "bir ..."}}
+  ],
+  "avoid_reason_tr": "bu kelimeyle yapılmaması gereken yaygın hatalar",
+  "examples": [
+    {{
+      "tr": "Türkçe cümle",
+      "target": "English sentence with {target_word}",
+      "sentence_type": "basic|present|past|future|question|negative|imperative|polite_request|advice|obligation|possibility|conditional|dialogue",
+      "structure_tr": "özne + fiil + ...",
+      "how_it_is_formed_tr": "en az 40 karakter; bu cümleye özel açıklama"
+    }}
+  ]
+}}"""
+
 SENTENCE_TEACHING_V3_PROMPT = """Turkish sentence (user may have minor errors): "{tr_sentence}"
 Target language: {lang_name} ({target_lang})
 
@@ -400,6 +455,8 @@ KNOWN_TR_TO_EN: dict[str, str] = {
     "yumurta": "egg", "tavuk": "chicken", "balık": "fish", "balik": "fish",
     "kedi": "cat", "köpek": "dog", "kopek": "dog", "kuş": "bird", "kus": "bird",
     "fatura": "invoice", "makbuz": "receipt", "dekont": "bank receipt",
+    "çanta": "bag", "canta": "bag", "valiz": "suitcase", "şemsiye": "umbrella",
+    "semsiye": "umbrella", "gözlük": "glasses", "gozluk": "glasses",
     "koltuk": "sofa", "yatak": "bed", "dolap": "wardrobe", "mutfak": "kitchen",
     "okul": "school", "hastane": "hospital", "bisiklet": "bicycle",
 }
@@ -526,6 +583,12 @@ def _infer_semantic_category(word_tr: str, target_word: str) -> str:
     )
     if any(h in wt or h in tw for h in document_hints):
         return "document"
+    object_hints = (
+        "çanta", "canta", "bag", "valiz", "suitcase", "cüzdan", "wallet",
+        "şemsiye", "umbrella", "gözlük", "glasses", "saat", "watch",
+    )
+    if any(h in wt or h in tw for h in object_hints):
+        return "object"
     return "general"
 
 
@@ -757,11 +820,24 @@ def analyze_word_profile(
         )
         parsed = _llm_json(system, "Return JSON only.", max_tokens=900)
         if parsed and parsed.get("target_word"):
+            if has_curated_lexicon(word_tr, target_word):
+                curated = get_word_usage_profile(word_tr, target_word)
+                if curated:
+                    return {"target_word": target_word, **curated}
             known_cat = detect_category(word_tr, target_word)
-            if known_cat != "general":
-                return _rule_word_profile(word_tr, target_word, target_lang, known_cat)
+            if known_cat != "general" and not has_curated_lexicon(word_tr, target_word):
+                rule = _rule_word_profile(word_tr, target_word, target_lang, known_cat)
+                for key in ("natural_example_ideas", "common_verbs", "common_collocations"):
+                    if parsed.get(key) and not rule.get(key):
+                        rule[key] = parsed[key]
+                return rule
             parsed["semantic_category"] = parsed.get("semantic_category") or known_cat
             return parsed
+
+    if has_curated_lexicon(word_tr, target_word):
+        curated = get_word_usage_profile(word_tr, target_word)
+        if curated:
+            return {"target_word": target_word, **curated}
 
     return _rule_word_profile(word_tr, target_word, target_lang, category)
 
@@ -929,6 +1005,28 @@ def _rule_word_profile(
             "article_notes_tr": None,
             "avoid_patterns": [],
             "avoid_reason_tr": "Fiil çekimine dikkat: works, worked, working.",
+        },
+        "document": {
+            "part_of_speech": "noun",
+            "countability": "countable",
+            "semantic_category": "document",
+            "meaning_tr": word_tr,
+            "usage_notes_tr": (
+                f"«{word_tr}» belge/fatura türü bir kelimedir. "
+                "pay, send, receive, check, sign gibi fiillerle doğal cümleler kurulur."
+            ),
+            "common_verbs": ["pay", "send", "receive", "check", "sign", "issue", "review"],
+            "common_collocations": [
+                f"pay the {target_word}", f"send the {target_word}",
+                f"receive the {target_word}", f"check the {target_word}",
+            ],
+            "common_patterns": [
+                {"en": f"I received the {target_word} by email.", "tr": f"{word_tr.capitalize()}yı e-postayla aldım."},
+                {"en": f"When is the {target_word} due?", "tr": f"{word_tr.capitalize()}nın son ödeme tarihi ne?"},
+            ],
+            "article_notes_tr": f"an {target_word} / the {target_word}",
+            "avoid_patterns": ["open the", "bring the", "I am using the"],
+            "avoid_reason_tr": "Belge/fatura açılıp kapatılmaz; ödenir, gönderilir, kontrol edilir.",
         },
     }
     base = profiles.get(category, {
@@ -1752,34 +1850,204 @@ def _ex(
     return _fill_word_breakdown(ex, "en")
 
 
+_THIRTEEN_PATTERN_ORDER: list[str] = [
+    "basic", "present", "past", "future", "question", "negative",
+    "imperative", "polite_request", "advice", "obligation", "possibility", "conditional", "dialogue",
+]
+
+
+def _normalize_llm_example(
+    raw: dict[str, Any],
+    word_tr: str,
+    target_word: str,
+    pattern_idx: int = 0,
+) -> dict[str, Any] | None:
+    """LLM örneğini standart forma getir."""
+    if not isinstance(raw, dict):
+        return None
+    target = safe_str(raw.get("target")).strip()
+    tr = safe_str(raw.get("tr")).strip()
+    if not target:
+        return None
+    tw = _en_target_word(target_word)
+    if tw and tw not in _norm(target) and f"{tw}s" not in _norm(target):
+        return None
+    if _is_generic_mechanical_template(target) or _is_absurd_example(target, word_tr, target_word):
+        return None
+    st = safe_str(raw.get("sentence_type")).strip().lower()
+    if st not in GRAMMAR_PATTERNS:
+        st = _THIRTEEN_PATTERN_ORDER[pattern_idx % len(_THIRTEEN_PATTERN_ORDER)]
+    structure = safe_str(raw.get("structure_tr")).strip() or f"Formül: {target}"
+    how = safe_str(raw.get("how_it_is_formed_tr")).strip()
+    if len(how) < 20:
+        how = (
+            f"Bu cümle «{word_tr}» kelimesinin doğal kullanımını gösterir. "
+            f"{structure}. Günlük konuşmada sık duyulan bir ifadedir."
+        )
+    return _ex(word_tr, tr or word_tr, target, st, structure, how)
+
+
+def _examples_from_profile_content(
+    profile: dict[str, Any],
+    word_tr: str,
+    target_word: str,
+) -> list[dict[str, Any]]:
+    """Profildeki natural_example_ideas ve common_patterns → 13 örnek."""
+    items: list[dict[str, str]] = []
+    for idea in profile.get("natural_example_ideas") or []:
+        if not isinstance(idea, dict):
+            continue
+        en = safe_str(idea.get("target") or idea.get("en")).strip()
+        tr = safe_str(idea.get("tr")).strip()
+        if en:
+            items.append({"en": en, "tr": tr})
+    for p in profile.get("common_patterns") or []:
+        if isinstance(p, dict):
+            en = safe_str(p.get("en") or p.get("target")).strip()
+            tr = safe_str(p.get("tr")).strip()
+            if en and en not in {i["en"] for i in items}:
+                items.append({"en": en, "tr": tr})
+        elif isinstance(p, str) and p.strip():
+            s = p.strip()
+            if s not in {i["en"] for i in items}:
+                items.append({"en": s, "tr": ""})
+    if not items:
+        return []
+    examples: list[dict[str, Any]] = []
+    for i, item in enumerate(items[:13]):
+        ex = _normalize_llm_example(
+            {
+                "tr": item.get("tr") or word_tr,
+                "target": item["en"],
+                "sentence_type": _THIRTEEN_PATTERN_ORDER[i % len(_THIRTEEN_PATTERN_ORDER)],
+                "structure_tr": item["en"],
+                "how_it_is_formed_tr": (
+                    f"«{word_tr}» kelimesi bu cümlede doğal bir bağlamda kullanılmıştır: {item['en']}"
+                ),
+            },
+            word_tr,
+            target_word,
+            i,
+        )
+        if ex:
+            examples.append(ex)
+    return examples
+
+
+def _llm_generate_dynamic_lesson(
+    word_tr: str,
+    target_word: str,
+    target_lang: str,
+) -> dict[str, Any] | None:
+    """Lexicon dışı kelimeler için AI ile tam ders üret."""
+    if not llm_available() or target_lang != "en":
+        return None
+    lang_name = LANG_NAMES.get(target_lang, target_lang)
+    system = WORD_LESSON_DIRECT_PROMPT.format(
+        word_tr=word_tr[:80],
+        target_word=target_word[:80],
+        lang_name=lang_name,
+    )
+    parsed = _llm_json(system, "Return JSON only.", max_tokens=4000)
+    if not parsed or not isinstance(parsed.get("examples"), list):
+        return None
+    profile: dict[str, Any] = {
+        "target_word": target_word,
+        "meaning_tr": parsed.get("meaning_tr") or word_tr,
+        "usage_notes_tr": parsed.get("usage_notes_tr", ""),
+        "part_of_speech": parsed.get("part_of_speech", "noun"),
+        "countability": parsed.get("countability", "countable"),
+        "semantic_category": parsed.get("semantic_category") or detect_category(word_tr, target_word),
+        "common_verbs": parsed.get("common_verbs") or [],
+        "common_collocations": parsed.get("common_collocations") or [],
+        "common_patterns": parsed.get("common_patterns") or [],
+        "article_notes_items": parsed.get("article_notes_items") or [],
+        "article_notes_tr": parsed.get("article_notes_tr"),
+        "avoid_reason_tr": parsed.get("avoid_reason_tr", ""),
+        "natural_example_ideas": parsed.get("examples"),
+    }
+    examples: list[dict[str, Any]] = []
+    for i, raw in enumerate(parsed["examples"]):
+        if not isinstance(raw, dict):
+            continue
+        ex = _normalize_llm_example(raw, word_tr, target_word, i)
+        if ex:
+            examples.append(ex)
+    examples = sanitize_word_examples(examples, word_tr, target_word, profile)
+    if len(examples) < 8:
+        return None
+    return {"profile": profile, "examples": examples[:13]}
+
+
+def _llm_generate_examples_from_profile(
+    profile: dict[str, Any],
+    word_tr: str,
+    target_word: str,
+    target_lang: str,
+) -> list[dict[str, Any]]:
+    """Profil tabanlı AI örnek üretimi (ikinci adım)."""
+    if not llm_available() or target_lang != "en":
+        return []
+    import json
+    lang_name = LANG_NAMES.get(target_lang, target_lang)
+    system = WORD_LESSON_FROM_PROFILE_PROMPT.format(
+        lang_name=lang_name,
+        profile_json=json.dumps(profile, ensure_ascii=False)[:2500],
+    )
+    parsed = _llm_json(system, "Return JSON with examples array only.", max_tokens=3200)
+    if not parsed or not isinstance(parsed.get("examples"), list):
+        return []
+    out: list[dict[str, Any]] = []
+    for i, raw in enumerate(parsed["examples"]):
+        ex = _normalize_llm_example(raw, word_tr, target_word, i)
+        if ex:
+            out.append(ex)
+    return sanitize_word_examples(out, word_tr, target_word, profile)
+
+
 def generate_examples_from_profile(
     profile: dict[str, Any],
     word_tr: str,
     target_word: str,
     target_lang: str,
 ) -> list[dict[str, Any]]:
-    """Profile göre örnek üret — LLM veya kategori şablonları."""
-    lang_name = LANG_NAMES.get(target_lang, target_lang)
+    """Profile göre örnek üret — lexicon veya AI birincil; asla boş bırakma."""
     category = _resolve_category(word_tr, target_word, profile.get("semantic_category"))
-
     examples: list[dict[str, Any]] = []
 
+    # 1) Elle yazılmış lexicon (kalite garantisi, ~10 sık kelime)
+    if has_curated_lexicon(word_tr, target_word):
+        for ex in _category_examples_en(word_tr, target_word, category):
+            if _validate_word_example(ex, word_tr, target_word, profile):
+                examples.append(ex)
+        if examples:
+            return sanitize_word_examples(examples[:13], word_tr, target_word, profile)
+
+    # 2) AI birincil — lexicon dışı HER kelime için
+    if llm_available() and target_lang == "en":
+        llm_ex = _llm_generate_examples_from_profile(profile, word_tr, target_word, target_lang)
+        if len(llm_ex) >= 8:
+            return llm_ex[:13]
+
+    # 3) Kategori kuralları (içecek, mobilya, yiyecek vb.)
     if target_lang == "en":
         for ex in _category_examples_en(word_tr, target_word, category):
             if _validate_word_example(ex, word_tr, target_word, profile):
                 examples.append(ex)
 
-    if llm_available() and len(examples) < 8:
-        import json
-        system = WORD_LESSON_FROM_PROFILE_PROMPT.format(
-            lang_name=lang_name,
-            profile_json=json.dumps(profile, ensure_ascii=False)[:2000],
-        )
-        parsed = _llm_json(system, "Return JSON only.", max_tokens=2800)
-        if parsed and isinstance(parsed.get("examples"), list):
-            for ex in parsed["examples"]:
-                if isinstance(ex, dict) and _validate_word_example(ex, word_tr, target_word, profile):
-                    examples.append(ex)
+    # 4) AI tekrar (kategori kuralları yetersizse)
+    if llm_available() and target_lang == "en" and len(examples) < 8:
+        llm_ex = _llm_generate_examples_from_profile(profile, word_tr, target_word, target_lang)
+        for ex in llm_ex:
+            if ex not in examples:
+                examples.append(ex)
+
+    # 5) Profildeki fikirlerden örnek oluştur
+    if len(examples) < 8:
+        from_profile = _examples_from_profile_content(profile, word_tr, target_word)
+        for ex in from_profile:
+            if _validate_word_example(ex, word_tr, target_word, profile):
+                examples.append(ex)
 
     return sanitize_word_examples(examples[:13], word_tr, target_word, profile)
 

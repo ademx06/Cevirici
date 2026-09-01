@@ -58,7 +58,7 @@ EMOJI_BY_WORD: dict[str, str] = {
     "bıçak": "🔪", "bicak": "🔪", "knife": "🔪", "kaşık": "🥄", "kasik": "🥄", "spoon": "🥄",
     "saat": "⌚", "watch": "⌚", "clock": "🕐",
     "fatura": "🧾", "invoice": "🧾", "makbuz": "🧾", "receipt": "🧾", "bill": "🧾",
-    "dekont": "🧾", "fiş": "🧾",
+    "dekont": "🧾", "fiş": "🧾", "çanta": "👜", "canta": "👜", "bag": "👜",
     # Hayvanlar
     "kedi": "🐱", "cat": "🐱", "köpek": "🐶", "kopek": "🐶", "dog": "🐶",
     "kuş": "🐦", "kus": "🐦", "bird": "🐦", "at": "🐴", "horse": "🐴",

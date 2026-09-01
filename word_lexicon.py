@@ -5,6 +5,11 @@ import re
 from typing import Any, Callable
 
 
+def has_curated_lexicon(word_tr: str, target_word: str) -> bool:
+    """Elle yazılmış lexicon girdisi var mı? (AI yerine kalite garantisi)."""
+    return _lexicon_key(word_tr, target_word) is not None
+
+
 def build_lexicon_examples(
     word_tr: str,
     target_word: str,

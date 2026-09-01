@@ -429,6 +429,44 @@ def test_word_icons_module():
     print("TEST word_icons OK")
 
 
+def test_profile_ideas_fallback_examples():
+    """Lexicon dışı kelime — profil fikirlerinden örnek üretimi (AI yokken yedek)."""
+    from word_teaching_engine import _examples_from_profile_content, sanitize_word_examples
+    profile = {
+        "common_patterns": [
+            {"en": "I carry my bag everywhere.", "tr": "Çantamı her yere taşırım."},
+            {"en": "My bag is heavy today.", "tr": "Çantam bugün ağır."},
+            {"en": "Did you pack your bag?", "tr": "Çantanı hazırladın mı?"},
+            {"en": "She left her bag on the bus.", "tr": "Çantasını otobüste unuttu."},
+            {"en": "Can you hold my bag for a minute?", "tr": "Çantamı bir dakika tutar mısın?"},
+            {"en": "I don't have a bag with me.", "tr": "Yanımda çanta yok."},
+            {"en": "Put it in the bag, please.", "tr": "Lütfen çantaya koy."},
+            {"en": "Could you zip up my bag?", "tr": "Çantamın fermuarını çeker misin?"},
+            {"en": "You should label your bag at the airport.", "tr": "Havalimanında çantanı etiketlemelisin."},
+            {"en": "I need to find a bag for the trip.", "tr": "Gezi için bir çanta bulmam lazım."},
+            {"en": "The bag might be in the car.", "tr": "Çanta arabada olabilir."},
+            {"en": "If the bag is too heavy, take something out.", "tr": "Çanta çok ağırsa bir şey çıkar."},
+            {"en": "A: Where is your bag? B: On the chair.", "tr": "A: Çantan nerede? B: Sandalyede."},
+        ],
+    }
+    raw = _examples_from_profile_content(profile, "çanta", "bag")
+    examples = sanitize_word_examples(raw, "çanta", "bag", profile)
+    assert len(examples) >= 10, f"Got {len(examples)}"
+    targets = " ".join(safe_str(ex.get("target")).lower() for ex in examples)
+    assert "bag" in targets
+    assert "bring the bag" not in targets
+    print("TEST profile ideas fallback OK:", len(examples))
+
+
+def test_has_curated_lexicon():
+    from word_lexicon import has_curated_lexicon
+    assert has_curated_lexicon("kitap", "book")
+    assert has_curated_lexicon("fatura", "invoice")
+    assert not has_curated_lexicon("çanta", "bag")
+    assert not has_curated_lexicon("kedi", "cat")
+    print("TEST has_curated_lexicon OK")
+
+
 def test_fatura_invoice_lesson():
     """fatura → invoice; at emoji sızıntısı yok; doğal fatura cümleleri."""
     result = generate_word_lesson("fatura", "en", fake_translate)
@@ -598,6 +636,8 @@ if __name__ == "__main__":
     test_kitap_no_cross_word_leak()
     test_fatura_invoice_lesson()
     test_fatura_not_horse_icon()
+    test_has_curated_lexicon()
+    test_profile_ideas_fallback_examples()
     test_masa_icon()
     test_door_icon()
     test_grade_word_correct()
