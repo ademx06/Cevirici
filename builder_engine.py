@@ -1,7 +1,7 @@
 """Cümle Kur + Kendini Test Et — kelime/cümle üretimi, yapılandırılmış analiz, telaffuz."""
 from __future__ import annotations
 
-APP_VERSION = "2026.09.01-v32"
+APP_VERSION = "2026.09.01-v33"
 
 import difflib
 import json
@@ -43,6 +43,7 @@ from word_teaching_engine import (
     word_icon_for,
     guarantee_word_lesson,
     try_ai_word_lesson,
+    upgrade_word_lesson_teaching,
     _rule_word_profile,
 )
 # ── Yasak / şablon açıklamalar ──
@@ -393,6 +394,8 @@ def generate_word_lesson(
         profile, examples, category = _apply_quality_word_lesson_fallbacks(
             word_tr, target_word, target_lang, profile, examples, translate_fn, known_words,
         )
+
+    examples = upgrade_word_lesson_teaching(examples, word_tr, target_word, profile)
 
     tw_pron = get_word(target_lang, target_word)
     usage = build_usage_from_profile(profile, target_lang, target_word, word_tr)

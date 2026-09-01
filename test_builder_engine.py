@@ -552,6 +552,23 @@ def test_market_rich_teaching():
     print("TEST market rich teaching OK:", len(examples))
 
 
+def test_upgrade_thin_teaching_explanations():
+    """Kısa AI açıklamaları zengin kalıp açıklamalarıyla güçlendirilir."""
+    from word_teaching_engine import upgrade_word_lesson_teaching, teaching_explanation_is_rich
+
+    thin = [{
+        "tr": "Dün markete gittim.",
+        "target": "I went to the market yesterday.",
+        "sentence_type": "past",
+        "how_it_is_formed_tr": "1️⃣ Geçmiş zaman\nwent → gittim",
+        "structure_tr": "I + went + to the market",
+    }]
+    profile = {"semantic_category": "place"}
+    out = upgrade_word_lesson_teaching(thin, "market", "market", profile)
+    assert teaching_explanation_is_rich(out[0].get("how_it_is_formed_tr")), out[0].get("how_it_is_formed_tr")
+    print("TEST upgrade thin teaching OK")
+
+
 def test_has_curated_lexicon():
     from word_lexicon import has_curated_lexicon
     assert has_curated_lexicon("kitap", "book")
@@ -1043,6 +1060,7 @@ if __name__ == "__main__":
     test_ai_first_pipeline_without_llm()
     test_ai_only_mode_falls_back_when_api_unavailable()
     test_market_rich_teaching()
+    test_upgrade_thin_teaching_explanations()
     test_has_curated_lexicon()
     test_profile_ideas_fallback_examples()
     test_masa_icon()

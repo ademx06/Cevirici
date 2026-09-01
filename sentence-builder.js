@@ -452,7 +452,7 @@
     const usage = data.usage || {};
     const usageMap = renderUsageMap(usage, lang);
     const icon = resolveWordIcon(data, data.word_icon);
-    const examples = (data.examples || []).map((ex, i) => renderExampleCard(ex, lang, i, true)).join('');
+    const examples = (data.examples || []).map((ex, i) => renderExampleCard(ex, lang, i, false)).join('');
     const ver = data.app_version ? `<p class="mod-version">Sürüm: ${esc(data.app_version)}</p>` : '';
     const heroPron = formatPronLine(data.pronunciation_tr, data.ipa);
     box.innerHTML = `

@@ -3388,6 +3388,57 @@ def _profile_needs_upgrade(profile: dict[str, Any], word_tr: str, target_word: s
     return False
 
 
+def teaching_explanation_is_rich(how: str) -> bool:
+    """Öğretici açıklama yeterince derin mi? (adımlı, en az ~120 karakter)."""
+    text = safe_str(how).strip()
+    return len(text) >= 120 and "1️⃣" in text and "2️⃣" in text
+
+
+def upgrade_word_lesson_teaching(
+    examples: list[dict[str, Any]],
+    word_tr: str,
+    target_word: str,
+    profile: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """AI veya kısa şablon açıklamalarını zengin kategori kalıplarıyla güçlendir."""
+    patterns = build_rule_examples_for_word(word_tr, target_word, profile)
+    if not patterns:
+        return examples
+    by_type: dict[str, dict[str, Any]] = {}
+    by_target: dict[str, dict[str, Any]] = {}
+    for pat in patterns:
+        key = safe_str(pat.get("sentence_type") or pat.get("grammar_pattern")).strip()
+        if key and key not in by_type:
+            by_type[key] = pat
+        tkey = _norm(safe_str(pat.get("target")))
+        if tkey:
+            by_target[tkey] = pat
+    upgraded: list[dict[str, Any]] = []
+    for i, raw in enumerate(examples):
+        ex = dict(raw)
+        if teaching_explanation_is_rich(ex.get("how_it_is_formed_tr")):
+            upgraded.append(ex)
+            continue
+        pat = (
+            by_type.get(safe_str(ex.get("sentence_type") or ex.get("grammar_pattern")).strip())
+            or by_target.get(_norm(safe_str(ex.get("target"))))
+            or (patterns[i] if i < len(patterns) else None)
+        )
+        if pat and teaching_explanation_is_rich(pat.get("how_it_is_formed_tr")):
+            for field in (
+                "how_it_is_formed_tr",
+                "why_this_structure_tr",
+                "important_note_tr",
+                "structure_tr",
+                "structure_label_tr",
+                "pattern_tr",
+            ):
+                if pat.get(field):
+                    ex[field] = pat[field]
+        upgraded.append(ex)
+    return upgraded
+
+
 def collect_lesson_quality_issues(
     examples: list[dict[str, Any]],
     word_tr: str,
@@ -3424,6 +3475,12 @@ def collect_lesson_quality_issues(
             break
         if not tr or len(tr.replace(".", "").split()) < 2:
             issues.append("Her örneğin tr alanı en az 2 kelimelik doğal Türkçe cümle olmalı.")
+            break
+        if not teaching_explanation_is_rich(safe_str(ex.get("how_it_is_formed_tr"))):
+            issues.append(
+                "how_it_is_formed_tr en az 120 karakter ve 1️⃣ 2️⃣ adımları içermeli; "
+                "her cümle için derin öğretici açıklama yaz."
+            )
             break
     return issues
 
