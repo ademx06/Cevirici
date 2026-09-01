@@ -1,7 +1,7 @@
 """Cümle Kur + Kendini Test Et — kelime/cümle üretimi, yapılandırılmış analiz, telaffuz."""
 from __future__ import annotations
 
-APP_VERSION = "2026.09.01-v39.6"
+APP_VERSION = "2026.09.01-v39.7"
 
 import difflib
 import json
@@ -385,7 +385,7 @@ def generate_word_lesson(
         )
         quality_issues = collect_lesson_quality_issues(examples, word_tr, target_word, profile)
         if len(examples) < 11 or quality_issues:
-            if len(examples) < 11:
+            if len(examples) < 11 or quality_issues:
                 profile, examples, category = _apply_quality_word_lesson_fallbacks(
                     word_tr, target_word, target_lang, profile, examples, translate_fn, known_words,
                 )
@@ -394,7 +394,7 @@ def generate_word_lesson(
                 profile, examples, category = _apply_quality_word_lesson_fallbacks(
                     word_tr, target_word, target_lang, profile, examples, translate_fn, known_words,
                 )
-            elif len(examples) < 11 or quality_issues:
+            elif len(examples) < 7:
                 issue_hint = quality_issues[0] if quality_issues else "yetersiz örnek"
                 return {
                     "ok": False,
