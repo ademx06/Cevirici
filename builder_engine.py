@@ -385,7 +385,7 @@ def generate_word_lesson(
         )
         quality_issues = collect_lesson_quality_issues(examples, word_tr, target_word, profile)
         if len(examples) < 11 or quality_issues:
-            if len(examples) < 11 or quality_issues:
+            if len(examples) < 11:
                 profile, examples, category = _apply_quality_word_lesson_fallbacks(
                     word_tr, target_word, target_lang, profile, examples, translate_fn, known_words,
                 )
