@@ -1,6 +1,7 @@
 """Kelimeye özel öğretim motoru — şablon kopyalama yok, bağlama göre analiz."""
 from __future__ import annotations
 
+import os
 import re
 from typing import Any, Callable
 
@@ -18,8 +19,20 @@ from word_lexicon import build_lexicon_examples, get_word_usage_phrases, get_wor
 # Varsayılan İngilizce varyantı — Amerikan İngilizcesi
 ENGLISH_VARIANT = "en-US"
 
-# AI birincil kelime dersi — ChatGPT gibi: önce AI, başarısızsa retry, en sonda garanti
-AI_LESSON_MAX_ATTEMPTS = 3
+# AI birincil kelime dersi — ChatGPT gibi: önce AI, başarısızsa retry; şablon yedek YOK
+AI_LESSON_MAX_ATTEMPTS = 5
+
+
+def ai_only_lesson_enabled(target_lang: str) -> bool:
+    """Canlıda yalnızca AI dersi — şablon motoru devreye girmez."""
+    if target_lang != "en":
+        return False
+    if not llm_available():
+        return False
+    flag = os.getenv("WORD_LESSON_ALLOW_TEMPLATES", "").strip().lower()
+    if flag in ("1", "true", "yes", "on"):
+        return False
+    return True
 
 ENGLISH_VARIANT_LABEL_TR = "🇺🇸 Amerikan İngilizcesi (varsayılan)"
 
@@ -3248,11 +3261,13 @@ def guarantee_word_lesson(
     profile: dict[str, Any],
     examples: list[dict[str, Any]],
     translate_fn: Callable[[str, str, str], str] | None = None,
+    *,
+    ai_only: bool = False,
 ) -> tuple[dict[str, Any], list[dict[str, Any]], str]:
-    """Her kelime için garanti: profil + en az 13 doğal örnek; mevcut iyi içeriği ezme."""
+    """Ders tamamlama: ai_only modunda yalnızca AI içeriği korunur, şablon eklenmez."""
     category = _lesson_category(word_tr, target_word)
     rich_ai = _has_rich_ai_profile(profile)
-    if not rich_ai and (
+    if not ai_only and not rich_ai and (
         _profile_needs_upgrade(profile, word_tr, target_word) or not (profile.get("common_verbs") or [])
     ):
         rule_profile = _rule_word_profile(word_tr, target_word, target_lang, category)
@@ -3265,17 +3280,23 @@ def guarantee_word_lesson(
             if k in ("meaning_tr", "usage_notes_tr", "regional_variants", "common_verbs",
                      "common_collocations", "article_notes_items", "article_notes_tr") and v
         }}
-    profile["semantic_category"] = category
+    profile["semantic_category"] = profile.get("semantic_category") or category
 
     examples = sanitize_word_examples(examples, word_tr, target_word, profile, translate_fn)
     seen = {_norm(safe_str(ex.get("target"))) for ex in examples if safe_str(ex.get("target")).strip()}
 
-    if len(examples) < 13:
-        for source in (
+    fill_sources: tuple[Any, ...]
+    if ai_only:
+        fill_sources = (_examples_from_profile_content(profile, word_tr, target_word),)
+    else:
+        fill_sources = (
             _examples_from_profile_content(profile, word_tr, target_word),
             _thirteen_pattern_examples_en(word_tr, target_word, category),
             build_rule_examples_for_word(word_tr, target_word, profile),
-        ):
+        )
+
+    if len(examples) < 13:
+        for source in fill_sources:
             for ex in source:
                 key = _norm(safe_str(ex.get("target")))
                 if not key or key in seen:
@@ -3293,10 +3314,9 @@ def guarantee_word_lesson(
                 break
 
     if len(examples) < 13 and llm_available() and target_lang == "en":
-        ai_profile, ai_examples, ai_issues = try_ai_word_lesson(word_tr, target_word, target_lang, profile)
+        ai_profile, ai_examples, _ = try_ai_word_lesson(word_tr, target_word, target_lang, profile)
         if ai_examples:
-            if _has_rich_ai_profile(ai_profile):
-                profile = {**profile, **ai_profile}
+            profile = {**profile, **ai_profile}
             for ex in ai_examples:
                 key = _norm(safe_str(ex.get("target")))
                 if not key or key in seen:
@@ -3308,32 +3328,32 @@ def guarantee_word_lesson(
                     break
 
     examples = sanitize_word_examples(examples[:13], word_tr, target_word, profile, translate_fn)
-    if len(examples) < 13:
-        for ex in _thirteen_pattern_examples_en(word_tr, target_word, category):
-            key = _norm(safe_str(ex.get("target")))
-            if not key or key in seen:
-                continue
-            if _is_generic_mechanical_template(safe_str(ex.get("target"))):
-                continue
-            examples.append(dict(ex))
-            seen.add(key)
-            if len(examples) >= 13:
-                break
 
-    if len(examples) < 13:
-        for ex in _thirteen_pattern_examples_en(word_tr, target_word, category):
-            key = _norm(safe_str(ex.get("target")))
-            if not key or key in seen:
-                continue
-            examples.append(dict(ex))
-            seen.add(key)
-            if len(examples) >= 13:
-                break
-
-    if _is_wallet_like(word_tr, target_word):
-        profile["common_verbs"] = ["lose", "find", "check", "carry", "buy", "forget"]
-    elif _is_umbrella_like(word_tr, target_word):
-        profile["common_verbs"] = ["open", "close", "carry", "bring", "forget", "buy"]
+    if not ai_only:
+        if len(examples) < 13:
+            for ex in _thirteen_pattern_examples_en(word_tr, target_word, category):
+                key = _norm(safe_str(ex.get("target")))
+                if not key or key in seen:
+                    continue
+                if _is_generic_mechanical_template(safe_str(ex.get("target"))):
+                    continue
+                examples.append(dict(ex))
+                seen.add(key)
+                if len(examples) >= 13:
+                    break
+        if len(examples) < 13:
+            for ex in _thirteen_pattern_examples_en(word_tr, target_word, category):
+                key = _norm(safe_str(ex.get("target")))
+                if not key or key in seen:
+                    continue
+                examples.append(dict(ex))
+                seen.add(key)
+                if len(examples) >= 13:
+                    break
+        if _is_wallet_like(word_tr, target_word):
+            profile["common_verbs"] = ["lose", "find", "check", "carry", "buy", "forget"]
+        elif _is_umbrella_like(word_tr, target_word):
+            profile["common_verbs"] = ["open", "close", "carry", "bring", "forget", "buy"]
 
     category = profile.get("semantic_category") or category
     return profile, examples[:13], category

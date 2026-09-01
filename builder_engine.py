@@ -1,7 +1,7 @@
 """Cümle Kur + Kendini Test Et — kelime/cümle üretimi, yapılandırılmış analiz, telaffuz."""
 from __future__ import annotations
 
-APP_VERSION = "2026.09.01-v29"
+APP_VERSION = "2026.09.01-v30"
 
 import difflib
 import json
@@ -28,9 +28,11 @@ from pronunciation_service import (
 from word_teaching_engine import (
     ENGLISH_VARIANT,
     SENTENCE_TEACHING_V3_PROMPT,
+    ai_only_lesson_enabled,
     analyze_word_profile,
     build_rule_examples_for_word,
     build_usage_from_profile,
+    collect_lesson_quality_issues,
     detect_category,
     generate_examples_from_profile,
     rule_sentence_teaching,
@@ -314,54 +316,81 @@ def generate_word_lesson(
     profile = analyze_word_profile(word_tr, target_word, target_lang, translate_fn)
     known_words = {target_word.lower()}
     examples: list[dict[str, Any]] = []
+    category = detect_category(word_tr, target_word)
+    ai_only = ai_only_lesson_enabled(target_lang)
 
-    # 1) AI birincil — ChatGPT gibi: her kelime önce AI'dan (3 retry)
-    ai_profile, ai_examples, _ai_issues = try_ai_word_lesson(
-        word_tr, target_word, target_lang, profile,
-    )
-    ai_success = False
-    if ai_examples:
-        profile = ai_profile
-        for ex in ai_examples:
-            enriched = _enrich_example(ex, target_lang, [target_word], known_words)
-            if _validate_example(enriched):
-                examples.append(enriched)
-        examples = sanitize_word_examples(examples, word_tr, target_word, profile, translate_fn)
-        ai_success = len(examples) >= 8
-
-    # 2) AI yetersizse: profil tabanlı örnekler (LLM yoksa veya AI başarısızsa)
-    if not ai_success and len(examples) < 13:
-        raw_examples = generate_examples_from_profile(profile, word_tr, target_word, target_lang)
-        for ex in raw_examples:
-            enriched = _enrich_example(ex, target_lang, [target_word], known_words)
-            if _validate_example(enriched):
-                examples.append(enriched)
-
-    if not ai_success and not validate_lesson_quality(examples, word_tr, target_word, profile):
-        rule_examples = _rule_based_word_lesson(word_tr, target_word, target_lang, translate_fn)
-        if len(rule_examples) > len(examples):
-            examples = rule_examples
-
-    examples = sanitize_word_examples(examples, word_tr, target_word, profile, translate_fn)
-
-    # 3) Hâlâ eksikse: kural tabanlı fallback (yalnızca AI başarısızsa)
-    if not ai_success and len(examples) < 13:
-        category = detect_category(word_tr, target_word)
-        profile = _rule_word_profile(word_tr, target_word, target_lang, category)
-        fallback = sanitize_word_examples(
-            build_rule_examples_for_word(word_tr, target_word, profile),
-            word_tr,
-            target_word,
-            profile,
-            translate_fn,
+    if ai_only:
+        for _ in range(2):
+            ai_profile, ai_examples, _ = try_ai_word_lesson(
+                word_tr, target_word, target_lang, profile,
+            )
+            if ai_examples:
+                profile = ai_profile
+                examples = []
+                for ex in ai_examples:
+                    enriched = _enrich_example(ex, target_lang, [target_word], known_words)
+                    if _validate_example(enriched):
+                        examples.append(enriched)
+                examples = sanitize_word_examples(
+                    examples, word_tr, target_word, profile, translate_fn,
+                )
+            profile, examples, category = guarantee_word_lesson(
+                word_tr, target_word, target_lang, profile, examples, translate_fn, ai_only=True,
+            )
+            if len(examples) >= 13 and not collect_lesson_quality_issues(
+                examples, word_tr, target_word, profile,
+            ):
+                break
+        else:
+            return {
+                "ok": False,
+                "error_tr": (
+                    f"«{word_tr}» kelimesi için ders şu an oluşturulamadı. "
+                    "Lütfen birkaç saniye sonra tekrar deneyin."
+                ),
+            }
+    else:
+        ai_profile, ai_examples, _ = try_ai_word_lesson(
+            word_tr, target_word, target_lang, profile,
         )
-        if len(fallback) > len(examples):
-            examples = fallback
+        if ai_examples:
+            profile = ai_profile
+            for ex in ai_examples:
+                enriched = _enrich_example(ex, target_lang, [target_word], known_words)
+                if _validate_example(enriched):
+                    examples.append(enriched)
+            examples = sanitize_word_examples(examples, word_tr, target_word, profile, translate_fn)
 
-    # 4) Son güvenlik ağı — asla boş/eksik dönme
-    profile, examples, category = guarantee_word_lesson(
-        word_tr, target_word, target_lang, profile, examples, translate_fn,
-    )
+        if len(examples) < 13:
+            raw_examples = generate_examples_from_profile(profile, word_tr, target_word, target_lang)
+            for ex in raw_examples:
+                enriched = _enrich_example(ex, target_lang, [target_word], known_words)
+                if _validate_example(enriched):
+                    examples.append(enriched)
+
+        if not validate_lesson_quality(examples, word_tr, target_word, profile):
+            rule_examples = _rule_based_word_lesson(word_tr, target_word, target_lang, translate_fn)
+            if len(rule_examples) > len(examples):
+                examples = rule_examples
+
+        examples = sanitize_word_examples(examples, word_tr, target_word, profile, translate_fn)
+
+        if len(examples) < 13:
+            category = detect_category(word_tr, target_word)
+            profile = _rule_word_profile(word_tr, target_word, target_lang, category)
+            fallback = sanitize_word_examples(
+                build_rule_examples_for_word(word_tr, target_word, profile),
+                word_tr,
+                target_word,
+                profile,
+                translate_fn,
+            )
+            if len(fallback) > len(examples):
+                examples = fallback
+
+        profile, examples, category = guarantee_word_lesson(
+            word_tr, target_word, target_lang, profile, examples, translate_fn, ai_only=False,
+        )
 
     tw_pron = get_word(target_lang, target_word)
     usage = build_usage_from_profile(profile, target_lang, target_word, word_tr)

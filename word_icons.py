@@ -78,6 +78,7 @@ EMOJI_BY_WORD: dict[str, str] = {
     "mısır ülke": "🇪🇬", "egypt": "🇪🇬",
     # Duygu / fiil
     "mutlu": "😊", "happy": "😊", "üzgün": "😢", "uzgun": "😢", "sad": "😢",
+    "eğlence": "🎭", "eglence": "🎭", "entertainment": "🎭",
     "yorgun": "😴", "tired": "😴", "kızgın": "😠", "kizgin": "😠", "angry": "😠",
     "çalışmak": "💼", "calismak": "💼", "work": "💼", "çalış": "💼", "calis": "💼",
     "koşmak": "🏃", "kosmak": "🏃", "run": "🏃", "yürümek": "🚶", "yurumek": "🚶", "walk": "🚶",
@@ -106,6 +107,10 @@ CATEGORY_EMOJI: dict[str, str] = {
     "weather": "🌤️",
     "clothing": "👕",
     "document": "🧾",
+    "abstract": "🎭",
+    "snack": "🍬",
+    "tobacco": "🚬",
+    "eyewear": "👓",
 }
 
 _SHORT_TERM_MIN_LEN = 4

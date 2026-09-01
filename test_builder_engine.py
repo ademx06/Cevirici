@@ -2,6 +2,9 @@
 """Cümle Kur motor testleri — kelimeye özel öğretim + telaffuz."""
 from __future__ import annotations
 
+import os
+os.environ.setdefault("WORD_LESSON_ALLOW_TEMPLATES", "1")
+
 import re
 
 from builder_engine import (
@@ -494,7 +497,7 @@ def test_ai_first_pipeline_without_llm():
     """AI yokken bile garanti katmanı 13 örnek döndürür."""
     from word_teaching_engine import AI_LESSON_MAX_ATTEMPTS, try_ai_word_lesson
 
-    assert AI_LESSON_MAX_ATTEMPTS >= 3
+    assert AI_LESSON_MAX_ATTEMPTS >= 5
     profile = {"common_verbs": ["wear"], "semantic_category": "clothing"}
     _, examples, issues = try_ai_word_lesson("çorap", "socks", "en", profile)
     assert issues, "LLM yokken sorun listesi beklenir"
