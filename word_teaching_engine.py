@@ -20,7 +20,7 @@ from word_lexicon import build_lexicon_examples, get_word_usage_phrases, get_wor
 ENGLISH_VARIANT = "en-US"
 
 # AI birincil kelime dersi — ChatGPT gibi: önce AI, başarısızsa retry; şablon yedek YOK
-DEFAULT_GEMINI_MODEL = "gemini-3.6-flash"
+DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
 WORD_LESSON_MAX_TOKENS = 8192
 AI_LESSON_MAX_ATTEMPTS = 5
 

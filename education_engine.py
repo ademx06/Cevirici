@@ -14,7 +14,7 @@ from tutor import _extract_turkish_phrase
 
 _ENGINE_DIR = Path(__file__).resolve().parent
 HTTP_UA = "Mozilla/5.0 (compatible; SesliCevirmen/1.0)"
-DEFAULT_GEMINI_MODEL = "gemini-3.6-flash"
+DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
 
 
 def _api_headers(extra: dict[str, str] | None = None) -> dict[str, str]:
@@ -3382,6 +3382,8 @@ def _gemini_api_request(body: dict[str, Any], max_tokens: int) -> str | None:
     models: list[str] = []
     for candidate in (
         configured,
+        "gemini-3.5-flash-lite",
+        "gemini-3.6-flash",
         DEFAULT_GEMINI_MODEL,
         "gemini-3.5-flash",
         "gemini-2.5-flash",
@@ -3403,7 +3405,7 @@ def _gemini_api_request(body: dict[str, Any], max_tokens: int) -> str | None:
             parts = data["candidates"][0]["content"]["parts"]
             return "".join(p.get("text", "") for p in parts).strip()
         except HTTPError as exc:
-            if exc.code in (404, 400) and model != models[-1]:
+            if exc.code in (404, 400, 429) and model != models[-1]:
                 continue
             return None
         except Exception:
