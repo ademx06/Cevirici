@@ -30,6 +30,7 @@ from word_teaching_engine import (
     build_usage_from_profile,
     generate_examples_from_profile,
     rule_sentence_teaching,
+    sanitize_word_examples,
     validate_lesson_quality,
     word_icon_for,
 )
@@ -313,6 +314,8 @@ def generate_word_lesson(
 
     if not validate_lesson_quality(examples, word_tr, target_word, profile):
         examples = _rule_based_word_lesson(word_tr, target_word, target_lang, translate_fn)
+
+    examples = sanitize_word_examples(examples, word_tr, target_word, profile)
 
     tw_pron = get_word(target_lang, target_word)
     usage = build_usage_from_profile(profile, target_lang)

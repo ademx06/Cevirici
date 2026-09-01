@@ -2290,6 +2290,51 @@ body {
   gap: 6px;
 }
 
+.mod-saved-row {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.mod-saved-row .mod-saved-item {
+  flex: 1;
+}
+
+.mod-saved-delete {
+  flex: 0 0 auto;
+  align-self: center;
+  border: none;
+  background: transparent;
+  font-size: 1.1rem;
+  padding: 8px;
+  cursor: pointer;
+  opacity: 0.75;
+}
+
+.mod-saved-delete:active {
+  opacity: 1;
+}
+
+.mod-verb-list-wrap {
+  margin: 8px 0;
+}
+
+.mod-verb-list {
+  margin: 6px 0 0 18px;
+  padding: 0;
+}
+
+.mod-phrases-block {
+  margin: 10px 0;
+}
+
+.mod-phrase-item {
+  margin-top: 10px;
+  padding: 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
 .mod-saved-item {
   display: flex;
   align-items: center;

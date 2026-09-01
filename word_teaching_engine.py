@@ -5,6 +5,7 @@ import re
 from typing import Any, Callable
 
 from education_engine import LANG_NAMES, _llm_json, llm_available, safe_str
+from pronunciation_service import build_pronunciation_bundle, tokenize_en
 
 # ── Yasak şablon kalıpları (kelime yerine koyma) ──
 BANNED_TEMPLATE_RE = [
@@ -43,6 +44,73 @@ FOREIGN_WORD_MARKERS: dict[str, tuple[str, ...]] = {
     "chair": ("window", "coffee", "faucet", "car"),
     "araba": ("masa", "pencere", "kahve", "musluk"),
     "car": ("table", "window", "coffee", "faucet"),
+    "ayakkabı": ("çorap", "corap", "socks", "sock", "masa", "kahve", "pencere", "table", "coffee", "window"),
+    "ayakkabi": ("çorap", "corap", "socks", "sock", "masa", "kahve", "pencere", "table", "coffee", "window"),
+    "shoe": ("socks", "sock", "table", "coffee", "window", "chair", "faucet", "book"),
+    "shoes": ("socks", "sock", "table", "coffee", "window", "chair", "faucet", "book"),
+}
+
+# Hedef kelime dışı ana nesne — ör. shoe öğretirken socks ana özne olamaz
+CONFLICTING_PRIMARY_NOUNS: dict[str, frozenset[str]] = {
+    "shoe": frozenset({"sock", "socks"}),
+    "shoes": frozenset({"sock", "socks"}),
+    "sock": frozenset({"shoe", "shoes"}),
+    "socks": frozenset({"shoe", "shoes"}),
+    "coffee": frozenset({"tea", "table", "window"}),
+    "table": frozenset({"chair", "coffee", "window"}),
+    "window": frozenset({"table", "chair", "coffee", "door"}),
+    "door": frozenset({"window", "table", "coffee"}),
+}
+
+VERBS_TR: dict[str, str] = {
+    "buy": "satın almak", "wear": "giymek", "lose": "kaybetmek", "tie": "bağlamak",
+    "lace": "bağlamak (bağcık)", "clean": "temizlemek", "try on": "denemek",
+    "sit at": "…-de oturmak", "put on": "üzerine koymak", "move": "taşımak",
+    "use": "kullanmak", "set": "kurmak / hazırlamak", "open": "açmak", "close": "kapatmak",
+    "see": "görmek", "need": "ihtiyaç duymak", "find": "bulmak", "drink": "içmek",
+    "have": "sahip olmak / almak", "make": "yapmak", "order": "sipariş etmek",
+    "get": "almak / getirmek", "drive": "sürmek", "park": "park etmek",
+    "fix": "tamir etmek", "wash": "yıkamak", "rent": "kiralamak",
+    "turn on": "açmak", "turn off": "kapatmak", "repair": "tamir etmek",
+    "replace": "değiştirmek", "install": "takmak / kurmak",
+    "go to": "gitmek", "be at": "bulunmak", "visit": "ziyaret etmek",
+    "read": "okumak", "charge": "şarj etmek", "answer": "cevaplamak / açmak",
+    "knock": "çalmak", "wipe": "silmek", "clear": "toplamak",
+}
+
+CATEGORY_PHRASES: dict[str, list[dict[str, str]]] = {
+    "furniture": [
+        {"en": "sit at the table", "tr": "masada oturmak"},
+        {"en": "set the table", "tr": "masayı kurmak / sofrayı hazırlamak"},
+        {"en": "clear the table", "tr": "masayı toplamak"},
+        {"en": "wipe the table", "tr": "masayı silmek"},
+        {"en": "on the table", "tr": "masanın üzerinde"},
+        {"en": "under the table", "tr": "masanın altında"},
+    ],
+    "footwear": [
+        {"en": "a pair of shoes", "tr": "bir çift ayakkabı"},
+        {"en": "wear shoes", "tr": "ayakkabı giymek"},
+        {"en": "tie your shoes", "tr": "ayakkabılarını bağlamak"},
+        {"en": "try on shoes", "tr": "ayakkabı denemek"},
+        {"en": "buy new shoes", "tr": "yeni ayakkabı almak"},
+        {"en": "take off your shoes", "tr": "ayakkabılarını çıkarmak"},
+    ],
+    "object": [
+        {"en": "open the window", "tr": "pencereyi açmak"},
+        {"en": "close the door", "tr": "kapıyı kapatmak"},
+    ],
+    "plumbing": [
+        {"en": "turn off the faucet", "tr": "musluğu kapatmak"},
+        {"en": "the faucet is leaking", "tr": "musluk su sızdırıyor"},
+    ],
+    "beverage": [
+        {"en": "have a coffee", "tr": "kahve içmek / bir kahve almak"},
+        {"en": "make coffee", "tr": "kahve yapmak"},
+    ],
+    "vehicle": [
+        {"en": "drive the car", "tr": "arabayı sürmek"},
+        {"en": "park the car", "tr": "arabayı park etmek"},
+    ],
 }
 
 WORD_PROFILE_PROMPT = """Sen uzman bir dil öğretmenisin.
@@ -155,6 +223,7 @@ KNOWN_CATEGORIES: dict[str, str] = {
     "pencere": "object", "window": "object",
     "kalem": "object", "pen": "object",
     "ev": "place", "home": "place", "market": "place", "pazar": "place",
+    "ayakkabı": "footwear", "ayakkabi": "footwear", "shoe": "footwear", "shoes": "footwear",
 }
 
 WORD_ICONS: dict[str, str] = {
@@ -170,11 +239,13 @@ WORD_ICONS: dict[str, str] = {
     "pencere": "🪟", "window": "🪟",
     "telefon": "📱", "phone": "📱",
     "kalem": "✏️", "pen": "✏️",
+    "ayakkabı": "👟", "ayakkabi": "👟", "shoe": "👟", "shoes": "👟",
 }
 
 CATEGORY_ICONS: dict[str, str] = {
     "beverage": "☕", "furniture": "🪑", "plumbing": "🚰", "vehicle": "🚗",
     "adjective": "😊", "verb": "💼", "place": "📍", "object": "📦", "general": "📖",
+    "footwear": "👟",
 }
 
 SENTENCE_TYPE_LABELS: dict[str, str] = {
@@ -266,6 +337,99 @@ def _has_foreign_word_leak(text: str, word_tr: str, target_word: str) -> bool:
     markers = FOREIGN_WORD_MARKERS.get(wt) or FOREIGN_WORD_MARKERS.get(tw) or ()
     t = safe_str(text).lower()
     return any(m in t for m in markers)
+
+
+def _has_conflicting_primary_noun(text: str, target_word: str) -> bool:
+    """Hedef kelime dışı ana nesne (socks öğretirken shoe gibi) var mı?"""
+    tw = _en_target_word(target_word)
+    conflicts = CONFLICTING_PRIMARY_NOUNS.get(tw, frozenset())
+    if not conflicts:
+        return False
+    tokens = {t.lower() for t in tokenize_en(text)}
+    target_forms = {tw, tw + "s"}
+    if tw.endswith("s") and len(tw) > 3:
+        target_forms.add(tw[:-1])
+    if not (tokens & target_forms):
+        return False
+    return bool(tokens & conflicts)
+
+
+def _validate_focus_content(
+    target: str,
+    tr: str,
+    word_tr: str,
+    target_word: str,
+) -> bool:
+    """Örnek/kalıp cümlesi hedef kelimeyle uyumlu mu?"""
+    target = _normalize_noun_caps(safe_str(target).strip(), target_word)
+    if not target:
+        return False
+    tw = _en_target_word(target_word)
+    norm_target = _norm(target)
+    if tw and tw not in norm_target and f"{tw}s" not in norm_target:
+        if tw.endswith("s") and tw[:-1] in norm_target:
+            pass
+        else:
+            return False
+    if tr and not _tr_contains_word(tr, word_tr):
+        return False
+    blob = f"{tr} {target}"
+    if _has_foreign_word_leak(blob, word_tr, target_word):
+        return False
+    if _has_cross_word_leak(blob, word_tr, target_word):
+        return False
+    if _has_conflicting_primary_noun(target, target_word):
+        return False
+    return True
+
+
+def _sanitize_example_nested(
+    ex: dict[str, Any],
+    word_tr: str,
+    target_word: str,
+) -> dict[str, Any]:
+    """İç içe kalıp/yeni kelime verilerini hedef kelimeye göre filtrele."""
+    good_pats: list[dict[str, Any]] = []
+    for p in ex.get("pattern_examples") or []:
+        if not isinstance(p, dict):
+            continue
+        t = safe_str(p.get("target") or p.get("example_en")).strip()
+        tr = safe_str(p.get("tr") or p.get("example_tr")).strip()
+        if _validate_focus_content(t, tr, word_tr, target_word):
+            good_pats.append(p)
+    ex["pattern_examples"] = good_pats
+
+    good_nw: list[dict[str, Any]] = []
+    tw = _en_target_word(target_word)
+    conflicts = CONFLICTING_PRIMARY_NOUNS.get(tw, frozenset())
+    for nw in ex.get("new_words") or []:
+        if not isinstance(nw, dict):
+            continue
+        w = safe_str(nw.get("word")).lower()
+        if w in conflicts:
+            continue
+        if _has_foreign_word_leak(f"{w} {nw.get('meaning_tr', '')}", word_tr, target_word):
+            continue
+        good_nw.append(nw)
+    ex["new_words"] = good_nw
+    return ex
+
+
+def sanitize_word_examples(
+    examples: list[dict[str, Any]],
+    word_tr: str,
+    target_word: str,
+    profile: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Tüm örnekleri doğrula ve iç içe verileri temizle."""
+    cleaned: list[dict[str, Any]] = []
+    for ex in examples:
+        if not isinstance(ex, dict):
+            continue
+        if not _validate_word_example(ex, word_tr, target_word, profile):
+            continue
+        cleaned.append(_sanitize_example_nested(dict(ex), word_tr, target_word))
+    return cleaned
 
 
 def _is_banned_template(target: str) -> bool:
@@ -434,6 +598,29 @@ def _rule_word_profile(
             "article_notes_tr": f"the {target_word.lower()} / a {target_word.lower()}",
             "avoid_patterns": ["I love X", "Do you want X"],
             "avoid_reason_tr": "Her nesne için aynı şablon kullanılmaz; bağlama göre fiil seçilir.",
+        },
+        "footwear": {
+            "part_of_speech": "noun",
+            "countability": "countable",
+            "semantic_category": "footwear",
+            "meaning_tr": word_tr,
+            "usage_notes_tr": (
+                f"«{word_tr}» genelde çoğul (shoes) kullanılır. "
+                "wear, buy, tie, try on gibi fiillerle doğal cümleler kurulur."
+            ),
+            "common_verbs": ["buy", "wear", "lose", "tie", "try on", "clean"],
+            "common_collocations": [
+                "a pair of shoes", "wear shoes", "tie your shoes",
+                "try on shoes", "buy new shoes", "take off your shoes",
+            ],
+            "common_patterns": [
+                "These shoes are very comfortable.",
+                "I need to buy a new pair of shoes.",
+                "Don't forget to tie your shoes.",
+            ],
+            "article_notes_tr": "Tekil: a shoe · Çoğul: shoes · Bir çift: a pair of shoes",
+            "avoid_patterns": ["These socks are warm", "I love socks"],
+            "avoid_reason_tr": "Ayakkabı öğretirken çorap (socks) ana konu olmamalı.",
         },
         "verb": {
             "part_of_speech": "verb",
@@ -605,6 +792,46 @@ def _object_examples_en(word_tr: str, target_word: str) -> list[dict[str, Any]]:
     ]
 
 
+def _footwear_examples_en(word_tr: str, target_word: str) -> list[dict[str, Any]]:
+    """Ayakkabı / shoe — günlük doğal örnekler."""
+    T, W = _en_target_word(target_word), word_tr
+    shoes = "shoes" if T == "shoe" else T
+    return [
+        _ex(W, f"Bu {W}lar çok rahat.", f"These {shoes} are very comfortable.", "description",
+            f"These + {shoes} + are + very comfortable",
+            f"These → bunlar\n{shoes} → ayakkabılar\nare → -dır / -dir\nvery → çok\ncomfortable → rahat\n\n"
+            f"«Bu ayakkabılar çok rahat» cümlesinin doğal karşılığı.",
+            pattern_tr="These [plural noun] are [adjective].",
+            pattern_examples=[{
+                "target": f"These {shoes} are very comfortable.",
+                "tr": f"Bu {W}lar çok rahat.",
+            }]),
+        _ex(W, f"Yeni bir çift {W} almam gerekiyor.", f"I need to buy a new pair of {shoes}.", "need_to",
+            f"I + need to + buy + a new pair of {shoes}",
+            f"need to + fiil → …-mem lazım\n\n"
+            f"a pair of {shoes} → bir çift ayakkabı\n\n"
+            "pair of shoes = bir çift ayakkabı (sabit kalıp)."),
+        _ex(W, f"{W.capitalize()}larını bağlamayı unutma.", f"Don't forget to tie your {shoes}.", "imperative",
+            f"Don't forget + to tie + your {shoes}",
+            f"Don't forget to… → …-mayı unutma\n\n"
+            f"tie your {shoes} → ayakkabılarını bağla\n\n"
+            "tie shoes = ayakkabı bağlamak."),
+        _ex(W, f"Bu {W}ları nereden aldın?", f"Where did you buy these {shoes}?", "question",
+            f"Where + did + you + buy + these {shoes}",
+            f"Where did you…? → …-i nereden …?\n\n"
+            f"these {shoes} → bu ayakkabılar\nbuy → satın almak"),
+        _ex(W, f"Bu {W}lar bana biraz küçük geliyor.", f"These {shoes} feel a little small for me.", "description",
+            f"These + {shoes} + feel + a little small",
+            f"feel → hissetmek / gelmek (beden)\n\n"
+            f"a little small → biraz küçük\n\n"
+            "feel small = küçük gelmek (ayakkabı/kıyafet)."),
+        _ex(W, f"Yağmurda {W}larım ıslandı.", f"My {shoes} got wet in the rain.", "past",
+            f"My + {shoes} + got + wet + in the rain",
+            f"My {shoes} → ayakkabılarım\ngot wet → ıslandı\nin the rain → yağmurda\n\n"
+            "Geçmiş: got (get'in geçmişi)."),
+    ]
+
+
 def _category_examples_en(
     word_tr: str,
     target_word: str,
@@ -655,6 +882,9 @@ def _category_examples_en(
                 f"«{W}» için move doğal bir fiildir."),
         ]
         return examples
+
+    if category == "footwear":
+        return _footwear_examples_en(word_tr, target_word)
 
     if category == "object":
         return _object_examples_en(word_tr, target_word)
@@ -866,7 +1096,7 @@ def generate_examples_from_profile(
             if _validate_word_example(ex, word_tr, target_word, profile):
                 examples.append(ex)
 
-    return examples[:8]
+    return sanitize_word_examples(examples[:8], word_tr, target_word, profile)
 
 
 def build_rule_examples_for_word(
@@ -905,6 +1135,8 @@ def _validate_word_example(
     if _has_cross_word_leak(how, word_tr, target_word):
         return False
     if _has_cross_word_leak(safe_str(ex.get("why_this_structure_tr")), word_tr, target_word):
+        return False
+    if _has_conflicting_primary_noun(target, target_word):
         return False
     tw = _en_target_word(target_word)
     norm_target = _norm(target)
@@ -952,13 +1184,41 @@ def build_usage_from_profile(profile: dict[str, Any], target_lang: str) -> dict[
     verbs = profile.get("common_verbs") or []
     coll = profile.get("common_collocations") or []
     patterns = profile.get("common_patterns") or []
+    category = profile.get("semantic_category") or "general"
+
+    verbs_enriched = [
+        {"en": v, "tr": VERBS_TR.get(v.lower(), VERBS_TR.get(v.split()[-1].lower(), ""))}
+        for v in verbs[:8]
+    ]
+    verbs_enriched = [v for v in verbs_enriched if v["en"]]
+
+    phrase_src = CATEGORY_PHRASES.get(category, [])
+    if not phrase_src and coll:
+        phrase_src = [{"en": c, "tr": ""} for c in coll[:6]]
+    phrases_enriched: list[dict[str, str]] = []
+    for item in phrase_src[:6]:
+        en = safe_str(item.get("en") if isinstance(item, dict) else item).strip()
+        if not en:
+            continue
+        tr = safe_str(item.get("tr") if isinstance(item, dict) else "").strip()
+        pron = ""
+        if target_lang == "en":
+            pron = build_pronunciation_bundle(en, target_lang).get("pronunciation_tr", "")
+        phrases_enriched.append({"en": en, "tr": tr, "pronunciation_tr": pron})
+
+    verbs_line = ", ".join(
+        f"{v['en']} → {v['tr']}" if v.get("tr") else v["en"] for v in verbs_enriched
+    ) if verbs_enriched else None
+
     return {
         "part_of_speech_tr": pos_tr,
         "countability_tr": count_tr,
         "meaning_tr": profile.get("meaning_tr", ""),
         "usage_notes_tr": profile.get("usage_notes_tr", ""),
         "collocations_tr": ", ".join(coll[:6]) if coll else None,
-        "common_verbs_tr": ", ".join(verbs[:6]) if verbs else None,
+        "common_verbs": verbs_enriched,
+        "common_verbs_tr": verbs_line,
+        "common_phrases": phrases_enriched,
         "patterns": patterns[:4],
         "article_notes_tr": profile.get("article_notes_tr"),
         "avoid_reason_tr": profile.get("avoid_reason_tr"),

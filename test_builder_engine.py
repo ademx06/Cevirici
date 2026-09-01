@@ -28,6 +28,8 @@ def fake_translate(text: str, from_lang: str, to_lang: str) -> str:
         "pencere": "window",
         "kapı": "door",
         "kitap": "book",
+        "ayakkabı": "shoe",
+        "ayakkabi": "shoe",
         "araba": "car",
         "mutlu": "happy",
         "çalışmak": "work",
@@ -222,7 +224,7 @@ def test_window_no_cross_word_leak():
 
 
 def test_word_sequence_isolation():
-  words = ("kahve", "pencere", "musluk", "kapı", "araba", "kitap", "pencere")
+  words = ("kahve", "ayakkabı", "pencere", "masa", "musluk", "kapı", "araba", "kitap", "pencere")
   markers = {
       "kahve": ("coffee", "☕", ("masa", "pencere", "window")),
       "pencere": ("window", "🪟", ("kahve", "coffee", "masa", "table")),
@@ -230,6 +232,7 @@ def test_word_sequence_isolation():
       "kapı": ("door", "🚪", ("masa", "table", "kahve", "coffee")),
       "araba": ("car", "🚗", ("masa", "pencere", "kahve")),
       "kitap": ("book", "📚", ("masa", "pencere", "kahve", "coffee")),
+      "ayakkabı": ("shoe", "👟", ("socks", "sock", "çorap", "kahve", "coffee", "masa", "table")),
   }
   for w in words:
       result = generate_word_lesson(w, "en", fake_translate)
@@ -246,6 +249,33 @@ def test_word_sequence_isolation():
           for bad in forbidden:
               assert bad not in blob, f"{w} leaked {bad}: {blob[:100]}"
   print("TEST word sequence isolation OK")
+
+
+def test_shoe_no_socks_leak():
+    result = generate_word_lesson("ayakkabı", "en", fake_translate)
+    assert result["ok"], result
+    assert result.get("word_icon") == "👟"
+    assert result.get("target_word") == "shoe"
+    examples = result.get("examples") or []
+    assert len(examples) >= 4, f"expected 4+ examples, got {len(examples)}"
+    forbidden = ("socks", "sock", "çorap", "table", "coffee", "window", "chair")
+    for ex in examples:
+        blob = " ".join([
+            safe_str(ex.get("tr")),
+            safe_str(ex.get("target")),
+            safe_str(ex.get("how_it_is_formed_tr")),
+        ]).lower()
+        for bad in forbidden:
+            assert bad not in blob, f"socks/leak in shoe lesson: {bad} in {blob[:80]}"
+        assert "shoe" in safe_str(ex.get("target")).lower()
+        for p in ex.get("pattern_examples") or []:
+            pt = safe_str(p.get("target")).lower()
+            assert "sock" not in pt, f"socks in pattern: {pt}"
+            assert "shoe" in pt
+    usage = result.get("usage") or {}
+    assert usage.get("common_verbs")
+    assert usage.get("common_phrases")
+    print("TEST shoe isolation OK:", len(examples))
 
 
 def test_door_icon():
@@ -296,6 +326,7 @@ if __name__ == "__main__":
     test_sentence_analysis()
     test_can_you_pattern_examples()
     test_window_no_cross_word_leak()
+    test_shoe_no_socks_leak()
     test_word_sequence_isolation()
     test_door_icon()
     test_grade_word_correct()

@@ -48,9 +48,9 @@
       telefon: '📱', phone: '📱', kitap: '📖', book: '📖', masa: '🪑', table: '🪑',
       sandalye: '💺', chair: '💺', pencere: '🪟', window: '🪟', su: '💧', water: '💧',
       kalem: '✏️', pen: '✏️', mutlu: '😊', happy: '😊',
+      ayakkabı: '👟', ayakkabi: '👟', shoe: '👟', shoes: '👟',
     };
     if (map[key]) return map[key];
-    if (apiIcon && apiIcon !== '☕' && apiIcon !== '🪑') return apiIcon;
     return '📖';
   }
 
@@ -250,14 +250,32 @@
     });
   }
 
-  function renderUsageMap(usage) {
+  function renderUsageMap(usage, lang) {
     if (!usage || typeof usage !== 'object') return '';
     const rows = [];
     if (usage.part_of_speech_tr) rows.push(`<p><strong>Tür:</strong> ${esc(usage.part_of_speech_tr)}</p>`);
     if (usage.countability_tr) rows.push(`<p><strong>Sayılabilirlik:</strong> ${esc(usage.countability_tr)}</p>`);
     if (usage.meaning_tr) rows.push(`<p><strong>Anlam:</strong> ${esc(usage.meaning_tr)}</p>`);
-    if (usage.common_verbs_tr) rows.push(`<p><strong>Yaygın fiiller:</strong> ${esc(usage.common_verbs_tr)}</p>`);
-    if (usage.collocations_tr) rows.push(`<p><strong>Yaygın ifadeler:</strong> ${esc(usage.collocations_tr)}</p>`);
+    if (usage.common_verbs?.length) {
+      rows.push(`<div class="mod-verb-list-wrap"><strong>Yaygın fiiller</strong><ul class="mod-verb-list">${
+        usage.common_verbs.map((v) => `<li>${esc(v.en)} → ${esc(v.tr || '')}</li>`).join('')
+      }</ul></div>`);
+    } else if (usage.common_verbs_tr) {
+      rows.push(`<p><strong>Yaygın fiiller:</strong> ${esc(usage.common_verbs_tr)}</p>`);
+    }
+    if (usage.common_phrases?.length) {
+      rows.push(`<div class="mod-phrases-block"><strong>Yaygın ifadeler</strong>${
+        usage.common_phrases.map((p) => `
+          <div class="mod-phrase-item">
+            <div class="mod-card-line"><span class="mod-flag">🇬🇧</span>${esc(p.en)}</div>
+            ${p.tr ? `<div class="mod-card-line"><span class="mod-flag">🇹🇷</span>${esc(p.tr)}</div>` : ''}
+            ${p.pronunciation_tr ? `<div class="mod-pron-row"><span class="mod-pron-label">🗣️</span><span class="mod-pron-value">${esc(p.pronunciation_tr)}</span></div>` : ''}
+            <button type="button" class="mod-listen-btn builder-listen mod-listen-sm" data-text="${esc(p.en)}" data-lang="${lang || 'en'}">🔊 Dinle</button>
+          </div>`).join('')
+      }</div>`);
+    } else if (usage.collocations_tr) {
+      rows.push(`<p><strong>Yaygın ifadeler:</strong> ${esc(usage.collocations_tr)}</p>`);
+    }
     if (usage.article_notes_tr) rows.push(`<p><strong>Artikel:</strong> ${esc(usage.article_notes_tr)}</p>`);
     if (usage.regional_note_tr) rows.push(`<p class="mod-regional">${esc(usage.regional_note_tr)}</p>`);
     return rows.length ? rows.join('') : '';
@@ -301,14 +319,17 @@
     return `<div class="mod-new-words"><strong>📖 Yeni kelimeler</strong>${chips}</div>`;
   }
 
-  function renderWordLesson(data) {
+  function renderWordLesson(data, expectedWord) {
     const box = $('wordResult');
     if (!box || !data?.ok) return;
+    const inputWord = ($('wordInput')?.value || '').trim().toLowerCase();
+    const wordKey = String(expectedWord || data.word_tr || '').trim().toLowerCase();
+    if (wordKey && inputWord && wordKey !== inputWord) return;
     currentWordLesson = data;
     const lang = data.target_lang;
     const usage = data.usage || {};
     const patterns = (usage.patterns || []).map((p) => `<li>${esc(p)}</li>`).join('');
-    const usageMap = renderUsageMap(usage);
+    const usageMap = renderUsageMap(usage, lang);
     const icon = resolveWordIcon(data, data.word_icon);
     const examples = (data.examples || []).map((ex, i) => renderExampleCard(ex, lang, i)).join('');
     box.innerHTML = `
@@ -451,7 +472,7 @@
         return;
       }
       setUi('Hazır — dinle ve kaydet', false);
-      renderWordLesson(data);
+      renderWordLesson(data, word);
     } catch {
       $('wordResult').innerHTML = '';
       setUi('Bağlantı hatası — tekrar dene', false);
@@ -551,11 +572,32 @@
     if (wBox) {
       wBox.innerHTML = words.length
         ? words.map((w) => `
-          <button type="button" class="mod-saved-item" data-word-id="${w.id}">
-            <span class="mod-saved-icon">${resolveWordIcon(w, w.word_icon)}</span>
-            <span class="mod-saved-text">${esc(w.word_tr)}<small>${LS.learningLevel(w.stats)}</small></span>
-          </button>`).join('')
+          <div class="mod-saved-row">
+            <button type="button" class="mod-saved-item" data-word-id="${w.id}">
+              <span class="mod-saved-icon">${resolveWordIcon(w, w.word_icon)}</span>
+              <span class="mod-saved-text">${esc(w.word_tr)}<small>${LS.learningLevel(w.stats)}</small></span>
+            </button>
+            <button type="button" class="mod-saved-delete" data-delete-word="${w.id}" title="Sil" aria-label="Sil">🗑️</button>
+          </div>`).join('')
         : '<p class="mod-empty">Henüz kelime yok</p>';
+      wBox.querySelectorAll('[data-delete-word]').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const id = btn.dataset.deleteWord;
+          const item = LS.getWordById(id);
+          const label = item?.word_tr || 'bu kelime';
+          if (window.confirm(`"${label}" kaydını silmek istiyor musun?`)) {
+            LS.deleteWord(id);
+            if (currentWordLesson?.word_tr === item?.word_tr) {
+              currentWordLesson = null;
+              const wr = $('wordResult');
+              if (wr) wr.innerHTML = '';
+            }
+            renderSavedLists();
+            setUi('Kayıt silindi', false);
+          }
+        });
+      });
       wBox.querySelectorAll('[data-word-id]').forEach((btn) => {
         btn.addEventListener('click', () => {
           const w = LS.getWordById(btn.dataset.wordId);

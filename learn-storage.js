@@ -148,6 +148,10 @@
     return record;
   }
 
+  function deleteWord(id) {
+    write(WORDS_KEY, read(WORDS_KEY).filter((w) => w.id !== id));
+  }
+
   function getWords(lang) {
     const code = lang || getLang();
     return read(WORDS_KEY).filter((w) => w.target_lang === code);
@@ -245,6 +249,7 @@
     langInfo,
     saveWord,
     saveSentence,
+    deleteWord,
     getWords,
     getSentences,
     getWordById,

@@ -181,6 +181,18 @@ EN_CANONICAL: dict[str, str] = {
     "charge": "çarç",
     "answer": "ensır",
     "knock": "nok",
+    "comfortable": "komfıtıbıl",
+    "shoes": "şuz",
+    "shoe": "şu",
+    "forget": "for-get",
+    "pair": "per",
+    "wet": "vet",
+    "rain": "reyn",
+    "small": "smol",
+    "feel": "fiil",
+    "clear": "klir",
+    "wipe": "wayp",
+    "sit": "sit",
 }
 
 EN_IPA: dict[str, str] = {
