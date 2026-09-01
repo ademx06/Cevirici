@@ -22,7 +22,7 @@ ENGLISH_VARIANT = "en-US"
 # AI birincil kelime dersi — ChatGPT gibi: önce AI, başarısızsa retry; şablon yedek YOK
 DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
 WORD_LESSON_MAX_TOKENS = 8192
-AI_LESSON_MAX_ATTEMPTS = 5
+AI_LESSON_MAX_ATTEMPTS = 2
 
 WORD_LESSON_SPLIT_PROMPT_A = """{base_prompt}
 
@@ -471,8 +471,8 @@ Bu kelimeyle insanlar günlük hayatta ne yapar? Hangi fiiller doğal? (kapı→
 - common_collocations: ana dili İngilizce konuşanların söylediği kalıplar (en az 4)
 - article_notes_items: a/an/the kullanımı (en az 2)
 
-[ÖĞRETİCİ AÇIKLAMA — HER CÜMLE İÇİN ZORUNLU]
-how_it_is_formed_tr en az 140 karakter; ChatGPT gibi adım adım öğret:
+[ÖĞRETİCİ AÇIKLAMA — HER CÜMLE İÇİN]
+how_it_is_formed_tr en az 60 karakter; kısa adımlarla öğret (1️⃣ anlam 2️⃣ yapı yeterli):
 1️⃣ Genel anlam — Bu cümle günlük hayatta ne anlatır?
 2️⃣ Ana yapı — İngilizce iskelet + «Türkçe karşılık»
 3️⃣ Özne — Kim/ne yapıyor? (I, she, the dog…)
@@ -4598,7 +4598,9 @@ def _profile_needs_upgrade(profile: dict[str, Any], word_tr: str, target_word: s
 def teaching_explanation_is_rich(how: str) -> bool:
     """Öğretici açıklama yeterince derin mi?"""
     text = safe_str(how).strip()
-    return len(text) >= 140 and "1️⃣" in text and "2️⃣" in text
+    if len(text) >= 60:
+        return True
+    return len(text) >= 40 and ("1️⃣" in text or "özne" in text.lower() or "yüklem" in text.lower())
 
 
 def upgrade_word_lesson_teaching(
@@ -4693,8 +4695,7 @@ def collect_lesson_quality_issues(
             break
         if not teaching_explanation_is_rich(safe_str(ex.get("how_it_is_formed_tr"))):
             issues.append(
-                "how_it_is_formed_tr en az 140 karakter ve 1️⃣ 2️⃣ adımları içermeli; "
-                "her cümle için derin öğretici açıklama yaz."
+                "how_it_is_formed_tr en az 60 karakter olmalı; kısa öğretici açıklama yaz."
             )
             break
     return issues
