@@ -1,7 +1,7 @@
 """Cümle Kur + Kendini Test Et — kelime/cümle üretimi, yapılandırılmış analiz, telaffuz."""
 from __future__ import annotations
 
-APP_VERSION = "2026.09.01-v26"
+APP_VERSION = "2026.09.01-v27"
 
 import difflib
 import json
@@ -40,11 +40,9 @@ from word_teaching_engine import (
     validate_lesson_quality,
     word_icon_for,
     guarantee_word_lesson,
-    _llm_generate_dynamic_lesson,
+    try_ai_word_lesson,
     _rule_word_profile,
 )
-from word_lexicon import has_curated_lexicon
-
 # ── Yasak / şablon açıklamalar ──
 GENERIC_BANNED_RE = re.compile(
     r"günlük konuşmada kullan|kelime(?:yi)? günlük|bu cümlede .+ kelimesini|"
@@ -316,21 +314,21 @@ def generate_word_lesson(
     profile = analyze_word_profile(word_tr, target_word, target_lang, translate_fn)
     known_words = {target_word.lower()}
     examples: list[dict[str, Any]] = []
-    dynamic_profile: dict[str, Any] | None = None
 
-    # Lexicon dışı kelimeler → AI birincil (kitap/masa gibi doğal ders)
-    if target_lang == "en" and not has_curated_lexicon(word_tr, target_word):
-        dynamic = _llm_generate_dynamic_lesson(word_tr, target_word, target_lang)
-        if dynamic:
-            dynamic_profile = dynamic.get("profile")
-            if dynamic_profile:
-                profile = {**profile, **dynamic_profile}
-            for ex in dynamic.get("examples") or []:
-                enriched = _enrich_example(ex, target_lang, [target_word], known_words)
-                if _validate_example(enriched):
-                    examples.append(enriched)
+    # 1) AI birincil — ChatGPT gibi: her kelime önce AI'dan (3 retry)
+    ai_profile, ai_examples, _ai_issues = try_ai_word_lesson(
+        word_tr, target_word, target_lang, profile,
+    )
+    if ai_examples:
+        profile = ai_profile
+        for ex in ai_examples:
+            enriched = _enrich_example(ex, target_lang, [target_word], known_words)
+            if _validate_example(enriched):
+                examples.append(enriched)
+        examples = sanitize_word_examples(examples, word_tr, target_word, profile, translate_fn)
 
-    if len(examples) < 8:
+    # 2) AI yetersizse: profil tabanlı örnekler + lexicon
+    if len(examples) < 13:
         raw_examples = generate_examples_from_profile(profile, word_tr, target_word, target_lang)
         for ex in raw_examples:
             enriched = _enrich_example(ex, target_lang, [target_word], known_words)
@@ -344,22 +342,8 @@ def generate_word_lesson(
 
     examples = sanitize_word_examples(examples, word_tr, target_word, profile, translate_fn)
 
-    if len(examples) < 8 and target_lang == "en" and not has_curated_lexicon(word_tr, target_word):
-        dynamic = _llm_generate_dynamic_lesson(word_tr, target_word, target_lang)
-        if dynamic:
-            if dynamic.get("profile"):
-                profile = {**profile, **dynamic["profile"]}
-            retry = sanitize_word_examples(
-                dynamic.get("examples") or [],
-                word_tr,
-                target_word,
-                profile,
-                translate_fn,
-            )
-            if len(retry) >= len(examples):
-                examples = retry
-
-    if len(examples) < 8:
+    # 3) Hâlâ eksikse: kural tabanlı fallback
+    if len(examples) < 13:
         category = detect_category(word_tr, target_word)
         profile = _rule_word_profile(word_tr, target_word, target_lang, category)
         fallback = sanitize_word_examples(
@@ -372,6 +356,7 @@ def generate_word_lesson(
         if len(fallback) > len(examples):
             examples = fallback
 
+    # 4) Son güvenlik ağı — asla boş/eksik dönme
     profile, examples, category = guarantee_word_lesson(
         word_tr, target_word, target_lang, profile, examples, translate_fn,
     )

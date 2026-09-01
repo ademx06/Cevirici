@@ -17,6 +17,10 @@ from word_lexicon import build_lexicon_examples, get_word_usage_phrases, get_wor
 
 # Varsayılan İngilizce varyantı — Amerikan İngilizcesi
 ENGLISH_VARIANT = "en-US"
+
+# AI birincil kelime dersi — ChatGPT gibi: önce AI, başarısızsa retry, en sonda garanti
+AI_LESSON_MAX_ATTEMPTS = 3
+
 ENGLISH_VARIANT_LABEL_TR = "🇺🇸 Amerikan İngilizcesi (varsayılan)"
 
 # Bilinen US/UK farkları — kartlarda bilgi notu olarak gösterilir
@@ -384,7 +388,9 @@ Türkçe kelime: "{word_tr}"
 Hedef dil: {lang_name}
 
 [GÖREV]
-Bu kelime için TAM bir kelime dersi üret. Her cümle yalnızca bu kelimenin gerçek hayattaki kullanımını yansıtmalı.
+Bu kelime için TAM bir kelime dersi üret — ChatGPT/Google AI kalitesinde.
+Her cümle yalnızca bu kelimenin gerçek hayattaki kullanımını yansıtmalı.
+Kullanıcıya tek seferde mükemmel ders ver; ikinci deneme gerekmesin.
 
 [ÖNCE DÜŞÜN — sonra yaz]
 Bu kelimeyle insanlar günlük hayatta ne yapar? Hangi fiiller doğal? (kapı→knock/lock, kitap→read/borrow, fatura→pay/send, çanta→carry/pack)
@@ -1153,18 +1159,23 @@ def analyze_word_profile(
         )
         parsed = _llm_json(system, "Return JSON only.", max_tokens=900)
         if parsed and parsed.get("target_word"):
+            known_cat = detect_category(word_tr, target_word)
+            parsed["target_word"] = target_word
+            parsed["semantic_category"] = parsed.get("semantic_category") or known_cat
             if has_curated_lexicon(word_tr, target_word):
                 curated = get_word_usage_profile(word_tr, target_word)
                 if curated:
-                    return {"target_word": target_word, **curated}
-            known_cat = detect_category(word_tr, target_word)
-            if known_cat != "general" and not has_curated_lexicon(word_tr, target_word):
+                    for key, val in curated.items():
+                        if not parsed.get(key):
+                            parsed[key] = val
+            elif known_cat != "general":
                 rule = _rule_word_profile(word_tr, target_word, target_lang, known_cat)
-                for key in ("natural_example_ideas", "common_verbs", "common_collocations"):
-                    if parsed.get(key) and not rule.get(key):
-                        rule[key] = parsed[key]
-                return rule
-            parsed["semantic_category"] = parsed.get("semantic_category") or known_cat
+                for key in (
+                    "common_verbs", "common_collocations", "article_notes_items",
+                    "article_notes_tr", "usage_notes_tr",
+                ):
+                    if rule.get(key) and not parsed.get(key):
+                        parsed[key] = rule[key]
             return parsed
 
     if has_curated_lexicon(word_tr, target_word):
@@ -2663,8 +2674,11 @@ def _llm_generate_dynamic_lesson(
     word_tr: str,
     target_word: str,
     target_lang: str,
+    *,
+    attempt: int = 0,
+    prior_issues: list[str] | None = None,
 ) -> dict[str, Any] | None:
-    """Lexicon dışı kelimeler için AI ile tam ders üret."""
+    """AI ile tam kelime dersi üret — birincil yol (tüm kelimeler)."""
     if not llm_available() or target_lang != "en":
         return None
     lang_name = LANG_NAMES.get(target_lang, target_lang)
@@ -2673,7 +2687,16 @@ def _llm_generate_dynamic_lesson(
         target_word=target_word[:80],
         lang_name=lang_name,
     )
-    parsed = _llm_json(system, "Return JSON only.", max_tokens=4000)
+    user_msg = "Return JSON only."
+    if prior_issues:
+        user_msg = (
+            "Önceki deneme BAŞARISIZ. Aşağıdaki sorunları düzelt ve TAM 13 örnek üret:\n"
+            + "\n".join(f"- {issue}" for issue in prior_issues)
+            + "\n\nReturn JSON only."
+        )
+    elif attempt > 0:
+        user_msg = "Return JSON only. Tam 13 örnek, 5+ fiil, 4+ collocation zorunlu."
+    parsed = _llm_json(system, user_msg, max_tokens=5000)
     if not parsed or not isinstance(parsed.get("examples"), list):
         return None
     profile: dict[str, Any] = {
@@ -2742,11 +2765,17 @@ def generate_examples_from_profile(
     target_word: str,
     target_lang: str,
 ) -> list[dict[str, Any]]:
-    """Profile göre örnek üret — lexicon veya AI birincil; asla boş bırakma."""
+    """Profile göre örnek üret — AI birincil; asla boş bırakma."""
     category = _resolve_category(word_tr, target_word, profile.get("semantic_category"))
     examples: list[dict[str, Any]] = []
 
-    # 1) Elle yazılmış lexicon (kalite garantisi, ~10 sık kelime)
+    # 1) AI birincil — tüm kelimeler (ChatGPT gibi)
+    if llm_available() and target_lang == "en":
+        llm_ex = _llm_generate_examples_from_profile(profile, word_tr, target_word, target_lang)
+        if len(llm_ex) >= 8:
+            return llm_ex[:13]
+
+    # 2) Elle yazılmış lexicon (AI yokken veya AI yetersizken)
     if has_curated_lexicon(word_tr, target_word):
         for ex in _category_examples_en(word_tr, target_word, category):
             if _validate_word_example(ex, word_tr, target_word, profile):
@@ -2896,6 +2925,74 @@ def _profile_needs_upgrade(profile: dict[str, Any], word_tr: str, target_word: s
     if not profile.get("article_notes_items") and not profile.get("article_notes_tr"):
         return True
     return False
+
+
+def collect_lesson_quality_issues(
+    examples: list[dict[str, Any]],
+    word_tr: str,
+    target_word: str,
+    profile: dict[str, Any],
+) -> list[str]:
+    """AI dersinin ChatGPT kalitesinde olup olmadığını kontrol et; retry için sorun listesi."""
+    issues: list[str] = []
+    if len(examples) < 13:
+        issues.append(f"Tam 13 örnek gerekli; şu an {len(examples)} örnek var.")
+    verbs = [v for v in (profile.get("common_verbs") or []) if safe_str(v).strip()]
+    if len(verbs) < 5:
+        issues.append(f"common_verbs en az 5 fiil içermeli; şu an {len(verbs)}.")
+    coll = [c for c in (profile.get("common_collocations") or []) if safe_str(c).strip()]
+    if len(coll) < 4:
+        issues.append(f"common_collocations en az 4 kalıp içermeli; şu an {len(coll)}.")
+    if not profile.get("article_notes_items") and not profile.get("article_notes_tr"):
+        issues.append("article_notes_items veya article_notes_tr eksik.")
+    if examples and not validate_lesson_quality(examples, word_tr, target_word, profile):
+        issues.append("Örnekler kalite doğrulamasından geçmedi (şablon, yasak fiil veya eksik TR).")
+    elif not examples:
+        issues.append("Hiç geçerli örnek üretilmedi.")
+    for ex in examples:
+        tr = safe_str(ex.get("tr")).strip()
+        if _is_placeholder_turkish(tr, word_tr):
+            issues.append(f'Türkçe alan tam cümle olmalı; yalnızca «{word_tr}» yazılamaz.')
+            break
+        if not tr or len(tr.replace(".", "").split()) < 2:
+            issues.append("Her örneğin tr alanı en az 2 kelimelik doğal Türkçe cümle olmalı.")
+            break
+    return issues
+
+
+def try_ai_word_lesson(
+    word_tr: str,
+    target_word: str,
+    target_lang: str,
+    profile: dict[str, Any],
+) -> tuple[dict[str, Any], list[dict[str, Any]], list[str]]:
+    """AI birincil kelime dersi — 3 deneme, başarısızsa en iyi sonuç + sorun listesi."""
+    if not llm_available() or target_lang != "en":
+        return profile, [], ["AI kullanılamıyor."]
+    prior_issues: list[str] = []
+    best_profile = profile
+    best_examples: list[dict[str, Any]] = []
+    for attempt in range(AI_LESSON_MAX_ATTEMPTS):
+        dynamic = _llm_generate_dynamic_lesson(
+            word_tr,
+            target_word,
+            target_lang,
+            attempt=attempt,
+            prior_issues=prior_issues or None,
+        )
+        if not dynamic:
+            prior_issues = ["Geçerli JSON ve en az 8 örnek döndürülemedi. Tam 13 örnek üret."]
+            continue
+        cand_profile = {**profile, **(dynamic.get("profile") or {})}
+        cand_examples = list(dynamic.get("examples") or [])
+        if len(cand_examples) > len(best_examples):
+            best_profile = cand_profile
+            best_examples = cand_examples
+        issues = collect_lesson_quality_issues(cand_examples, word_tr, target_word, cand_profile)
+        if not issues:
+            return cand_profile, cand_examples[:13], []
+        prior_issues = issues
+    return best_profile, best_examples, prior_issues
 
 
 def _lesson_category(word_tr: str, target_word: str) -> str:

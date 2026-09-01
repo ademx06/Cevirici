@@ -480,6 +480,20 @@ def test_profile_ideas_fallback_examples():
     print("TEST profile ideas fallback OK:", len(examples))
 
 
+def test_ai_first_pipeline_without_llm():
+    """AI yokken bile garanti katmanı 13 örnek döndürür."""
+    from word_teaching_engine import AI_LESSON_MAX_ATTEMPTS, try_ai_word_lesson
+
+    assert AI_LESSON_MAX_ATTEMPTS >= 3
+    profile = {"common_verbs": ["wear"], "semantic_category": "clothing"}
+    _, examples, issues = try_ai_word_lesson("çorap", "socks", "en", profile)
+    assert issues, "LLM yokken sorun listesi beklenir"
+    r = generate_word_lesson("çorap", "en", fake_translate)
+    assert r["ok"], r
+    assert len(r.get("examples") or []) >= 13
+    print("TEST AI-first fallback OK:", len(r.get("examples") or []))
+
+
 def test_has_curated_lexicon():
     from word_lexicon import has_curated_lexicon
     assert has_curated_lexicon("kitap", "book")
@@ -907,6 +921,7 @@ if __name__ == "__main__":
     test_gozluk_eyewear_lesson()
     test_sigara_not_food_patterns()
     test_universal_guarantee_many_words()
+    test_ai_first_pipeline_without_llm()
     test_has_curated_lexicon()
     test_profile_ideas_fallback_examples()
     test_masa_icon()
