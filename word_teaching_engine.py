@@ -525,6 +525,13 @@ KNOWN_CATEGORIES: dict[str, str] = {
     "araba": "vehicle", "car": "vehicle", "otomobil": "vehicle",
     "bisiklet": "vehicle", "bicycle": "vehicle", "bike": "vehicle",
     "mutlu": "adjective", "happy": "adjective",
+    "sessiz": "adjective", "quiet": "adjective", "silent": "adjective",
+    "üzgün": "adjective", "uzgun": "adjective", "sad": "adjective",
+    "yorgun": "adjective", "tired": "adjective", "yorgunum": "adjective",
+    "mutsuz": "adjective", "unhappy": "adjective",
+    "gürültülü": "adjective", "gurultulu": "adjective", "noisy": "adjective", "loud": "adjective",
+    "sakin": "adjective", "calm": "adjective",
+    "meşgul": "adjective", "mesgul": "adjective", "busy": "adjective",
     "çalışmak": "verb", "work": "verb", "çalış": "verb",
     "kitap": "object", "book": "object", "telefon": "object", "phone": "object",
     "kapı": "object", "kapi": "object", "door": "object",
@@ -769,6 +776,8 @@ def _infer_semantic_category(word_tr: str, target_word: str) -> str:
     )
     if _any_category_hint(word_tr, target_word, document_hints):
         return "document"
+    if _is_adjective_like(word_tr, target_word):
+        return "adjective"
     if _is_snack_like(wt, tw):
         return "snack"
     if _is_abstract_like(wt, tw):
@@ -794,6 +803,28 @@ def _is_wallet_like(word_tr: str, target_word: str) -> bool:
 
 def _is_market_like(word_tr: str, target_word: str) -> bool:
     hints = ("market", "pazar", "grocery", "supermarket", "bakkal")
+    return _any_category_hint(word_tr, target_word, hints)
+
+
+def _is_adjective_like(word_tr: str, target_word: str) -> bool:
+    """Sıfat kelimeler — asla nesne şablonuna düşmemeli."""
+    hints = (
+        "mutlu", "happy", "üzgün", "uzgun", "sad", "sessiz", "quiet", "silent",
+        "yorgun", "tired", "mutsuz", "unhappy", "gürültülü", "gurultulu", "noisy", "loud",
+        "sakin", "calm", "meşgul", "mesgul", "busy", "kızgın", "kizgin", "angry",
+        "korkmuş", "korkmus", "scared", "afraid", "heyecanlı", "heyecanli", "excited",
+        "sıkılmış", "sikilmis", "bored", "hasta", "sick", "sağlıklı", "saglikli", "healthy",
+        "aç", "ac", "hungry", "tok", "full", "uzun", "tall", "long", "kısa", "kisa", "short",
+        "büyük", "buyuk", "big", "large", "küçük", "kucuk", "small", "güzel", "guzel", "beautiful",
+        "çirkin", "cirkin", "ugly", "zor", "difficult", "hard", "kolay", "easy",
+        "önemli", "onemli", "important", "ilginç", "ilginc", "interesting",
+        "sıcak", "sicak", "hot", "soğuk", "soguk", "cold", "sıcakkanlı", "warm",
+    )
+    return _any_category_hint(word_tr, target_word, hints)
+
+
+def _is_quiet_like(word_tr: str, target_word: str) -> bool:
+    hints = ("sessiz", "quiet", "silent", "silence", "gürültüsüz", "gurultusuz")
     return _any_category_hint(word_tr, target_word, hints)
 
 
@@ -1834,6 +1865,10 @@ def _thirteen_pattern_examples_en(
 
     if _is_beverage_like(wt, tw) and ("water" in tw or "maden" in wt):
         return _sparkling_water_pattern_examples(W, _canonical_beverage_phrase(target_word))
+    if _is_adjective_like(wt, tw):
+        if _is_quiet_like(wt, tw):
+            return _quiet_pattern_examples(W, T)
+        return _adjective_pattern_examples(W, T)
     if category == "adjective":
         return _adjective_pattern_examples(W, T)
     if category == "verb":
@@ -2347,6 +2382,10 @@ def _umbrella_pattern_examples(W: str, T: str) -> list[dict[str, Any]]:
 
 def _universal_object_pattern_examples(W: str, T: str) -> list[dict[str, Any]]:
     """Son çare nesne örnekleri — mekanik 'use at home' şablonu YASAK."""
+    if _is_adjective_like(W, T):
+        if _is_quiet_like(W, T):
+            return _quiet_pattern_examples(W, T)
+        return _adjective_pattern_examples(W, T)
     if _is_wallet_like(W, T):
         return _wallet_pattern_examples(W, T)
     if _is_umbrella_like(W, T):
@@ -2602,21 +2641,350 @@ def _plumbing_pattern_examples(W: str, T: str) -> list[dict[str, Any]]:
 
 
 def _adjective_pattern_examples(W: str, T: str) -> list[dict[str, Any]]:
+    """Sıfatlar — be/feel/look + sıfat; asla «yeni bir sıfat aldım» yok."""
+    adj = _en_target_word(T)
+    w = W.strip()
+    pred = _turkish_predicate_adj(w)
+    pred_past = _turkish_predicate_adj_past(w)
+    pred_future = _turkish_predicate_adj_future(w)
+    pred_neg = _turkish_predicate_adj_negative(w)
     return [
-        _pe(W, f"Mutluyum.", f"I am {T}.", "basic", f"I + am + {T}", f"1️⃣ Temel kullanım\nam + sıfat → …-yım\n❌ I happy — am gerekli"),
-        _pe(W, f"Şu an mutluyum.", f"I am feeling {T} right now.", "present", f"I + am + feeling + {T}", f"1️⃣ Şimdiki zaman\nfeeling → hissediyorum"),
-        _pe(W, f"Dün mutluydum.", f"I was {T} yesterday.", "past", f"I + was + {T}", f"1️⃣ Geçmiş zaman\nwas → geçmişte be fiili"),
-        _pe(W, f"Yarın mutlu olacağım.", f"I will be {T} tomorrow.", "future", f"I + will + be + {T}", f"1️⃣ Gelecek zaman\nwill be → … olacağım"),
-        _pe(W, f"Mutlu musun?", f"Are you {T}?", "question", f"Are + you + {T}", f"1️⃣ Soru cümlesi\nAre + özne + sıfat?"),
-        _pe(W, f"Mutlu değilim.", f"I am not {T}.", "negative", f"I + am + not + {T}", f"1️⃣ Olumsuz cümle\nam not → değilim"),
-        _pe(W, f"Mutlu ol!", f"Be {T}!", "imperative", f"Be + {T}", f"1️⃣ Emir kipi\nBe + sıfat → … ol"),
-        _pe(W, f"Mutlu olabilir misin?", f"Could you be {T}?", "polite_request", f"Could + you + be + {T}", f"1️⃣ Rica cümlesi\nCould you be…? → … olabilir misin?"),
-        _pe(W, f"Daha mutlu olmalısın.", f"You should be {T}er.", "advice", f"You + should + be + {T}", f"1️⃣ Tavsiye cümlesi\nshould be → … olmalısın"),
-        _pe(W, f"Mutlu hissetmem lazım.", f"I need to feel {T}.", "obligation", f"I + need to + feel + {T}", f"1️⃣ Zorunluluk cümlesi\nneed to feel → hissetmem lazım"),
-        _pe(W, f"Mutlu olabilirsin.", f"You might be {T}.", "possibility", f"You + might + be + {T}", f"1️⃣ İhtimal cümlesi\nmight be → … olabilirsin"),
-        _pe(W, f"Güzel hava olursa mutlu olursun.", f"If the weather is nice, you will be {T}.", "conditional", f"If + …, + you will be + {T}", f"1️⃣ Koşul cümlesi\nIf … → … olursa"),
-        _pe(W, f"A: Mutlu musun? B: Evet.", f"A: Are you {T}? B: Yes, I am.", "dialogue", f"A: Are you {T}? B: Yes", f"1️⃣ Günlük diyalog\nDuygu sorma kalıbı."),
+        _pe(w, f"Bugün {pred}.", f"I am {adj} today.", "basic",
+            f"I + am + {adj}",
+            _rich_teaching_how(
+                f"Kendinizi {w} hissettiğinizi veya durumunuzu anlatırsınız.",
+                f"I am {adj} today",
+                f"Bugün {pred}.",
+                [
+                    ("am + sıfat", f"I am {adj} → {pred}\n"
+                     "Sıfat tek başına kullanılmaz; be (am/is/are) fiili gerekir.\n"
+                     f"❌ I {adj} — yanlış"),
+                    ("today", "today → bugün\nZaman ifadesi cümle sonunda olabilir."),
+                ],
+                mistakes=[f"I {adj} today — am/is/are eksik", f"a new {adj} — sıfat nesne değildir"],
+            ),
+            scenario_badge="🌅 RUTİN"),
+        _pe(w, f"Şu an kendimi {w} hissediyorum.", f"I am feeling {adj} right now.", "present",
+            f"I + am + feeling + {adj}",
+            _rich_teaching_how(
+                "Şu anda bir duygu veya hâl hissettiğinizi söylersiniz.",
+                f"I am feeling {adj} right now",
+                f"Şu an kendimi {w} hissediyorum.",
+                [
+                    ("am feeling", f"feel + sıfat → … hissetmek\nam feeling → şu anda hissediyorum"),
+                    ("right now", "right now → şu an"),
+                ],
+            ),
+            scenario_badge="🔄 ŞU AN"),
+        _pe(w, f"Dün {pred_past}.", f"I was {adj} yesterday.", "past",
+            f"I + was + {adj}",
+            _rich_teaching_how(
+                "Geçmişte bir durumu veya duyguyu anlatırsınız.",
+                f"I was {adj} yesterday",
+                f"Dün {pred_past}.",
+                [
+                    ("was + sıfat", f"was → geçmişte be fiili\nI was {adj} → dün …-ydım/-dim"),
+                    ("yesterday", "yesterday → dün"),
+                ],
+            ),
+            scenario_badge="🕐 GEÇMİŞ"),
+        _pe(w, f"Yarın daha {w} olacağım.", f"I will be {adj} tomorrow.", "future",
+            f"I + will + be + {adj}",
+            _rich_teaching_how(
+                "Gelecekte bir durum beklentinizi söylersiniz.",
+                f"I will be {adj} tomorrow",
+                f"Yarın daha {w} olacağım.",
+                [
+                    ("will be", f"will be + sıfat → … olacağım\n❌ I will {adj} — be eksik"),
+                ],
+            ),
+            scenario_badge="🔮 GELECEK"),
+        _pe(w, f"{w.capitalize()} misin?", f"Are you {adj}?", "question",
+            f"Are + you + {adj}",
+            _rich_teaching_how(
+                "Karşıdaki kişinin durumunu sorarsınız.",
+                f"Are you {adj}?",
+                f"{w.capitalize()} misin?",
+                [
+                    ("Are you …?", f"Are you {adj}? → … misin?\nSoru: Are + özne + sıfat"),
+                ],
+            ),
+            scenario_badge="❓ SORU"),
+        _pe(w, f"{pred_neg}.", f"I am not {adj}.", "negative",
+            f"I + am + not + {adj}",
+            _rich_teaching_how(
+                "Olumsuz durum bildirirsiniz.",
+                f"I am not {adj}",
+                f"{pred_neg}.",
+                [
+                    ("am not", f"am not + sıfat → … değilim\nTürkçede … değilim / … değil"),
+                ],
+            ),
+            scenario_badge="⛔ OLUMSUZ"),
+        _pe(w, f"{w.capitalize()} ol!", f"Be {adj}!", "imperative",
+            f"Be + {adj}",
+            _rich_teaching_how(
+                "Birine bir durumda olmasını söylersiniz.",
+                f"Be {adj}!",
+                f"{w.capitalize()} ol!",
+                [
+                    ("Be + sıfat", f"Be {adj} → … ol\nEmirde özne yazılmaz."),
+                ],
+            )),
+        _pe(w, f"Biraz {w} olabilir misin?", f"Could you be a little {adj}?", "polite_request",
+            f"Could + you + be + {adj}",
+            _rich_teaching_how(
+                "Kibarca bir durum rica edersiniz.",
+                f"Could you be a little {adj}?",
+                f"Biraz {w} olabilir misin?",
+                [
+                    ("Could you be …?", "Could you be …? → … olabilir misin?\nKibar rica kalıbı."),
+                ],
+            )),
+        _pe(w, f"Daha {w} olmalısın.", f"You should be {adj}er.", "advice",
+            f"You + should + be + {adj}",
+            _rich_teaching_how(
+                "Tavsiye verirsiniz.",
+                f"You should be {adj}",
+                f"Daha {w} olmalısın.",
+                [
+                    ("should be", "should be + sıfat → … olmalısın\nTavsiye veya uyarı."),
+                ],
+            )),
+        _pe(w, f"Kendimi {w} hissetmem lazım.", f"I need to feel {adj}.", "obligation",
+            f"I + need to + feel + {adj}",
+            _rich_teaching_how(
+                "Bir duygu/durum hissetme ihtiyacını anlatırsınız.",
+                f"I need to feel {adj}",
+                f"Kendimi {w} hissetmem lazım.",
+                [
+                    ("need to feel", "need to feel → … hissetmem lazım\nneed to + fiil kalıbı."),
+                ],
+            )),
+        _pe(w, f"Belki {w} görünüyorsundur.", f"You might look {adj}.", "possibility",
+            f"You + might + look + {adj}",
+            _rich_teaching_how(
+                "Görünüşe dayalı ihtimal bildirirsiniz.",
+                f"You might look {adj}",
+                f"Belki {w} görünüyorsundur.",
+                [
+                    ("might look", f"look {adj} → {w} görünmek\nmight → belki / … olabilir"),
+                ],
+            )),
+        _pe(w, f"Hava güzelse daha {w} olursun.", f"If the weather is nice, you will feel {adj}er.", "conditional",
+            f"If + …, + you will feel + {adj}",
+            _rich_teaching_how(
+                "Koşula bağlı sonuç anlatırsınız.",
+                f"If the weather is nice, you will feel {adj}",
+                f"Hava güzelse daha {w} olursun.",
+                [
+                    ("If …, will …", "If … → … olursa / … ise\nKoşul + sonuç yapısı."),
+                ],
+            )),
+        _pe(w, f"A: {w.capitalize()} misin? B: Evet, biraz.",
+            f"A: Are you {adj}? B: Yes, a little.", "dialogue",
+            f"Are you {adj}",
+            _rich_teaching_how(
+                "Günlük duygu/durum sorusu diyalogu.",
+                f"Are you {adj}?",
+                f"{w.capitalize()} misin?",
+                [
+                    ("Diyalog", "A: Are you …? → … misin?\nB: Yes, a little. → Evet, biraz."),
+                ],
+            )),
     ]
+
+
+def _quiet_pattern_examples(W: str, T: str) -> list[dict[str, Any]]:
+    """Sessiz/quiet — ortam, kural, keep quiet; asla «sessiz satın al» yok."""
+    adj = _en_target_word(T)
+    w = W.strip()
+    return [
+        _pe(w, "Burası çok sessiz.", f"It's very {adj} here.", "basic",
+            f"It + is + very {adj} + here",
+            _rich_teaching_how(
+                "Bir yerin sessiz olduğunu anlatırsınız.",
+                f"It's very {adj} here",
+                "Burası çok sessiz.",
+                [
+                    ("It's … here", f"It's {adj} here → burası …\n"
+                     "Ortam/yer için it + be + sıfat kullanılır."),
+                    ("very quiet", f"very {adj} → çok {w}\nvery sıfatı güçlendirir."),
+                ],
+                mistakes=[f"I bought a new {adj}", f"my {adj} is on the table — sıfat nesne değil"],
+            ),
+            scenario_badge="🌅 RUTİN"),
+        _pe(w, "Bebek uyuyor, sessiz kalalım.", f"The baby is asleep, so let's keep {adj}.", "present",
+            f"let's keep + {adj}",
+            _rich_teaching_how(
+                "Şu an sessiz kalma gerektiğini söylersiniz.",
+                f"let's keep {adj}",
+                "Bebek uyuyor, sessiz kalalım.",
+                [
+                    ("keep quiet", f"keep {adj} → sessiz kalmak\n"
+                     "Sessizlik için en doğal fiil: keep quiet / stay quiet"),
+                    ("let's", "let's → …-elim / …-alım\nÖneri veya ortak eylem."),
+                ],
+            ),
+            scenario_badge="🔄 ŞU AN"),
+        _pe(w, "Dün akşam ev çok sessizdi.", f"The house was very {adj} last night.", "past",
+            f"The house + was + very {adj}",
+            _rich_teaching_how(
+                "Geçmişte ortamın sessiz olduğunu anlatırsınız.",
+                f"The house was very {adj} last night",
+                "Dün akşam ev çok sessizdi.",
+                [
+                    ("was + sıfat", "was very quiet → çok sessizdi\nGeçmiş: was/were + sıfat"),
+                ],
+            ),
+            scenario_badge="🕐 GEÇMİŞ"),
+        _pe(w, "Yarın sessiz bir kafede çalışacağım.", f"I will work at a {adj} café tomorrow.", "future",
+            f"a {adj} + noun",
+            _rich_teaching_how(
+                "Sessiz bir yerde çalışma planını söylersiniz.",
+                f"a {adj} café",
+                "Yarın sessiz bir kafede çalışacağım.",
+                [
+                    ("sıfat + isim", f"a {adj} café → sessiz bir kafe\n"
+                     "Sıfat isimden ÖNCE gelir: quiet room, quiet place"),
+                ],
+            ),
+            scenario_badge="🔮 GELECEK"),
+        _pe(w, "Burada sessiz mi?", f"Is it {adj} here?", "question",
+            f"Is + it + {adj}",
+            _rich_teaching_how(
+                "Ortamın sessiz olup olmadığını sorarsınız.",
+                f"Is it {adj} here?",
+                "Burada sessiz mi?",
+                [
+                    ("Is it …?", f"Is it {adj}? → … mı / … mi?\nYer/ortam sorusu."),
+                ],
+            ),
+            scenario_badge="❓ SORU"),
+        _pe(w, "Film izlerken sessiz değildim.", f"I wasn't {adj} during the movie.", "negative",
+            f"I + wasn't + {adj}",
+            _rich_teaching_how(
+                "Sessiz kalmadığınızı söylersiniz.",
+                f"I wasn't {adj} during the movie",
+                "Film izlerken sessiz değildim.",
+                [
+                    ("wasn't + sıfat", f"wasn't {adj} → … değildim / … değildim"),
+                    ("during", "during the movie → film izlerken"),
+                ],
+            ),
+            scenario_badge="⛔ OLUMSUZ"),
+        _pe(w, "Sessiz ol!", f"Be {adj}!", "imperative",
+            f"Be + {adj}",
+            _rich_teaching_how(
+                "Sessiz olması için emir verirsiniz.",
+                f"Be {adj}!",
+                "Sessiz ol!",
+                [
+                    ("Be quiet", f"Be {adj} → sessiz ol\nKeep {adj} → sessiz kal\nİkisi de çok yaygın."),
+                ],
+            )),
+        _pe(w, "Biraz sessiz olabilir misiniz?", f"Could you please be a little {adj}?", "polite_request",
+            f"Could you + be + {adj}",
+            _rich_teaching_how(
+                "Kibarca sessiz olma ricası.",
+                f"Could you please be a little {adj}?",
+                "Biraz sessiz olabilir misiniz?",
+                [
+                    ("Could you be …?", "Kütüphane, sınıf, hastane — en sık duyulan rica."),
+                ],
+            )),
+        _pe(w, "Kütüphanede sessiz olmalısın.", f"You should be {adj} in the library.", "advice",
+            f"You + should + be + {adj}",
+            _rich_teaching_how(
+                "Kurallı ortamda sessizlik tavsiyesi.",
+                f"You should be {adj} in the library",
+                "Kütüphanede sessiz olmalısın.",
+                [
+                    ("should be quiet", "should be + sıfat → … olmalısın\nKural veya tavsiye."),
+                ],
+            )),
+        _pe(w, "Sınavda sessiz kalmam lazım.", f"I need to keep {adj} during the exam.", "obligation",
+            f"I + need to + keep + {adj}",
+            _rich_teaching_how(
+                "Sınavda sessiz kalma zorunluluğu.",
+                f"I need to keep {adj} during the exam",
+                "Sınavda sessiz kalmam lazım.",
+                [
+                    ("need to keep quiet", f"keep {adj} → sessiz kalmak\nneed to + fiil → …-mem lazım"),
+                ],
+            )),
+        _pe(w, "Burada sessiz olması gerekir.", f"It should be {adj} here.", "possibility",
+            f"It + should + be + {adj}",
+            _rich_teaching_how(
+                "Bir yerin sessiz olması gerektiğini söylersiniz.",
+                f"It should be {adj} here",
+                "Burada sessiz olması gerekir.",
+                [
+                    ("It should be", "Ortam için: It should be quiet → burada sessiz olmalı"),
+                ],
+            )),
+        _pe(w, "Yağmur yağarsa dışarı daha sessiz olur.", f"If it rains, it will be {adj}er outside.", "conditional",
+            f"If + it + rains, + it will be + {adj}er",
+            _rich_teaching_how(
+                "Koşula bağlı olarak ortamın daha sessiz olacağını söylersiniz.",
+                f"If it rains, it will be quieter outside",
+                "Yağmur yağarsa dışarı daha sessiz olur.",
+                [
+                    ("quieter", f"{adj}er → daha {w}\nKarşılaştırma: quiet → quieter"),
+                    ("If …, will …", "Koşul cümlesi: If it rains → yağmur yağarsa"),
+                ],
+            )),
+        _pe(w, "A: Sessiz misin? B: Evet, bebek uyuyor.",
+            f"A: Are you being {adj}? B: Yes, the baby is asleep.", "dialogue",
+            f"Are you being {adj}",
+            _rich_teaching_how(
+                "Günlük sessizlik kontrolü diyalogu.",
+                f"Are you being {adj}?",
+                "Sessiz misin?",
+                [
+                    ("Are you being quiet?", "Şu anki davranış için: Are you being quiet?\n"
+                     "Genel durum için: Are you quiet?"),
+                ],
+            )),
+    ]
+
+
+def _turkish_predicate_adj(word_tr: str) -> str:
+    """mutlu → mutluyum, sessiz → sessizim."""
+    w = safe_str(word_tr).strip().lower()
+    known = {
+        "mutlu": "mutluyum", "üzgün": "üzgünüm", "uzgun": "üzgünüm", "sessiz": "sessizim",
+        "yorgun": "yorgunum", "mutsuz": "mutsuzum", "sakin": "sakinim", "meşgul": "meşgulüm",
+        "mesgul": "meşgulüm", "kızgın": "kızgınım", "kizgin": "kızgınım", "gürültülü": "gürültülüyüm",
+        "gurultulu": "gürültülüyüm",
+    }
+    return known.get(w, f"{word_tr}um")
+
+
+def _turkish_predicate_adj_past(word_tr: str) -> str:
+    w = safe_str(word_tr).strip().lower()
+    known = {
+        "mutlu": "mutluydum", "üzgün": "üzgündüm", "uzgun": "üzgündüm", "sessiz": "sessizdim",
+        "yorgun": "yorgundum", "mutsuz": "mutsuzdum", "sakin": "sakindim",
+    }
+    return known.get(w, f"{word_tr}dum")
+
+
+def _turkish_predicate_adj_future(word_tr: str) -> str:
+    w = safe_str(word_tr).strip().lower()
+    known = {
+        "mutlu": "mutlu olacağım", "sessiz": "sessiz olacağım", "yorgun": "yorgun olacağım",
+    }
+    return known.get(w, f"{word_tr} olacağım")
+
+
+def _turkish_predicate_adj_negative(word_tr: str) -> str:
+    w = safe_str(word_tr).strip().lower()
+    known = {
+        "mutlu": "mutlu değilim", "sessiz": "sessiz değilim", "yorgun": "yorgun değilim",
+        "üzgün": "üzgün değilim", "uzgun": "üzgün değilim",
+    }
+    return known.get(w, f"{word_tr} değilim")
 
 
 def _verb_pattern_examples(W: str, T: str) -> list[dict[str, Any]]:
@@ -3278,6 +3646,27 @@ def build_rule_examples_for_word(
     return _category_examples_en(word_tr, target_word, category)
 
 
+def _is_adjective_noun_misuse(
+    target: str,
+    word_tr: str,
+    target_word: str,
+    profile: dict[str, Any] | None,
+) -> bool:
+    """Sıfatı nesne gibi kullanma: bought a new quiet, my happy is on the table."""
+    cat = (profile or {}).get("semantic_category", "")
+    if cat != "adjective" and not _is_adjective_like(word_tr, target_word):
+        return False
+    tw = _en_target_word(target_word)
+    t = _norm(target)
+    bad = (
+        f"bought a new {tw}", f"buy a new {tw}", f"will buy a new {tw}",
+        f"bring my {tw}", f"my {tw} is on", f"looking for my {tw}",
+        f"where is my {tw}", f"have you seen my {tw}", f"need to buy a new {tw}",
+        f"hand me my {tw}", f"carry my {tw}",
+    )
+    return any(p in t for p in bad)
+
+
 def _validate_word_example(
     ex: dict[str, Any],
     word_tr: str,
@@ -3322,6 +3711,8 @@ def _validate_word_example(
     if _has_cross_word_leak(safe_str(ex.get("why_this_structure_tr")), word_tr, target_word):
         return False
     if _has_conflicting_primary_noun(target, target_word):
+        return False
+    if _is_adjective_noun_misuse(target, word_tr, target_word, profile):
         return False
     if tw and tw not in norm_target and f"{tw}s" not in norm_target:
         if not _target_word_in_sentence(norm_target, tw):
@@ -3521,7 +3912,9 @@ def try_ai_word_lesson(
 
 
 def _lesson_category(word_tr: str, target_word: str) -> str:
-    """Ders için kategori; bilinmeyen kelimelerde boş profil yerine object kullan."""
+    """Ders için kategori; sıfatlar nesne şablonuna düşmez."""
+    if _is_adjective_like(word_tr, target_word):
+        return "adjective"
     category = detect_category(word_tr, target_word)
     if category == "general":
         return "object"
