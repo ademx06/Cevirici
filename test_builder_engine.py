@@ -428,6 +428,26 @@ def test_word_icons_module():
     print("TEST word_icons OK")
 
 
+def test_kitap_no_cross_word_leak():
+    """kitap dersinde pencere/kapı ifadeleri YASAK."""
+    result = generate_word_lesson("kitap", "en", fake_translate)
+    assert result["ok"], result
+    usage = result.get("usage") or {}
+    phrases = usage.get("common_phrases") or []
+    assert len(phrases) >= 3, phrases
+    blob = " ".join(
+        safe_str(p.get("en")).lower() + " " + safe_str(p.get("tr")).lower()
+        for p in phrases
+    )
+    assert "window" not in blob, f"Window leak in kitap phrases: {phrases}"
+    assert "pencere" not in blob, f"Pencere leak in kitap phrases: {phrases}"
+    assert "door" not in blob, f"Door leak in kitap phrases: {phrases}"
+    assert "kapı" not in blob, f"Kapı leak in kitap phrases: {phrases}"
+    assert "open/close" not in (usage.get("usage_notes_tr") or "").lower()
+    assert any("read" in safe_str(p.get("en")).lower() for p in phrases)
+    print("TEST kitap no cross-word leak OK:", len(phrases), "phrases")
+
+
 def test_door_natural_lesson():
     """kapı/door — mekanik şablon yok; gerçek kullanım kalıpları."""
     result = generate_word_lesson("kapı", "en", fake_translate)
@@ -516,6 +536,7 @@ if __name__ == "__main__":
     test_bardak_glass_lesson()
     test_word_sequence_isolation()
     test_door_natural_lesson()
+    test_kitap_no_cross_word_leak()
     test_masa_icon()
     test_door_icon()
     test_grade_word_correct()

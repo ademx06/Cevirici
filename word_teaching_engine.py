@@ -13,7 +13,7 @@ from pronunciation_service import (
     word_role_tr,
 )
 from word_icons import lookup_emoji
-from word_lexicon import build_lexicon_examples
+from word_lexicon import build_lexicon_examples, get_word_usage_phrases, get_word_usage_profile
 
 # Varsayılan İngilizce varyantı — Amerikan İngilizcesi
 ENGLISH_VARIANT = "en-US"
@@ -204,10 +204,7 @@ CATEGORY_PHRASES: dict[str, list[dict[str, str]]] = {
         {"en": "buy new shoes", "tr": "yeni ayakkabı almak"},
         {"en": "take off your shoes", "tr": "ayakkabılarını çıkarmak"},
     ],
-    "object": [
-        {"en": "open the window", "tr": "pencereyi açmak"},
-        {"en": "close the door", "tr": "kapıyı kapatmak"},
-    ],
+    "object": [],
     "plumbing": [
         {"en": "turn off the faucet", "tr": "musluğu kapatmak"},
         {"en": "the faucet is leaking", "tr": "musluk su sızdırıyor"},
@@ -754,6 +751,16 @@ def _rule_word_profile(
     target_lang: str,
     category: str,
 ) -> dict[str, Any]:
+    lex = get_word_usage_profile(word_tr, target_word)
+    if lex:
+        return {
+            "target_word": target_word,
+            "part_of_speech": "noun",
+            "countability": "countable",
+            "meaning_tr": word_tr,
+            **lex,
+        }
+
     profiles: dict[str, dict[str, Any]] = {
         "beverage": {
             "part_of_speech": "noun",
@@ -857,14 +864,14 @@ def _rule_word_profile(
             "meaning_tr": word_tr,
             "usage_notes_tr": (
                 f"«{word_tr}» sayılabilir bir nesnedir. "
-                "open/close, use, need, see gibi fiillerle doğal cümleler kurulur."
+                "Bağlama göre doğal fiiller seçilir; her nesne için aynı kalıp kullanılmaz."
             ),
-            "common_verbs": ["open", "close", "use", "see", "need", "find", "buy"],
-            "common_collocations": [f"the {target_word}", f"a {target_word}", f"open the {target_word}"],
-            "common_patterns": [f"The {target_word} is...", f"Can you open the {target_word}?"],
+            "common_verbs": ["use", "need", "find", "buy", "see", "have"],
+            "common_collocations": [f"the {target_word}", f"a {target_word}"],
+            "common_patterns": [f"The {target_word} is...", f"I need the {target_word}."],
             "article_notes_tr": f"the {target_word.lower()} / a {target_word.lower()}",
-            "avoid_patterns": ["I love X", "Do you want X"],
-            "avoid_reason_tr": "Her nesne için aynı şablon kullanılmaz; bağlama göre fiil seçilir.",
+            "avoid_patterns": ["I love X", "Do you want X", "Bring the X", "I am using the X"],
+            "avoid_reason_tr": "Her nesne için aynı şablon kullanılmaz; kelimenin gerçek kullanımına göre fiil seçilir.",
         },
         "footwear": {
             "part_of_speech": "noun",
@@ -1836,6 +1843,7 @@ def build_usage_from_profile(
     profile: dict[str, Any],
     target_lang: str,
     target_word: str = "",
+    word_tr: str = "",
 ) -> dict[str, Any]:
     pos = profile.get("part_of_speech", "noun")
     pos_tr = {"noun": "isim", "verb": "fiil", "adjective": "sıfat", "adverb": "zarf"}.get(pos, pos)
@@ -1867,7 +1875,11 @@ def build_usage_from_profile(
                 phrase_lookup[item["en"].lower()] = item["tr"]
 
     phrase_src: list[dict[str, str]] = []
-    if coll:
+    wt_label = word_tr or profile.get("meaning_tr") or ""
+    word_phrases = get_word_usage_phrases(wt_label, target_word)
+    if word_phrases:
+        phrase_src = word_phrases
+    elif coll:
         for c in coll[:6]:
             en = safe_str(c).strip()
             if not en:
@@ -1875,7 +1887,7 @@ def build_usage_from_profile(
             tr = phrase_lookup.get(en.lower(), "")
             if tr:
                 phrase_src.append({"en": en, "tr": tr})
-    if not phrase_src:
+    if not phrase_src and category != "object":
         phrase_src = [p for p in CATEGORY_PHRASES.get(category, []) if isinstance(p, dict) and p.get("tr")]
     phrases_enriched: list[dict[str, str]] = []
     for item in phrase_src[:6]:

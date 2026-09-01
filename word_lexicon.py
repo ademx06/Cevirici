@@ -294,3 +294,235 @@ def _key_examples(W: str, T: str, pe: Callable[..., dict[str, Any]]) -> list[dic
         pe(W, "A: Anahtarlar nerede? B: Masada.", f"A: Where are the {keys}? B: On the table.", "dialogue",
            f"Where are + the {keys}", "Anahtar konumu diyalogu."),
     ]
+
+
+def _lexicon_key(word_tr: str, target_word: str) -> str | None:
+    wt = word_tr.lower().strip()
+    tw = target_word.lower().strip()
+    if wt in ("kapı", "kapi") or tw == "door":
+        return "door"
+    if wt == "pencere" or tw == "window":
+        return "window"
+    if wt == "masa" or tw == "table":
+        return "table"
+    if wt == "sandalye" or tw == "chair":
+        return "chair"
+    if wt == "kitap" or tw == "book":
+        return "book"
+    if wt == "telefon" or tw == "phone":
+        return "phone"
+    if wt == "kalem" or tw == "pen":
+        return "pen"
+    if wt == "anahtar" or tw == "key":
+        return "key"
+    return None
+
+
+WORD_USAGE_PROFILES: dict[str, dict[str, Any]] = {
+    "book": {
+        "semantic_category": "object",
+        "usage_notes_tr": (
+            "«Kitap» sayılabilir bir nesnedir. read/borrow/finish/recommend fiilleriyle "
+            "doğal cümleler kurulur. ❌ open the book (kapak açmak anlamında değil) — ✅ read a book."
+        ),
+        "common_verbs": ["read", "borrow", "finish", "recommend", "buy", "lend", "write"],
+        "common_collocations": [
+            "read a book", "borrow a book", "finish a book", "this book", "a good book", "on the shelf",
+        ],
+        "common_patterns": ["I am reading a book.", "Have you read this book?", "Could I borrow this book?"],
+        "article_notes_tr": "a book (bir kitap) / the book (belirli kitap) / this book (bu kitap)",
+        "avoid_patterns": ["open the book", "close the book", "bring the book"],
+        "avoid_reason_tr": "Kitap açılıp kapatılmaz; okunur, ödünç alınır, bitirilir.",
+    },
+    "door": {
+        "semantic_category": "object",
+        "usage_notes_tr": (
+            "«Kapı» ile knock on, lock/unlock, open/close, stand at the door gibi "
+            "doğal kalıplar kullanılır. ❌ use the door, bring the door."
+        ),
+        "common_verbs": ["knock on", "lock", "unlock", "open", "close", "answer"],
+        "common_collocations": [
+            "knock on the door", "close the door", "lock the door", "open the door",
+            "at the door", "behind you",
+        ],
+        "common_patterns": ["Someone is knocking on the door.", "Please close the door behind you."],
+        "article_notes_tr": "the door (belirli kapı) / front door (ön kapı) / back door (arka kapı)",
+        "avoid_patterns": ["use the door", "bring the door", "I am using the door"],
+        "avoid_reason_tr": "Kapı taşınmaz veya 'kullanılmaz'; çalınır, kilitlenir, kapatılır.",
+    },
+    "window": {
+        "semantic_category": "object",
+        "usage_notes_tr": (
+            "«Pencere» ile open/close, look out of, clean gibi kalıplar doğaldır. "
+            "Pencereden dışarı bakmak: look out of the window."
+        ),
+        "common_verbs": ["open", "close", "look out of", "clean", "break"],
+        "common_collocations": [
+            "open the window", "close the window", "look out of the window",
+            "out of the window", "the window is open",
+        ],
+        "common_patterns": ["Can you open the window?", "Look out of the window."],
+        "article_notes_tr": "the window (belirli pencere) / a window (bir pencere)",
+        "avoid_patterns": ["use the window", "bring the window"],
+        "avoid_reason_tr": "Pencere açılır/kapanır/temizlenir; taşınmaz veya genel 'kullanılmaz'.",
+    },
+    "table": {
+        "semantic_category": "furniture",
+        "usage_notes_tr": (
+            "«Masa» ile set/clear/wipe the table, eat at the table, on the table "
+            "kalıpları doğaldır. ❌ I love table, drink the table."
+        ),
+        "common_verbs": ["set", "clear", "wipe", "eat at", "sit at", "put on"],
+        "common_collocations": [
+            "set the table", "clear the table", "wipe the table",
+            "on the table", "at the table", "under the table",
+        ],
+        "common_patterns": ["We eat dinner at the table.", "Please wipe the table."],
+        "article_notes_tr": "the table (belirli masa) / a table (bir masa)",
+        "avoid_patterns": ["I love table", "drink the table"],
+        "avoid_reason_tr": "Masa sevilmez veya içilmez; kurulur, toplanır, üzerinde oturulur.",
+    },
+    "chair": {
+        "semantic_category": "furniture",
+        "usage_notes_tr": (
+            "«Sandalye» ile sit on, pull up a chair, take a seat gibi kalıplar doğaldır."
+        ),
+        "common_verbs": ["sit on", "pull up", "move", "pull out", "take"],
+        "common_collocations": [
+            "sit on the chair", "pull up a chair", "take a seat",
+            "comfortable chair", "empty chair",
+        ],
+        "common_patterns": ["Please take a seat.", "Is this chair comfortable?"],
+        "article_notes_tr": "a chair (bir sandalye) / the chair (belirli sandalye) / this chair (bu sandalye)",
+        "avoid_patterns": ["use the chair", "bring the chair"],
+        "avoid_reason_tr": "Sandalye oturulur; taşınmaz veya genel 'kullanılmaz' denmez.",
+    },
+    "phone": {
+        "semantic_category": "object",
+        "usage_notes_tr": (
+            "«Telefon» ile answer, charge, ring, put on silent gibi kalıplar doğaldır. "
+            "answer the phone = telefonu açmak/cevaplamak."
+        ),
+        "common_verbs": ["answer", "charge", "ring", "call", "text", "unlock"],
+        "common_collocations": [
+            "answer the phone", "charge the phone", "the phone is ringing",
+            "on silent", "my phone", "pick up the phone",
+        ],
+        "common_patterns": ["The phone is ringing.", "I need to charge my phone."],
+        "article_notes_tr": "my phone (telefonum) / the phone (telefon) / a new phone (yeni telefon)",
+        "avoid_patterns": ["open the phone", "close the phone", "drink the phone"],
+        "avoid_reason_tr": "Telefon açılır/kapanır değil; cevaplanır, şarj edilir, çalar.",
+    },
+    "pen": {
+        "semantic_category": "object",
+        "usage_notes_tr": (
+            "«Kalem» ile write with, borrow, sign with, run out of ink gibi kalıplar doğaldır."
+        ),
+        "common_verbs": ["write", "borrow", "lend", "sign", "use", "buy"],
+        "common_collocations": [
+            "write with a pen", "borrow your pen", "a blue pen",
+            "Do you have a pen?", "run out of ink",
+        ],
+        "common_patterns": ["Do you have a pen?", "Could I borrow your pen?"],
+        "article_notes_tr": "a pen (bir kalem) / the pen (belirli kalem) / your pen (kalemin)",
+        "avoid_patterns": ["open the pen", "drink the pen"],
+        "avoid_reason_tr": "Kalem yazmak/imzalamak için kullanılır; açılıp kapatılmaz.",
+    },
+    "key": {
+        "semantic_category": "object",
+        "usage_notes_tr": (
+            "«Anahtar» genelde çoğul (keys) kullanılır. unlock, lock, lose, spare key "
+            "kalıpları doğaldır."
+        ),
+        "common_verbs": ["unlock", "lock", "lose", "find", "borrow", "grab"],
+        "common_collocations": [
+            "house keys", "spare key", "unlock the door", "lose my keys",
+            "find the keys", "borrow your keys",
+        ],
+        "common_patterns": ["Where are the keys?", "I left the keys on the table."],
+        "article_notes_tr": "the keys (anahtarlar) / a spare key (yedek anahtar) / my keys (anahtarlarım)",
+        "avoid_patterns": ["open the key", "drink the key"],
+        "avoid_reason_tr": "Anahtar kilit açmak için kullanılır; 'açılmaz' veya içilmez.",
+    },
+}
+
+WORD_USAGE_PHRASES: dict[str, list[dict[str, str]]] = {
+    "book": [
+        {"en": "read a book", "tr": "kitap okumak"},
+        {"en": "borrow a book", "tr": "kitap ödünç almak"},
+        {"en": "finish a book", "tr": "kitabı bitirmek"},
+        {"en": "this book", "tr": "bu kitap"},
+        {"en": "a good book", "tr": "iyi bir kitap"},
+        {"en": "on the shelf", "tr": "rafta"},
+    ],
+    "door": [
+        {"en": "knock on the door", "tr": "kapıyı çalmak"},
+        {"en": "close the door", "tr": "kapıyı kapatmak"},
+        {"en": "lock the door", "tr": "kapıyı kilitlemek"},
+        {"en": "open the door", "tr": "kapıyı açmak"},
+        {"en": "at the door", "tr": "kapıda"},
+        {"en": "behind you", "tr": "arkandan (kapıyı kapat)"},
+    ],
+    "window": [
+        {"en": "open the window", "tr": "pencereyi açmak"},
+        {"en": "close the window", "tr": "pencereyi kapatmak"},
+        {"en": "look out of the window", "tr": "pencereden dışarı bakmak"},
+        {"en": "out of the window", "tr": "pencereden"},
+        {"en": "the window is open", "tr": "pencere açık"},
+        {"en": "clean the window", "tr": "pencereyi temizlemek"},
+    ],
+    "table": [
+        {"en": "set the table", "tr": "masayı/sofrayı kurmak"},
+        {"en": "clear the table", "tr": "masayı toplamak"},
+        {"en": "wipe the table", "tr": "masayı silmek"},
+        {"en": "on the table", "tr": "masanın üzerinde"},
+        {"en": "at the table", "tr": "masada"},
+        {"en": "under the table", "tr": "masanın altında"},
+    ],
+    "chair": [
+        {"en": "sit on the chair", "tr": "sandalyeye oturmak"},
+        {"en": "pull up a chair", "tr": "sandalye çekmek"},
+        {"en": "take a seat", "tr": "otur (yerine geç)"},
+        {"en": "comfortable chair", "tr": "rahat sandalye"},
+        {"en": "this chair", "tr": "bu sandalye"},
+        {"en": "move the chair", "tr": "sandalyeyi kaydırmak"},
+    ],
+    "phone": [
+        {"en": "answer the phone", "tr": "telefonu açmak/cevaplamak"},
+        {"en": "charge the phone", "tr": "telefonu şarj etmek"},
+        {"en": "the phone is ringing", "tr": "telefon çalıyor"},
+        {"en": "on silent", "tr": "sessize alınmış"},
+        {"en": "my phone", "tr": "telefonum"},
+        {"en": "pick up the phone", "tr": "telefonu açmak (ahizeyi kaldırmak)"},
+    ],
+    "pen": [
+        {"en": "write with a pen", "tr": "kalemle yazmak"},
+        {"en": "borrow your pen", "tr": "kalemini ödünç almak"},
+        {"en": "Do you have a pen?", "tr": "Kalemin var mı?"},
+        {"en": "a blue pen", "tr": "mavi kalem"},
+        {"en": "run out of ink", "tr": "mürekkebi bitmek"},
+        {"en": "sign with the pen", "tr": "kalemle imza atmak"},
+    ],
+    "key": [
+        {"en": "house keys", "tr": "ev anahtarları"},
+        {"en": "spare key", "tr": "yedek anahtar"},
+        {"en": "unlock the door", "tr": "kapıyı anahtarla açmak"},
+        {"en": "lose my keys", "tr": "anahtarlarımı kaybetmek"},
+        {"en": "find the keys", "tr": "anahtarları bulmak"},
+        {"en": "borrow your keys", "tr": "anahtarlarını ödünç almak"},
+    ],
+}
+
+
+def get_word_usage_profile(word_tr: str, target_word: str) -> dict[str, Any] | None:
+    key = _lexicon_key(word_tr, target_word)
+    if not key:
+        return None
+    return dict(WORD_USAGE_PROFILES.get(key, {}))
+
+
+def get_word_usage_phrases(word_tr: str, target_word: str) -> list[dict[str, str]]:
+    key = _lexicon_key(word_tr, target_word)
+    if not key:
+        return []
+    return [dict(p) for p in WORD_USAGE_PHRASES.get(key, [])]
