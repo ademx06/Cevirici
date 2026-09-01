@@ -5,7 +5,7 @@ import re
 from typing import Any, Callable
 
 from education_engine import LANG_NAMES, _llm_json, llm_available, safe_str
-from pronunciation_service import build_pronunciation_bundle, tokenize_en
+from pronunciation_service import build_pronunciation_bundle, tokenize_en, word_meaning_tr
 
 # ── Yasak şablon kalıpları (kelime yerine koyma) ──
 BANNED_TEMPLATE_RE = [
@@ -76,7 +76,33 @@ VERBS_TR: dict[str, str] = {
     "go to": "gitmek", "be at": "bulunmak", "visit": "ziyaret etmek",
     "read": "okumak", "charge": "şarj etmek", "answer": "cevaplamak / açmak",
     "knock": "çalmak", "wipe": "silmek", "clear": "toplamak",
+    "order": "sipariş etmek", "sip": "yudumlamak", "serve": "servis etmek",
+    "pour": "dökmek", "chill": "soğutmak",
 }
+
+SCENARIO_LABELS: dict[str, str] = {
+    "request": "POLITE_REQUEST",
+    "offer": "POLITE_REQUEST",
+    "negative": "NEGATIVE",
+    "description": "STATEMENT",
+    "routine": "STATEMENT_OF_PREFERENCE",
+    "daily": "NARRATIVE",
+    "question": "QUESTION",
+    "past": "NARRATIVE",
+    "need_to": "STATEMENT",
+    "imperative": "REQUEST",
+    "action": "STATEMENT",
+    "location": "STATEMENT",
+    "existence": "STATEMENT",
+    "problem": "STATEMENT",
+    "shopping": "STATEMENT",
+    "present_continuous": "NARRATIVE",
+}
+
+GENERIC_STRUCTURE_LABEL_RE = re.compile(
+    r"kelimeye\s+özel\s+doğal\s+yapı",
+    re.I,
+)
 
 CATEGORY_PHRASES: dict[str, list[dict[str, str]]] = {
     "furniture": [
@@ -106,6 +132,11 @@ CATEGORY_PHRASES: dict[str, list[dict[str, str]]] = {
     "beverage": [
         {"en": "have a coffee", "tr": "kahve içmek / bir kahve almak"},
         {"en": "make coffee", "tr": "kahve yapmak"},
+        {"en": "a can of soda", "tr": "bir kutu gazoz / soda"},
+        {"en": "a bottle of soda", "tr": "bir şişe gazoz"},
+        {"en": "diet soda", "tr": "diyet gazoz / light soda"},
+        {"en": "regular soda", "tr": "normal gazoz"},
+        {"en": "order a soda", "tr": "gazoz sipariş etmek"},
     ],
     "vehicle": [
         {"en": "drive the car", "tr": "arabayı sürmek"},
@@ -113,65 +144,65 @@ CATEGORY_PHRASES: dict[str, list[dict[str, str]]] = {
     ],
 }
 
-WORD_PROFILE_PROMPT = """Sen uzman bir dil öğretmenisin.
+WORD_PROFILE_PROMPT = """Sen kıdemli bir İngilizce öğretim motorusun.
 Türkçe kelime: "{word_tr}"
 Hedef dil: {lang_name} ({target_lang})
 Hedef kelime (çeviri): "{target_word}"
 
-GÖREV: Bu kelimenin hedef dildeki GERÇEK kullanımını analiz et.
-Şablon cümle üretme. Başka kelimelerin (coffee, love, want) kalıplarını kopyalama.
+[KATI KURALLAR]
+1. HAFIZA TEMİZLİĞİ: Önceki kelime/istekten hiçbir veri taşıma. Tamamen izole üret.
+2. Başka kelimenin (coffee, table, socks) kalıplarını kopyalama.
+3. Yaygın fiiller ve ifadelerde her İngilizce öğenin Türkçe anlamı dolu olmalı.
+4. Doğal günlük İngilizce; yapay çeviri yok (❌ black soda → ✅ diet soda / cola).
+5. US/UK farkı varsa belirt (ör. faucet/tap, soda/pop).
 
 JSON döndür:
 {{
   "target_word": "...",
-  "part_of_speech": "noun|verb|adjective|adverb|phrase|...",
+  "part_of_speech": "noun|verb|adjective|...",
   "countability": "countable|uncountable|both|n/a",
-  "semantic_category": "beverage|furniture|food|place|person|action|abstract|other",
+  "semantic_category": "beverage|furniture|footwear|plumbing|vehicle|object|place|other",
   "meaning_tr": "temel Türkçe anlam",
-  "usage_notes_tr": "Türkçeden farklar, dikkat edilecekler",
-  "common_verbs": ["drink", "have"],
-  "common_collocations": ["a cup of coffee", "black coffee"],
-  "common_patterns": ["have a coffee", "make coffee"],
-  "article_notes_tr": "a/the kullanımı açıklaması veya null",
+  "usage_notes_tr": "En az 3 cümle: sayılabilirlik, US/UK farkı, günlük kullanım, dikkat edilecekler",
+  "common_verbs": ["drink", "order"],
+  "common_collocations": ["a can of soda", "diet soda"],
+  "common_patterns": ["Can I have a soda?", "I don't drink soda."],
+  "article_notes_tr": "a/an/the veya can/bottle/glass ile sayım kuralı",
   "natural_example_ideas": [
-    {{"tr": "Türkçe örnek fikir", "target": "Doğal hedef dil cümlesi", "grammar_focus": "kısa not"}}
+    {{"tr": "Türkçe", "target": "İngilizce", "grammar_focus": "POLITE_REQUEST|NEGATIVE|..."}}
   ],
-  "avoid_patterns": ["I love X", "Do you want X"],
-  "avoid_reason_tr": "Bu kalıplar neden uygun değil"
+  "avoid_patterns": ["I love X"],
+  "avoid_reason_tr": "Neden uygun değil"
 }}"""
 
-WORD_LESSON_FROM_PROFILE_PROMPT = """Sen Türkçe konuşan bir öğrenciye {lang_name} öğreten uzman öğretmensin.
+WORD_LESSON_FROM_PROFILE_PROMPT = """Sen kıdemli bir İngilizce öğretim motorusun. Türkçe öğrenciye {lang_name} öğretiyorsun.
 
-KELİME PROFİLİ:
+KELİME PROFİLİ (SADECE BU KELİME — önceki kelime yok):
 {profile_json}
 
-GÖREV: Bu profile göre 6-8 TAMAMEN YENİ ve DOĞAL örnek cümle oluştur.
-KESİNLİKLE YASAK:
-- I love [kelime], Do you want [kelime], You don't drink [kelime] gibi şablonları kelimeye yapıştırmak
-- coffee/table gibi başka kelimelerin açıklamalarını kopyalamak
-- Türkçeyi kelime kelime İngilizceye çevirmek (ör. masa → I love table)
+[KATI KURALLAR]
+1. HAFIZA TEMİZLİĞİ: Önceki kelime/istekten hiçbir cümle, açıklama veya kalıp taşıma.
+2. Hedef kelime her örnek cümlede geçmeli; başka kelime ana konu olamaz (shoe→socks yasak).
+3. Türkçe okunuşlar Türkçe fonetik olmalı (table→teybıl, soda→sou-da, could→kud).
+4. Yaygın fiiller/ifadelerde Türkçe anlam boş bırakılamaz.
+5. Her örnekte "how_it_is_formed_tr" en az 120 karakter, derin dil bilgisi analizi.
+6. "structure_label_tr" asla "Kelimeye özel doğal yapı" olamaz — gerçek formül yaz.
+7. En az 3 farklı senaryo: POLITE_REQUEST, NEGATIVE, STATEMENT, NARRATIVE, QUESTION vb.
+8. word_breakdown: her kelime için token, pronunciation_tr (Türkçe fonetik), meaning_tr, role_tr.
 
-Her örnek için (Türkçe açıklamalar):
-- tr: Türkçe anlam (doğal Türkçe)
-- target: hedef dilde doğal cümle
-- sentence_type, grammar_topic, difficulty (A1-C1)
-- structure_tr, structure_label_tr
-- word_breakdown: [{{"token":"...","role_tr":"...","meaning_tr":"..."}}]
-- how_it_is_formed_tr: BU cümleye özel, parça parça, neden bu yapı
-- why_this_structure_tr
-- important_note_tr veya null
-- pattern_tr veya null
-- pattern_examples: [{{"target":"...","tr":"...","new_words":[{{"word":"...","meaning_tr":"..."}}]}}]
+Her örnek alanları:
+- tr, target, sentence_type (request/negative/...)
+- sentence_type_label (POLITE_REQUEST, NEGATIVE, STATEMENT_OF_PREFERENCE, ...)
+- structure_tr, structure_label_tr ("Dil Bilgisi Formülü: Özne + ...")
+- word_breakdown: [{{"token":"...","pronunciation_tr":"...","meaning_tr":"...","role_tr":"..."}}]
+- how_it_is_formed_tr (derin, cümleye özel)
+- pattern_tr ("Kelime Şablonu: Can I + have + a + [word]?")
+- pattern_examples (hedef kelimeyle uyumlu)
 
 JSON:
 {{
-  "word_explanation_tr": "...",
-  "usage": {{
-    "part_of_speech_tr": "...",
-    "countability_tr": "...",
-    "collocations_tr": "...",
-    "common_mistakes_tr": "..."
-  }},
+  "word_explanation_tr": "«kelime» → target. En az 3 cümle pedagojik açıklama.",
+  "usage": {{ "part_of_speech_tr": "...", "countability_tr": "...", "common_mistakes_tr": "..." }},
   "examples": [...]
 }}"""
 
@@ -212,6 +243,7 @@ Return JSON:
 # Bilinen kelime kategorileri (LLM yokken)
 KNOWN_CATEGORIES: dict[str, str] = {
     "kahve": "beverage", "coffee": "beverage", "çay": "beverage", "tea": "beverage",
+    "soda": "beverage", "gazoz": "beverage", "kola": "beverage", "cola": "beverage",
     "su": "beverage", "water": "beverage", "süt": "beverage", "milk": "beverage",
     "masa": "furniture", "table": "furniture", "sandalye": "furniture", "chair": "furniture",
     "musluk": "plumbing", "faucet": "plumbing", "tap": "plumbing",
@@ -226,8 +258,30 @@ KNOWN_CATEGORIES: dict[str, str] = {
     "ayakkabı": "footwear", "ayakkabi": "footwear", "shoe": "footwear", "shoes": "footwear",
 }
 
+# Çeviri başarısız olunca bilinen TR→EN eşleşmeleri
+KNOWN_TR_TO_EN: dict[str, str] = {
+    "kahve": "coffee", "masa": "table", "musluk": "faucet", "pencere": "window",
+    "kapı": "door", "kapi": "door", "kitap": "book", "gazoz": "soda", "kola": "cola",
+    "araba": "car", "mutlu": "happy", "çalışmak": "work", "calismak": "work",
+    "ayakkabı": "shoe", "ayakkabi": "shoe", "sandalye": "chair", "telefon": "phone",
+    "ev": "home", "pazar": "market", "market": "market", "su": "water", "çay": "tea",
+}
+
+def resolve_target_word(word_tr: str, target_word: str, target_lang: str) -> str:
+    """Çeviri Türkçe döndüyse bilinen İngilizce karşılığı kullan."""
+    tw = safe_str(target_word).strip()
+    if target_lang == "en":
+        tw = tw.lower()
+    wt = _norm(word_tr)
+    if target_lang == "en" and (not tw or tw == wt or tw == word_tr.lower() or not tw.isascii()):
+        fallback = KNOWN_TR_TO_EN.get(wt) or KNOWN_TR_TO_EN.get(word_tr.lower())
+        if fallback:
+            return fallback.lower()
+    return tw or word_tr
+
 WORD_ICONS: dict[str, str] = {
     "kahve": "☕", "coffee": "☕", "çay": "🍵", "tea": "🍵",
+    "soda": "🥤", "gazoz": "🥤", "kola": "🥤", "cola": "🥤",
     "masa": "🪑", "table": "🪑", "sandalye": "💺", "chair": "💺",
     "musluk": "🚰", "faucet": "🚰", "tap": "🚰",
     "araba": "🚗", "car": "🚗", "otomobil": "🚗",
@@ -428,7 +482,7 @@ def sanitize_word_examples(
             continue
         if not _validate_word_example(ex, word_tr, target_word, profile):
             continue
-        cleaned.append(_sanitize_example_nested(dict(ex), word_tr, target_word))
+        cleaned.append(_fill_word_breakdown(_sanitize_example_nested(dict(ex), word_tr, target_word), "en"))
     return cleaned
 
 
@@ -649,6 +703,45 @@ def _rule_word_profile(
         "avoid_patterns": ["I love X", "Do you want X"],
         "avoid_reason_tr": "Her kelimeye aynı kalıp uygulanmaz.",
     })
+    wt, tw = _norm(word_tr), _en_target_word(target_word)
+    if category == "beverage" and (wt in ("soda", "gazoz", "kola") or tw in ("soda", "cola")):
+        base = {
+            "part_of_speech": "noun",
+            "countability": "both",
+            "semantic_category": "beverage",
+            "meaning_tr": word_tr,
+            "usage_notes_tr": (
+                f"«{word_tr}» İngilizcede soda veya soft drink olarak geçer. "
+                "🇺🇸 soda/pop · 🇬🇧 bazen fizzy drink. "
+                "Kutu/şişe ile sayılır: a can of soda, a bottle of soda. "
+                "❌ black soda yok — diet soda veya cola kullan."
+            ),
+            "common_verbs": ["drink", "order", "have", "get", "serve", "buy"],
+            "common_collocations": [
+                "a can of soda", "a bottle of soda", "diet soda", "regular soda", "order a soda",
+            ],
+            "common_patterns": [
+                "Can I have a soda?", "I don't drink soda.", "Would you like a soda?",
+            ],
+            "article_notes_tr": (
+                "Madde: soda (sayılamaz) · Porsiyon: a soda / a can of soda · "
+                "Kutu: a can · Şişe: a bottle"
+            ),
+            "regional_variants": {
+                "us": "soda / pop",
+                "uk": "fizzy drink / soft drink",
+                "note_tr": "🇺🇸 soda veya pop · 🇬🇧 fizzy drink daha yaygın olabilir",
+            },
+            "avoid_patterns": ["black soda", "I love soda", "These socks are warm"],
+            "avoid_reason_tr": "Gazoz için black soda doğal değil; diet soda veya cola kullan.",
+        }
+    elif category == "beverage" and (wt in ("kahve", "coffee") or tw == "coffee"):
+        base = dict(profiles["beverage"])
+        base["usage_notes_tr"] = (
+            f"«{word_tr}» genelde içecek olarak kullanılır. "
+            "Türkçedeki «kahve içmek» İngilizcede drink/have coffee ile kurulur. "
+            "Bir porsiyon için a coffee da kullanılabilir."
+        )
     return {"target_word": target_word, **base}
 
 
@@ -890,38 +983,7 @@ def _category_examples_en(
         return _object_examples_en(word_tr, target_word)
 
     if category == "beverage":
-        return [
-            _ex(W, f"Sabahları {W} içerim.", f"I drink {T} every morning.", "routine",
-                f"I + drink + {T} + every morning",
-                f"İçeceklerle drink veya have kullanılır.\n\n"
-                f"I → ben\ndrink → içmek\n{T} → {W}\nevery morning → her sabah\n\n"
-                "Türkçede «sabahları kahve içerim» — İngilizcede özne I ile başlar."),
-            _ex(W, f"Akşam {W} içmek ister misin?", f"Would you like some {T} tonight?", "offer",
-                f"Would + you + like + some {T}",
-                f"Kibar teklif: Would you like…?\n\n"
-                f"some {T} → biraz {W} / {W} (bağlama göre)\n\n"
-                "❌ Do you want coffee? daha doğrudan; Would you like daha kibar."),
-            _ex(W, f"Bir {W} alabilir miyim?", f"Can I have a {T}?", "request",
-                f"Can + I + have + a {T}",
-                "Can I have…? kibarca bir şey istemek için.\n\n"
-                f"a {T} → bir {W} (porsiyon olarak)\n\n"
-                "have burada «almak/istemek» anlamında."),
-            _ex(W, f"Siyah {W} sevmem.", f"I don't like black {T}.", "negative",
-                f"I + don't + like + black {T}",
-                f"Olumsuz: don't + fiil(yalın)\n\n"
-                f"black {T} → siyah {W}\n\n"
-                "like içecek tatları için kullanılabilir; love değil."),
-            _ex(W, f"O {W} yapıyor.", f"She is making {T}.", "present_continuous",
-                f"She + is + making + {T}",
-                f"Şimdiki zaman: is + fiil-ing\n\n"
-                f"making {T} → {W} yapıyor/hazırlıyor\n\n"
-                "make coffee çok yaygın bir kalıptır."),
-            _ex(W, f"İki {W} içtim.", f"I had two {T}s.", "past",
-                f"I + had + two {T}s",
-                f"Geçmiş: had\n\n"
-                f"two {T}s → iki {W} (sayılabilir porsiyon)\n\n"
-                "İçecek madde olarak sayılamaz ama «iki kahve» porsiyon olarak sayılabilir."),
-        ]
+        return _beverage_examples_en(word_tr, target_word)
 
     if category == "plumbing":
         return [
@@ -1038,6 +1100,163 @@ def _category_examples_en(
     ]
 
 
+def _beverage_examples_en(word_tr: str, target_word: str) -> list[dict[str, Any]]:
+    """İçecek — kahve ve soda için ayrı doğal örnekler."""
+    T, W = _en_target_word(target_word), word_tr
+    wt, tw = _norm(word_tr), T
+
+    if wt in ("soda", "gazoz", "kola") or tw in ("soda", "cola"):
+        return [
+            _ex(W, "Bir gazoz alabilir miyim?", "Can I have a soda?", "request",
+                "Can + I + have + a + soda",
+                "1️⃣ Genel anlam\nRestoranda veya dükkanda kibarca gazoz istemek.\n\n"
+                "2️⃣ Can I have…?\nCan → -ebilir miyim\nI → ben\nhave → almak/istemek\na soda → bir gazoz\n\n"
+                "3️⃣ Neden have?\nİngilizcede içecek isterken have a coffee/soda çok doğaldır.\n\n"
+                "❌ Do you give me soda — doğal değil.",
+                pattern_tr="Can I + have + a + [içecek]?"),
+            _ex(W, "Gazoz içmem.", "I don't drink soda.", "negative",
+                "I + don't + drink + soda",
+                "1️⃣ Olumsuz tercih\nGazoz içmediğini söylemek.\n\n"
+                "2️⃣ don't + fiil(yalın)\ndon't → olumsuz yardımcı\ndrink → içmek\nsoda → gazoz\n\n"
+                "3️⃣ Neden drink?\nİçeceklerle drink kullanılır; eat değil.",
+                pattern_tr="I + don't + drink + [içecek]"),
+            _ex(W, "Diyet gazoz ister misin?", "Would you like a diet soda?", "offer",
+                "Would + you + like + a + diet soda",
+                "1️⃣ Kibar teklif\nWould you like…? çok kibar bir teklif kalıbıdır.\n\n"
+                "2️⃣ diet soda\n❌ black soda yok\ndiet soda → diyet gazoz / light\n\n"
+                "3️⃣ Neden Would?\nDo you want'tan daha nazik.",
+                pattern_tr="Would you like + a + [içecek]?"),
+            _ex(W, "Yemekte genelde gazoz içerim.", "I usually have soda with my meal.", "routine",
+                "I + usually + have + soda + with my meal",
+                "1️⃣ Alışkanlık\nusually → genelde\nhave soda → gazoz içmek/alma\nwith my meal → yemeğimle birlikte\n\n"
+                "2️⃣ have vs drink\nBurada have soda da doğal.",
+                pattern_tr="I + usually + have + [içecek] + with + [yemek]"),
+            _ex(W, "Bir kutu kola aldım.", "I bought a can of cola.", "past",
+                "I + bought + a can of + cola",
+                "1️⃣ Geçmiş alışveriş\nbought → aldım (buy geçmişi)\n\n"
+                "2️⃣ a can of cola\nKutu ile sayım: a can of… / a bottle of…\n\n"
+                "3️⃣ cola vs soda\nCola marka/tür; soda daha genel.",
+                pattern_tr="I + bought + a can of + [içecek]"),
+            _ex(W, "Soğuk bir gazoz istiyorum.", "I'd like a cold soda, please.", "request",
+                "I'd + like + a + cold + soda",
+                "1️⃣ Kibar istek\nI'd like = I would like → … istiyorum (kibar)\n\n"
+                "2️⃣ cold soda\nSıcaklık sıfatı isimden önce gelir.\n\n"
+                "3️⃣ please\nCümle sonunda kibarlık için eklenebilir.",
+                pattern_tr="I'd like + a + [sıfat] + [içecek]"),
+        ]
+
+    return [
+        _ex(W, f"Sabahları {W} içerim.", f"I drink {T} every morning.", "routine",
+            f"I + drink + {T} + every morning",
+            f"1️⃣ Genel anlam\nSabah rutini olarak içecek tüketmek.\n\n"
+            f"I → ben\ndrink → içmek\n{T} → {W}\nevery morning → her sabah\n\n"
+            "Türkçede «sabahları kahve içerim» — İngilizcede özne I ile başlar.",
+            pattern_tr="I + drink + [içecek] + every morning"),
+        _ex(W, f"Akşam {W} içmek ister misin?", f"Would you like some {T} tonight?", "offer",
+            f"Would + you + like + some {T}",
+            f"1️⃣ Kibar teklif\nWould you like…? → … ister misin?\n\n"
+            f"some {T} → biraz {W}\n\n"
+            "Do you want? daha doğrudan; Would you like daha kibar.",
+            pattern_tr="Would you like + some + [içecek]?"),
+        _ex(W, f"Bir {W} alabilir miyim?", f"Can I have a {T}?", "request",
+            f"Can + I + have + a {T}",
+            f"1️⃣ Rica\nCan I have…? kibarca bir şey istemek.\n\n"
+            f"a {T} → bir {W} (porsiyon)\n\n"
+            "have burada «almak/istemek» anlamında.",
+            pattern_tr="Can I + have + a + [içecek]?"),
+        _ex(W, f"Siyah {W} sevmem.", f"I don't like black {T}.", "negative",
+            f"I + don't + like + black {T}",
+            f"1️⃣ Olumsuz tercih\ndon't + like → … sevmem\n\n"
+            f"black {T} → siyah {W}\n\n"
+            "Kahve için black coffee doğal; soda için kullanılmaz.",
+            pattern_tr="I + don't + like + [sıfat] + [içecek]"),
+        _ex(W, f"O {W} yapıyor.", f"She is making {T}.", "present_continuous",
+            f"She + is + making + {T}",
+            f"1️⃣ Şu an yapıyor\nis + making → yapıyor\n\n"
+            f"making {T} → {W} hazırlıyor\n\n"
+            "make coffee çok yaygın bir kalıptır.",
+            pattern_tr="She + is + making + [içecek]"),
+        _ex(W, f"İki {W} içtim.", f"I had two {T}s.", "past",
+            f"I + had + two {T}s",
+            f"1️⃣ Geçmiş\nhad → geçmişte sahip olmak/içmek\n\n"
+            f"two {T}s → iki {W} (porsiyon)\n\n"
+            "İçecek madde sayılamaz ama porsiyon sayılabilir.",
+            pattern_tr="I + had + two + [içecek]"),
+    ]
+
+
+def _fill_word_breakdown(ex: dict[str, Any], lang: str = "en") -> dict[str, Any]:
+    """Kelime kelime analiz — token, Türkçe okunuş, anlam."""
+    target = safe_str(ex.get("target")).strip()
+    if not target or lang != "en":
+        return ex
+    bundle = build_pronunciation_bundle(target, lang)
+    existing = {
+        safe_str(p.get("token") or p.get("tr")).lower()
+        for p in (ex.get("word_breakdown") or [])
+        if isinstance(p, dict)
+    }
+    wb: list[dict[str, str]] = list(ex.get("word_breakdown") or [])
+    for w in bundle.get("word_pronunciations") or []:
+        tok = safe_str(w.get("word")).strip()
+        if not tok or tok.lower() in existing:
+            continue
+        wb.append({
+            "token": tok,
+            "pronunciation_tr": safe_str(w.get("pronunciation_tr")),
+            "meaning_tr": word_meaning_tr(tok.lower()),
+            "role_tr": "",
+        })
+        existing.add(tok.lower())
+    ex["word_breakdown"] = wb
+    if not ex.get("pronunciation_tr"):
+        ex["pronunciation_tr"] = bundle.get("pronunciation_tr", "")
+    if not ex.get("ipa"):
+        ex["ipa"] = bundle.get("ipa", "")
+    return ex
+
+
+def build_rich_word_explanation(
+    word_tr: str,
+    target_word: str,
+    profile: dict[str, Any],
+) -> str:
+    """En az 3 cümlelik pedagojik kelime açıklaması."""
+    notes = safe_str(profile.get("usage_notes_tr")).strip()
+    meaning = safe_str(profile.get("meaning_tr") or word_tr).strip()
+    article = safe_str(profile.get("article_notes_tr")).strip()
+    regional = safe_str((profile.get("regional_variants") or {}).get("note_tr")).strip()
+    parts = [f"«{word_tr}» → {target_word}."]
+    if notes:
+        parts.append(notes)
+    elif meaning:
+        parts.append(f"Temel anlam: {meaning}.")
+    if article:
+        parts.append(f"Artikel/konteyner: {article}")
+    if regional:
+        parts.append(regional)
+    text = " ".join(parts)
+    if len(text) < 120:
+        text += (
+            f" Bu kelimeyi günlük cümlelerde doğal fiillerle "
+            f"(have, drink, order vb.) birlikte öğren."
+        )
+    return text.strip()
+
+
+def _ensure_min_how(how: str, word_tr: str, structure_tr: str, min_len: int = 100) -> str:
+    """Kural tabanlı örneklerin doğrulamadan geçmesi için kısa analiz metnini genişlet."""
+    text = safe_str(how).strip()
+    if len(text) >= min_len:
+        return text
+    text += (
+        f"\n\nBu cümle «{word_tr}» kelimesini doğal bir bağlamda gösterir. "
+        f"Dil bilgisi formülü: {structure_tr}. "
+        f"Bu yapı günlük konuşmada sık kullanılır ve A1–A2 seviyesinde güvenle öğrenilebilir."
+    )
+    return text
+
+
 def _ex(
     word_tr: str,
     tr: str,
@@ -1049,22 +1268,32 @@ def _ex(
     pattern_examples: list[dict[str, Any]] | None = None,
     important_note_tr: str | None = None,
 ) -> dict[str, Any]:
-    return {
+    scenario = SCENARIO_LABELS.get(sentence_type, sentence_type.upper())
+    structure_label = f"Dil Bilgisi Formülü: {structure_tr}"
+    pat = pattern_tr
+    if pat and not pat.lower().startswith("kelime şablonu"):
+        pat = f"Kelime Şablonu: {pat}"
+    how = _ensure_min_how(how, word_tr, structure_tr)
+    ex = {
         "tr": tr,
         "target": target,
         "sentence_type": sentence_type,
-        "sentence_type_label": SENTENCE_TYPE_LABELS.get(sentence_type, sentence_type),
+        "sentence_type_label": scenario,
         "grammar_topic": sentence_type,
         "difficulty": "A1" if sentence_type in ("description", "question", "location") else "A2",
         "structure_tr": structure_tr,
-        "structure_label_tr": "Kelimeye özel doğal yapı",
+        "structure_label_tr": structure_label,
         "word_breakdown": [],
         "how_it_is_formed_tr": how,
-        "why_this_structure_tr": f"Bu yapı «{word_tr}» kelimesinin doğal kullanımına uygundur.",
+        "why_this_structure_tr": (
+            f"Bu yapı «{word_tr}» kelimesinin doğal kullanımına uygundur. "
+            f"Formül: {structure_tr}"
+        ),
         "important_note_tr": important_note_tr,
-        "pattern_tr": pattern_tr,
+        "pattern_tr": pat,
         "pattern_examples": pattern_examples or [],
     }
+    return _fill_word_breakdown(ex, "en")
 
 
 def generate_examples_from_profile(
@@ -1120,8 +1349,16 @@ def _validate_word_example(
         ex["target"] = target
     how = safe_str(ex.get("how_it_is_formed_tr")).strip()
     tr = safe_str(ex.get("tr")).strip()
-    if not target or len(how) < 40:
+    label = safe_str(ex.get("structure_label_tr")).strip()
+    wt, tw = _norm(word_tr), _en_target_word(target_word)
+    norm_target = _norm(target)
+    if not target or len(how) < 100:
         return False
+    if GENERIC_STRUCTURE_LABEL_RE.search(label):
+        return False
+    if wt in ("soda", "gazoz", "kola") or tw in ("soda", "cola"):
+        if "black soda" in norm_target or "black soda" in tr.lower():
+            return False
     if tr and not _tr_contains_word(tr, word_tr):
         return False
     if _has_foreign_word_leak(tr, word_tr, target_word):
@@ -1138,8 +1375,6 @@ def _validate_word_example(
         return False
     if _has_conflicting_primary_noun(target, target_word):
         return False
-    tw = _en_target_word(target_word)
-    norm_target = _norm(target)
     if tw and tw not in norm_target and f"{tw}s" not in norm_target:
         return False
     return True
@@ -1186,21 +1421,41 @@ def build_usage_from_profile(profile: dict[str, Any], target_lang: str) -> dict[
     patterns = profile.get("common_patterns") or []
     category = profile.get("semantic_category") or "general"
 
-    verbs_enriched = [
-        {"en": v, "tr": VERBS_TR.get(v.lower(), VERBS_TR.get(v.split()[-1].lower(), ""))}
-        for v in verbs[:8]
-    ]
-    verbs_enriched = [v for v in verbs_enriched if v["en"]]
+    verbs_enriched = []
+    for v in verbs[:8]:
+        key = safe_str(v).strip()
+        if not key:
+            continue
+        tr_mean = VERBS_TR.get(key.lower()) or VERBS_TR.get(key.split()[-1].lower(), "")
+        if not tr_mean:
+            tr_mean = "kullanmak"
+        verbs_enriched.append({"en": key, "tr": tr_mean})
 
-    phrase_src = CATEGORY_PHRASES.get(category, [])
-    if not phrase_src and coll:
-        phrase_src = [{"en": c, "tr": ""} for c in coll[:6]]
+    phrase_lookup: dict[str, str] = {}
+    for items in CATEGORY_PHRASES.values():
+        for item in items:
+            if isinstance(item, dict) and item.get("en") and item.get("tr"):
+                phrase_lookup[item["en"].lower()] = item["tr"]
+
+    phrase_src: list[dict[str, str]] = []
+    if coll:
+        for c in coll[:6]:
+            en = safe_str(c).strip()
+            if not en:
+                continue
+            tr = phrase_lookup.get(en.lower(), "")
+            if tr:
+                phrase_src.append({"en": en, "tr": tr})
+    if not phrase_src:
+        phrase_src = [p for p in CATEGORY_PHRASES.get(category, []) if isinstance(p, dict) and p.get("tr")]
     phrases_enriched: list[dict[str, str]] = []
     for item in phrase_src[:6]:
         en = safe_str(item.get("en") if isinstance(item, dict) else item).strip()
         if not en:
             continue
         tr = safe_str(item.get("tr") if isinstance(item, dict) else "").strip()
+        if not tr:
+            continue
         pron = ""
         if target_lang == "en":
             pron = build_pronunciation_bundle(en, target_lang).get("pronunciation_tr", "")

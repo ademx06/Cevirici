@@ -30,6 +30,8 @@ from word_teaching_engine import (
     build_usage_from_profile,
     generate_examples_from_profile,
     rule_sentence_teaching,
+    build_rich_word_explanation,
+    resolve_target_word,
     sanitize_word_examples,
     validate_lesson_quality,
     word_icon_for,
@@ -295,6 +297,7 @@ def generate_word_lesson(
         except Exception:
             target_word = word_tr
     target_word = safe_str(target_word).strip() or word_tr
+    target_word = resolve_target_word(word_tr, target_word, target_lang)
     if target_lang == "en":
         target_word = target_word.lower()
 
@@ -321,10 +324,7 @@ def generate_word_lesson(
     usage = build_usage_from_profile(profile, target_lang)
     if profile.get("regional_variants"):
         usage["regional_variants"] = profile["regional_variants"]
-    word_explanation = (
-        f"«{word_tr}» → {target_word}. "
-        f"{profile.get('usage_notes_tr') or usage.get('usage_notes_tr') or ''}"
-    ).strip()
+    word_explanation = build_rich_word_explanation(word_tr, target_word, profile)
     category = profile.get("semantic_category") or "general"
 
     return {

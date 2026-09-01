@@ -49,6 +49,7 @@
       sandalye: '💺', chair: '💺', pencere: '🪟', window: '🪟', su: '💧', water: '💧',
       kalem: '✏️', pen: '✏️', mutlu: '😊', happy: '😊',
       ayakkabı: '👟', ayakkabi: '👟', shoe: '👟', shoes: '👟',
+      soda: '🥤', gazoz: '🥤', kola: '🥤', cola: '🥤',
     };
     if (map[key]) return map[key];
     return '📖';
@@ -189,7 +190,7 @@
         <div class="mod-detail-text mod-detail-pre">${esc(how)}</div>
         ${why ? `<p class="mod-detail-why">${esc(why)}</p>` : ''}
         ${note ? `<p class="mod-warn">${esc(note)}</p>` : ''}
-        ${ex.structure_tr ? `<p class="mod-structure">📚 ${esc(ex.structure_tr)}</p>` : ''}
+        ${ex.structure_tr ? `<p class="mod-structure">📚 Dil Bilgisi Formülü: ${esc(ex.structure_tr)}</p>` : ''}
         ${label ? `<p class="mod-structure-label">${esc(label)}</p>` : ''}
         ${renderWordBreakdown(ex)}
         ${renderPatternBlock(ex, lang)}
@@ -276,7 +277,7 @@
     } else if (usage.collocations_tr) {
       rows.push(`<p><strong>Yaygın ifadeler:</strong> ${esc(usage.collocations_tr)}</p>`);
     }
-    if (usage.article_notes_tr) rows.push(`<p><strong>Artikel:</strong> ${esc(usage.article_notes_tr)}</p>`);
+    if (usage.article_notes_tr) rows.push(`<p><strong>Artikel/Konteyner Notu:</strong> ${esc(usage.article_notes_tr)}</p>`);
     if (usage.regional_note_tr) rows.push(`<p class="mod-regional">${esc(usage.regional_note_tr)}</p>`);
     return rows.length ? rows.join('') : '';
   }

@@ -30,6 +30,7 @@ def fake_translate(text: str, from_lang: str, to_lang: str) -> str:
         "kitap": "book",
         "ayakkabı": "shoe",
         "ayakkabi": "shoe",
+        "soda": "soda",
         "araba": "car",
         "mutlu": "happy",
         "çalışmak": "work",
@@ -227,6 +228,7 @@ def test_word_sequence_isolation():
   words = ("kahve", "ayakkabı", "pencere", "masa", "musluk", "kapı", "araba", "kitap", "pencere")
   markers = {
       "kahve": ("coffee", "☕", ("masa", "pencere", "window")),
+      "masa": ("table", "🪑", ("kahve", "coffee", "pencere", "window", "socks", "sock")),
       "pencere": ("window", "🪟", ("kahve", "coffee", "masa", "table")),
       "musluk": ("faucet", "🚰", ("pencere", "window", "kahve", "coffee")),
       "kapı": ("door", "🚪", ("masa", "table", "kahve", "coffee")),
@@ -278,6 +280,31 @@ def test_shoe_no_socks_leak():
     print("TEST shoe isolation OK:", len(examples))
 
 
+def test_soda_lesson():
+    result = generate_word_lesson("gazoz", "en", fake_translate)
+    assert result["ok"], result
+    assert result.get("word_icon") == "🥤"
+    assert result.get("target_word") == "soda"
+    examples = result.get("examples") or []
+    assert len(examples) >= 4
+    for ex in examples:
+        tg = safe_str(ex.get("target")).lower()
+        assert "soda" in tg or "cola" in tg
+        assert "sock" not in tg
+        assert "black soda" not in tg
+        how = safe_str(ex.get("how_it_is_formed_tr"))
+        assert len(how) >= 100
+        assert "kelimeye özel doğal yapı" not in how.lower()
+        label = safe_str(ex.get("structure_label_tr"))
+        assert "Dil Bilgisi Formülü" in label
+    usage = result.get("usage") or {}
+    for v in usage.get("common_verbs") or []:
+        assert v.get("tr"), f"empty verb tr: {v}"
+    for p in usage.get("common_phrases") or []:
+        assert p.get("tr") and p.get("pronunciation_tr")
+    print("TEST soda lesson OK:", len(examples))
+
+
 def test_door_icon():
     result = generate_word_lesson("kapı", "en", fake_translate)
     assert result["ok"], result
@@ -327,6 +354,7 @@ if __name__ == "__main__":
     test_can_you_pattern_examples()
     test_window_no_cross_word_leak()
     test_shoe_no_socks_leak()
+    test_soda_lesson()
     test_word_sequence_isolation()
     test_door_icon()
     test_grade_word_correct()
