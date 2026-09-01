@@ -15,7 +15,7 @@ from tutor import get_lesson, tutor_reply
 from education_engine import (
     process_turn, greeting, session_report, daily_lesson, default_profile,
     finalize_session, weekly_progress, merge_profile, llm_available, ai_provider_info,
-    pronounce_text,
+    pronounce_text, safe_str,
 )
 from builder_engine import (
     generate_word_lesson,
@@ -26,7 +26,31 @@ from builder_engine import (
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 APP_VERSION = "2026.09.01-v24"
+TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
+
+
+def _version_number(version: str) -> int:
+    m = re.search(r"-v(\d+)$", safe_str(version).strip(), re.I)
+    return int(m.group(1)) if m else 0
+
+
+def _deploy_hook_url() -> str:
+    return safe_str(os.environ.get("RENDER_DEPLOY_HOOK") or os.environ.get("DEPLOY_HOOK_URL")).strip()
+
+
+def _trigger_render_deploy() -> tuple[bool, str]:
+    hook = _deploy_hook_url()
+    if not hook:
+        return False, "Deploy bağlantısı yapılandırılmamış."
+    try:
+        req = Request(hook, data=b"", method="POST", headers={"Content-Type": "application/json"})
+        with urlopen(req, timeout=45) as resp:
+            if 200 <= resp.status < 300:
+                return True, "Güncelleme başlatıldı."
+            return False, f"Deploy isteği başarısız (HTTP {resp.status})."
+    except Exception as exc:
+        return False, f"Deploy isteği gönderilemedi: {exc}"
 WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "base")
 DISABLE_WHISPER = os.environ.get("DISABLE_WHISPER", "1").lower() in ("1", "true", "yes")
 EDU_STATE_MARKER = b"\n--EDU_STATE_END--\n"
@@ -845,6 +869,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self.handle_builder_grade_word()
         if parsed.path == "/api/builder/grade-sentence":
             return self.handle_builder_grade_sentence()
+        if parsed.path == "/api/deploy-update":
+            return self.handle_deploy_update()
         self.send_error(404)
 
     def do_GET(self):
@@ -867,6 +893,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self.handle_education_progress(parse_qs(parsed.query))
         if parsed.path == "/api/status":
             return self.handle_status()
+        if parsed.path == "/api/deploy-update":
+            return self.handle_deploy_update_info()
         return super().do_GET()
 
     def handle_status(self):
@@ -886,6 +914,11 @@ class Handler(SimpleHTTPRequestHandler):
                 "origin": origin,
                 "port": PORT,
                 "app_version": APP_VERSION,
+                "target_app_version": TARGET_APP_VERSION,
+                "version_number": _version_number(APP_VERSION),
+                "target_version_number": _version_number(TARGET_APP_VERSION),
+                "update_available": _version_number(APP_VERSION) < _version_number(TARGET_APP_VERSION),
+                "deploy_hook_configured": bool(_deploy_hook_url()),
                 "git_commit": (os.environ.get("RENDER_GIT_COMMIT") or os.environ.get("GIT_COMMIT") or "")[:12],
                 "ai_enabled": llm_available(),
                 "ai_provider": info.get("provider"),
@@ -895,6 +928,43 @@ class Handler(SimpleHTTPRequestHandler):
             ensure_ascii=False,
         ).encode()
         self.send_response(200)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def handle_deploy_update_info(self):
+        body = json.dumps(
+            {
+                "ok": True,
+                "app_version": APP_VERSION,
+                "target_app_version": TARGET_APP_VERSION,
+                "update_available": _version_number(APP_VERSION) < _version_number(TARGET_APP_VERSION),
+                "deploy_hook_configured": bool(_deploy_hook_url()),
+            },
+            ensure_ascii=False,
+        ).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def handle_deploy_update(self):
+        started, message = _trigger_render_deploy()
+        body = json.dumps(
+            {
+                "ok": started,
+                "message_tr": message if started else (
+                    message + " GitHub main dalına push sonrası Render otomatik günceller."
+                ),
+                "app_version": APP_VERSION,
+                "target_app_version": TARGET_APP_VERSION,
+                "deploy_hook_configured": bool(_deploy_hook_url()),
+            },
+            ensure_ascii=False,
+        ).encode()
+        self.send_response(200 if started or not _deploy_hook_url() else 502)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()

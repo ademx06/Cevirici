@@ -777,18 +777,111 @@
     searchTimer = setTimeout(renderSavedLists, 200);
   }
 
-  async function initAppVersion() {
+  function parseVersionNum(version) {
+    const m = String(version || '').match(/-v(\d+)$/i);
+    return m ? parseInt(m[1], 10) : 0;
+  }
+
+  function clientBundleVersion() {
+    return document.querySelector('meta[name="app-version"]')?.content?.trim() || '';
+  }
+
+  function shouldOfferUpdate(serverVersion) {
+    const bundle = clientBundleVersion();
+    const stored = localStorage.getItem('builderAppVersion') || '';
+    const serverNum = parseVersionNum(serverVersion);
+    const bundleNum = parseVersionNum(bundle);
+    const storedNum = parseVersionNum(stored);
+    if (bundle && serverVersion && bundle !== serverVersion) return true;
+    if (serverNum > storedNum) return true;
+    return false;
+  }
+
+  async function fetchAppStatus() {
+    const r = await fetch('/api/status', { cache: 'no-store' });
+    return r.json();
+  }
+
+  function hardReloadApp() {
+    const base = window.location.pathname || '/sentence-builder.html';
+    window.location.replace(`${base}?v=${Date.now()}`);
+  }
+
+  async function pollForNewVersion(baselineVersion, maxAttempts = 36) {
+    const baseline = parseVersionNum(baselineVersion);
+    for (let i = 0; i < maxAttempts; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+      try {
+        const d = await fetchAppStatus();
+        const next = parseVersionNum(d.app_version);
+        if (next > baseline) {
+          localStorage.setItem('builderAppVersion', d.app_version || '');
+          hardReloadApp();
+          return true;
+        }
+      } catch {
+        /* keep polling */
+      }
+    }
+    hardReloadApp();
+    return false;
+  }
+
+  function renderAppVersionBar(d, opts = {}) {
     const bar = $('appVersionBar');
-    if (!bar) return;
+    const text = $('appVersionText');
+    const btn = $('appUpdateBtn');
+    if (!bar || !text) return;
+    const v = d?.app_version || '?';
+    const target = d?.target_app_version || clientBundleVersion() || v;
+    const stale = shouldOfferUpdate(v);
+    const updating = !!opts.updating;
+    const ok = d?.ok ? '✅' : '⚠️';
+    text.textContent = updating
+      ? `⏳ Güncelleniyor… (şu an ${v})`
+      : stale
+        ? `${ok} Eski sürüm: ${v} · Hedef: ${target}`
+        : `${ok} Güncel sürüm: ${v}`;
+    bar.classList.toggle('app-version-stale', stale || updating);
+    bar.classList.toggle('app-version-ok', !stale && !!d?.app_version);
+    if (btn) {
+      btn.classList.toggle('hidden', !stale && !updating);
+      btn.disabled = updating;
+      btn.textContent = updating ? 'Güncelleniyor…' : 'Programı Güncelle';
+    }
+    if (!stale && v && v !== '?') {
+      localStorage.setItem('builderAppVersion', v);
+    }
+  }
+
+  async function runAppUpdate() {
+    const btn = $('appUpdateBtn');
+    if (!btn || btn.disabled) return;
+    let baseline = '?';
     try {
-      const r = await fetch('/api/status');
-      const d = await r.json();
-      const v = d.app_version || '?';
-      const ok = d.ok ? '✅' : '⚠️';
-      bar.textContent = `${ok} Güncel sürüm: ${v}`;
-      bar.classList.toggle('app-version-ok', !!d.app_version);
+      const current = await fetchAppStatus();
+      baseline = current.app_version || '?';
+      renderAppVersionBar(current, { updating: true });
     } catch {
-      bar.textContent = '⚠️ Sürüm kontrol edilemedi';
+      renderAppVersionBar({ ok: false, app_version: '?' }, { updating: true });
+    }
+    btn.disabled = true;
+    try {
+      await fetch('/api/deploy-update', { method: 'POST', cache: 'no-store' });
+    } catch {
+      /* deploy hook yoksa bile sayfa yenileme ve polling devam etsin */
+    }
+    await pollForNewVersion(baseline);
+  }
+
+  async function initAppVersion() {
+    const btn = $('appUpdateBtn');
+    btn?.addEventListener('click', runAppUpdate);
+    try {
+      const d = await fetchAppStatus();
+      renderAppVersionBar(d);
+    } catch {
+      renderAppVersionBar({ ok: false, app_version: '?' });
     }
   }
 

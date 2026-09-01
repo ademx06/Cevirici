@@ -2141,12 +2141,41 @@ body {
   left: 0;
   right: 0;
   z-index: 200;
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
   font-size: 11px;
   padding: 6px 10px calc(6px + env(safe-area-inset-bottom));
   background: rgba(6, 11, 24, 0.95);
   color: #94A3B8;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.app-version-bar.app-version-stale {
+  color: #FCD34D;
+  border-top-color: rgba(252, 211, 77, 0.35);
+}
+
+.app-update-btn {
+  border: 1px solid rgba(56, 189, 248, 0.45);
+  background: rgba(14, 116, 144, 0.35);
+  color: #E0F2FE;
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.app-update-btn:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.app-update-btn.hidden {
+  display: none;
 }
 
 .builder-app {
