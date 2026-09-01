@@ -22,7 +22,7 @@ ENGLISH_VARIANT = "en-US"
 # AI birincil kelime dersi — ChatGPT gibi: önce AI, başarısızsa retry; şablon yedek YOK
 DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
 WORD_LESSON_MAX_TOKENS = 8192
-AI_LESSON_MAX_ATTEMPTS = 2
+AI_LESSON_MAX_ATTEMPTS = 1
 
 WORD_LESSON_SPLIT_PROMPT_A = """{base_prompt}
 
@@ -4259,8 +4259,6 @@ def _llm_generate_dynamic_lesson(
     parsed = _llm_generate_dynamic_lesson_split(
         word_tr, target_word, target_lang, system, attempt=attempt, prior_issues=prior_issues,
     )
-    if not parsed or not isinstance(parsed.get("examples"), list) or len(parsed.get("examples") or []) < 8:
-        parsed = _llm_json(system, user_msg, max_tokens=WORD_LESSON_MAX_TOKENS, prefer="gemini")
     if not parsed or not isinstance(parsed.get("examples"), list):
         return None
     profile: dict[str, Any] = {
@@ -4318,32 +4316,32 @@ def _llm_generate_dynamic_lesson_split(
             + "\n\nReturn JSON only."
         )
     prompt_a = WORD_LESSON_SPLIT_PROMPT_A.format(base_prompt=base_system)
-    part1 = _llm_json(prompt_a, user_a, max_tokens=5500, prefer="gemini")
+    part1 = _llm_json(prompt_a, user_a, max_tokens=4000, prefer="gemini")
     if not part1 or not isinstance(part1, dict):
         return None
     ex1 = part1.get("examples") if isinstance(part1.get("examples"), list) else []
     if len(ex1) < 4:
         return None
 
-    user_b = "Return JSON with examples array only (exactly 6 items)."
-    if prior_issues:
-        user_b = (
-            "Önceki deneme eksikti. Son 6 örneği üret:\n"
-            + "\n".join(f"- {issue}" for issue in prior_issues[:3])
-            + "\n\nReturn JSON only."
-        )
-    prompt_b = WORD_LESSON_SPLIT_PROMPT_B.format(
-        base_prompt=base_system,
-        word_tr=word_tr[:80],
-        target_word=target_word[:80],
-    )
-    part2 = _llm_json(prompt_b, user_b, max_tokens=4500, prefer="gemini")
     merged = dict(part1)
-    if part2 and isinstance(part2.get("examples"), list):
-        merged["examples"] = list(ex1) + list(part2["examples"])
-    else:
-        merged["examples"] = list(ex1)
-    return merged if isinstance(merged.get("examples"), list) and merged["examples"] else None
+    merged["examples"] = list(ex1)
+    if len(ex1) < 7:
+        user_b = "Return JSON with examples array only (exactly 6 items)."
+        if prior_issues:
+            user_b = (
+                "Önceki deneme eksikti. Son 6 örneği üret:\n"
+                + "\n".join(f"- {issue}" for issue in prior_issues[:3])
+                + "\n\nReturn JSON only."
+            )
+        prompt_b = WORD_LESSON_SPLIT_PROMPT_B.format(
+            base_prompt=base_system,
+            word_tr=word_tr[:80],
+            target_word=target_word[:80],
+        )
+        part2 = _llm_json(prompt_b, user_b, max_tokens=3000, prefer="gemini")
+        if part2 and isinstance(part2.get("examples"), list):
+            merged["examples"] = list(ex1) + list(part2["examples"])
+    return merged if merged.get("examples") else None
 
 
 def _llm_generate_examples_from_profile(
@@ -4658,8 +4656,8 @@ def collect_lesson_quality_issues(
 ) -> list[str]:
     """AI dersinin ChatGPT kalitesinde olup olmadığını kontrol et; retry için sorun listesi."""
     issues: list[str] = []
-    if len(examples) < 13:
-        issues.append(f"Tam 13 örnek gerekli; şu an {len(examples)} örnek var.")
+    if len(examples) < 11:
+        issues.append(f"En az 11 örnek gerekli; şu an {len(examples)} örnek var.")
     verbs = [v for v in (profile.get("common_verbs") or []) if safe_str(v).strip()]
     if len(verbs) < 5:
         issues.append(f"common_verbs en az 5 fiil içermeli; şu an {len(verbs)}.")

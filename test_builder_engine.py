@@ -506,7 +506,7 @@ def test_ai_first_pipeline_without_llm():
     """AI yokken şablon modu (geliştirme) ile 13 örnek döndürür."""
     from word_teaching_engine import AI_LESSON_MAX_ATTEMPTS, try_ai_word_lesson
 
-    assert AI_LESSON_MAX_ATTEMPTS >= 2
+    assert AI_LESSON_MAX_ATTEMPTS >= 1
     profile = {"common_verbs": ["wear"], "semantic_category": "clothing"}
     _, examples, issues = try_ai_word_lesson("çorap", "socks", "en", profile)
     assert issues, "LLM yokken sorun listesi beklenir"
