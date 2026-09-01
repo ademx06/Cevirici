@@ -37,6 +37,7 @@ def fake_translate(text: str, from_lang: str, to_lang: str) -> str:
         "fatura": "invoice",
     "sakız": "gum",
     "sakiz": "gum",
+    "bal": "honey",
     "eğlence": "entertainment",
     "eglence": "entertainment",
         "araba": "car",
@@ -680,6 +681,53 @@ def test_eglence_natural_lesson():
     print("TEST eğlence natural lesson OK:", len(examples))
 
 
+def test_bal_honey_usage_and_icon():
+    """bal → honey: doğru ikon, fiil çevirileri ve ifade TR/IPA."""
+    from word_icons import lookup_emoji
+    from word_teaching_engine import build_usage_from_profile, _phrase_meaning_tr
+
+    assert lookup_emoji("bal", "honey", "food") == "🍯"
+    assert lookup_emoji("bal", "honey") == "🍯"
+
+    profile = {
+        "part_of_speech": "noun",
+        "countability": "uncountable",
+        "semantic_category": "food",
+        "meaning_tr": "bal",
+        "common_verbs": ["spread", "drizzle", "collect", "taste", "dilute"],
+        "common_collocations": ["honeydew melon", "honey trap", "honey moon", "locust honey"],
+    }
+    usage = build_usage_from_profile(profile, "en", "honey", "bal")
+    verb_map = {v["en"]: v["tr"] for v in (usage.get("common_verbs") or [])}
+    assert verb_map.get("spread") == "sürmek / yaymak"
+    assert verb_map.get("drizzle") == "gezdirmek / damlatmak"
+    assert verb_map.get("collect") == "toplamak"
+    assert verb_map.get("taste") == "tatmak / tadına bakmak"
+    assert verb_map.get("dilute") == "sulandırmak"
+    assert "kullanmak" not in verb_map.values()
+
+    phrases = usage.get("common_phrases") or []
+    assert len(phrases) >= 4, phrases
+    phrase_map = {p["en"]: p for p in phrases}
+    assert phrase_map["honeydew melon"]["tr"] == "kavun (bal kavunu)"
+    assert phrase_map["honey trap"]["tr"] == "bal tuzağı"
+    assert phrase_map["honey moon"]["tr"] == "balayı"
+    assert phrase_map["locust honey"]["tr"] == "çekirge balı"
+    for p in phrases:
+        assert p.get("tr"), p
+        assert p.get("pronunciation_tr"), f"missing pron: {p['en']}"
+        assert p.get("ipa"), f"missing ipa: {p['en']}"
+
+    for v in usage.get("common_verbs") or []:
+        assert v.get("ipa"), f"missing verb ipa: {v['en']}"
+
+    result = generate_word_lesson("bal", "en", fake_translate)
+    assert result["ok"], result
+    assert result.get("target_word") == "honey"
+    assert result.get("word_icon") == "🍯"
+    print("TEST bal/honey usage and icon OK")
+
+
 def test_grade_word_correct():
     result = grade_word_answer("kahve", "coffee", "I drink coffee every morning.", "en", fake_translate)
     assert result["ok"], result
@@ -737,6 +785,7 @@ if __name__ == "__main__":
     test_sakiz_natural_lesson()
     test_placeholder_turkish_rejected()
     test_eglence_natural_lesson()
+    test_bal_honey_usage_and_icon()
     test_has_curated_lexicon()
     test_profile_ideas_fallback_examples()
     test_masa_icon()

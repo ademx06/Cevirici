@@ -126,6 +126,26 @@ VERBS_TR: dict[str, str] = {
     "pay": "ödemek", "send": "göndermek", "receive": "almak / teslim almak",
     "check": "kontrol etmek", "issue": "düzenlemek / kesmek (fatura)",
     "review": "incelemek / gözden geçirmek", "attach": "eklemek (ek dosya)",
+    "spread": "sürmek / yaymak", "drizzle": "gezdirmek / damlatmak",
+    "taste": "tatmak / tadına bakmak", "dilute": "sulandırmak",
+    "stir": "karıştırmak", "mix": "karıştırmak", "sweeten": "tatlandırmak",
+    "harvest": "hasat etmek / toplamak",
+}
+
+PHRASES_TR: dict[str, str] = {
+    "honeydew melon": "kavun (bal kavunu)",
+    "honey trap": "bal tuzağı",
+    "honey moon": "balayı",
+    "honeymoon": "balayı",
+    "locust honey": "çekirge balı",
+    "raw honey": "süzme bal",
+    "organic honey": "organik bal",
+    "jar of honey": "bal kavanozu",
+    "spoon of honey": "bir kaşık bal",
+    "honey jar": "bal kavanozu",
+    "manuka honey": "manuka balı",
+    "wildflower honey": "çiçek balı",
+    "clover honey": "yonca balı",
 }
 
 GRAMMAR_BADGES: dict[str, str] = {
@@ -466,6 +486,7 @@ KNOWN_TR_TO_EN: dict[str, str] = {
     "çanta": "bag", "canta": "bag", "valiz": "suitcase", "şemsiye": "umbrella",
     "semsiye": "umbrella", "gözlük": "glasses", "gozluk": "glasses",
     "sakız": "gum", "sakiz": "gum",
+    "bal": "honey",
     "eğlence": "entertainment", "eglence": "entertainment",
     "koltuk": "sofa", "yatak": "bed", "dolap": "wardrobe", "mutfak": "kitchen",
     "okul": "school", "hastane": "hospital", "bisiklet": "bicycle",
@@ -2439,7 +2460,22 @@ def _verb_meaning_tr(verb_key: str) -> str:
             return VERBS_TR[phrase]
         if f"{parts[0]} {parts[1]}" in VERBS_TR:
             return VERBS_TR[f"{parts[0]} {parts[1]}"]
-    return VERBS_TR.get(parts[-1], "")
+    tr = VERBS_TR.get(parts[-1], "")
+    if tr:
+        return tr
+    return word_meaning_tr(parts[-1] if parts else key)
+
+
+def _phrase_meaning_tr(phrase: str) -> str:
+    key = safe_str(phrase).strip().lower()
+    if not key:
+        return ""
+    if key in PHRASES_TR:
+        return PHRASES_TR[key]
+    compact = re.sub(r"\s+", " ", key)
+    if compact in PHRASES_TR:
+        return PHRASES_TR[compact]
+    return ""
 
 
 def _parse_article_notes_tr(text: str) -> list[dict[str, str]]:
@@ -2491,7 +2527,7 @@ def build_usage_from_profile(
             continue
         tr_mean = _verb_meaning_tr(key)
         if not tr_mean:
-            tr_mean = "kullanmak"
+            continue
         entry = _enrich_usage_entry(key, tr_mean, target_lang)
         verbs_enriched.append(entry)
 
@@ -2511,9 +2547,8 @@ def build_usage_from_profile(
             en = safe_str(c).strip()
             if not en:
                 continue
-            tr = phrase_lookup.get(en.lower(), "")
-            if tr:
-                phrase_src.append({"en": en, "tr": tr})
+            tr = phrase_lookup.get(en.lower(), "") or _phrase_meaning_tr(en)
+            phrase_src.append({"en": en, "tr": tr})
     if not phrase_src and category != "object":
         phrase_src = [p for p in CATEGORY_PHRASES.get(category, []) if isinstance(p, dict) and p.get("tr")]
     phrases_enriched: list[dict[str, str]] = []
@@ -2522,6 +2557,8 @@ def build_usage_from_profile(
         if not en:
             continue
         tr = safe_str(item.get("tr") if isinstance(item, dict) else "").strip()
+        if not tr:
+            tr = _phrase_meaning_tr(en)
         if not tr:
             continue
         phrases_enriched.append(_enrich_usage_entry(en, tr, target_lang))

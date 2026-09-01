@@ -26,6 +26,7 @@ EMOJI_BY_WORD: dict[str, str] = {
     "soğan": "🧅", "sogan": "🧅", "onion": "🧅", "biber": "🌶️", "pepper": "🌶️",
     "pizza": "🍕", "hamburger": "🍔", "burger": "🍔", "patlamış mısır": "🍿", "popcorn": "🍿",
     "çikolata": "🍫", "chocolate": "🍫", "pasta": "🍰", "cake": "🍰", "kurabiye": "🍪", "cookie": "🍪",
+    "bal": "🍯", "honey": "🍯",
     "yemek": "🍽️", "food": "🍽️", "meal": "🍽️", "kahvaltı": "🥐", "breakfast": "🥐",
     "öğle yemeği": "🍱", "lunch": "🍱", "akşam yemeği": "🍽️", "dinner": "🍽️",
     # Mobilya — masa ≠ sandalye (🪑 Unicode'da CHAIR'dir)
@@ -142,6 +143,7 @@ KEYWORD_EMOJI: tuple[tuple[str, ...], str] = (
     (("elma", "apple", "muz", "banana", "portakal", "orange", "çilek", "strawberry"), "🍎"),
     (("domates", "tomato", "havuç", "carrot", "patates", "potato", "soğan", "onion"), "🥕"),
     (("ekmek", "bread", "peynir", "cheese", "yumurta", "egg", "et", "meat", "tavuk", "chicken"), "🍽️"),
+    (("bal", "honey"), "🍯"),
     (("mutlu", "happy", "üzgün", "sad", "yorgun", "tired", "kızgın", "angry"), "😊"),
     (("çalış", "calis", "work", "koş", "kos", "run", "yürü", "walk"), "💼"),
     (("ev", "home", "house", "okul", "school", "hastane", "hospital", "market", "pazar"), "📍"),
