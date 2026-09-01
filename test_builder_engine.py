@@ -31,6 +31,8 @@ def fake_translate(text: str, from_lang: str, to_lang: str) -> str:
         "ayakkabı": "shoe",
         "ayakkabi": "shoe",
         "soda": "soda",
+        "mısır": "sweetcorn",
+        "misir": "sweet corn",
         "bardak": "glass",
         "araba": "car",
         "mutlu": "happy",
@@ -229,7 +231,7 @@ def test_word_sequence_isolation():
   words = ("kahve", "ayakkabı", "pencere", "masa", "musluk", "kapı", "araba", "kitap", "pencere")
   markers = {
       "kahve": ("coffee", "☕", ("masa", "pencere", "window")),
-      "masa": ("table", "🪑", ("kahve", "coffee", "pencere", "window", "socks", "sock")),
+      "masa": ("table", "🍽️", ("kahve", "coffee", "pencere", "window", "socks", "sock")),
       "pencere": ("window", "🪟", ("kahve", "coffee", "masa", "table")),
       "musluk": ("faucet", "🚰", ("pencere", "window", "kahve", "coffee")),
       "kapı": ("door", "🚪", ("masa", "table", "kahve", "coffee")),
@@ -353,8 +355,9 @@ def test_thirteen_grammar_patterns():
     assert any("Temel kullanım" in l for l in labels)
     assert any("Olumsuz" in l for l in labels)
     assert any("Rica" in l for l in labels)
-    assert result.get("word_icon") == "🪑"
+    assert result.get("word_icon") == "🍽️"
     assert result.get("word_icon") != "📖"
+    assert result.get("word_icon") != "🪑", "masa should not use chair emoji"
     print("TEST thirteen patterns OK:", len(examples), "examples")
 
 
@@ -379,6 +382,29 @@ def test_bardak_glass_lesson():
     for p in usage.get("common_phrases") or []:
         assert p.get("tr"), f"empty phrase: {p}"
     print("TEST bardak/glass lesson OK:", len(examples))
+
+
+def test_misir_corn_american():
+    """mısır → corn (Amerikan İngilizcesi), sweetcorn değil."""
+    for word in ("mısır", "misir"):
+        result = generate_word_lesson(word, "en", fake_translate)
+        assert result["ok"], result
+        assert result.get("target_word") == "corn", f"{word} → {result.get('target_word')}"
+        assert result.get("word_icon") == "🌽", f"{word} icon"
+        usage = result.get("usage") or {}
+        assert usage.get("english_variant_tr")
+        assert "corn" in (usage.get("regional_note_tr") or "").lower() or "sweetcorn" in (usage.get("regional_note_tr") or "").lower()
+    print("TEST mısır/corn American OK")
+
+
+def test_word_icons_module():
+    from word_icons import lookup_emoji
+    assert lookup_emoji("masa", "table") == "🍽️"
+    assert lookup_emoji("sandalye", "chair") == "💺"
+    assert lookup_emoji("mısır", "corn") == "🌽"
+    assert lookup_emoji("mısır", "sweetcorn") == "🌽"
+    assert lookup_emoji("bilinmeyenkelime", "unknownword") == "🏷️"
+    print("TEST word_icons OK")
 
 
 def test_door_icon():
@@ -432,6 +458,8 @@ if __name__ == "__main__":
     test_shoe_no_socks_leak()
     test_soda_lesson()
     test_word_breakdown_turkish_meanings()
+    test_misir_corn_american()
+    test_word_icons_module()
     test_bardak_glass_lesson()
     test_word_sequence_isolation()
     test_door_icon()

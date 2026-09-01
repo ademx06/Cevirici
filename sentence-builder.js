@@ -39,8 +39,9 @@
 
   const GENERIC_ICONS = new Set(['📖', '📚', '📦', '']);
   const CATEGORY_ICONS = {
-    beverage: '🥤', furniture: '🪑', plumbing: '🚰', vehicle: '🚗',
+    beverage: '🥤', furniture: '🛋️', plumbing: '🚰', vehicle: '🚗',
     adjective: '😊', verb: '💼', place: '📍', object: '📦', footwear: '👟',
+    food: '🍽️', fruit: '🍎', vegetable: '🥕', animal: '🐾', drinkware: '🥛',
   };
 
   function resolveWordIcon(wordOrData, apiIcon) {
@@ -49,12 +50,15 @@
     const target = data?.target_word || '';
     const key = String(word || '').trim().toLowerCase();
     const targetKey = String(target || '').trim().toLowerCase();
+    // Backend tek kaynak — API ikonu öncelikli
+    const apiResolved = apiIcon || data?.word_icon || '';
+    if (apiResolved && !GENERIC_ICONS.has(apiResolved)) return apiResolved;
     const map = {
       kahve: '☕', coffee: '☕', çay: '🍵', tea: '🍵',
       musluk: '🚰', faucet: '🚰', tap: '🚰',
       kapı: '🚪', kapi: '🚪', door: '🚪', araba: '🚗', car: '🚗',
       ev: '🏠', house: '🏠', home: '🏠', telefon: '📱', phone: '📱',
-      kitap: '📚', book: '📚', masa: '🪑', table: '🪑',
+      kitap: '📚', book: '📚', masa: '🍽️', table: '🍽️',
       sandalye: '💺', chair: '💺', pencere: '🪟', window: '🪟',
       su: '💧', water: '💧', kalem: '✏️', pen: '✏️',
       mutlu: '😊', happy: '😊',
@@ -62,17 +66,18 @@
       soda: '🥤', gazoz: '🥤', kola: '🥤', cola: '🥤',
       bardak: '🥛', glass: '🥛', glasses: '🥛', fincan: '☕', cup: '☕',
       süt: '🥛', milk: '🥛', ekmek: '🍞', bread: '🍞',
+      mısır: '🌽', misir: '🌽', corn: '🌽', sweetcorn: '🌽',
       kedi: '🐱', cat: '🐱', köpek: '🐶', dog: '🐶',
     };
     if (map[key]) return map[key];
     if (map[targetKey]) return map[targetKey];
-    const icon = apiIcon || data?.word_icon || '';
-    if (icon && !GENERIC_ICONS.has(icon)) return icon;
     const cat = data?.word_profile?.semantic_category;
     if (cat && CATEGORY_ICONS[cat]) return CATEGORY_ICONS[cat];
     const keywordIcons = [
+      [['mısır', 'misir', 'corn', 'sweetcorn'], '🌽'],
       [['kahve', 'çay', 'gazoz', 'kola', 'soda', 'su', 'süt'], '🥤'],
-      [['masa', 'sandalye', 'koltuk', 'yatak'], '🪑'],
+      [['masa', 'table'], '🍽️'],
+      [['sandalye', 'chair'], '💺'],
       [['ayakkabı', 'ayakkabi', 'bot'], '👟'],
       [['araba', 'otomobil', 'bisiklet'], '🚗'],
       [['musluk', 'lavabo', 'duş'], '🚰'],
@@ -183,7 +188,7 @@
       return `
         <li class="mod-pattern-card">
           ${p.tr ? `<div class="mod-card-line mod-card-tr"><span class="mod-flag">🇹🇷</span>${esc(p.tr)}</div>` : ''}
-          <div class="mod-card-line mod-card-target"><span class="mod-flag">🇬🇧</span>${esc(p.target)}</div>
+          <div class="mod-card-line mod-card-target"><span class="mod-flag">🇺🇸</span>${esc(p.target)}</div>
           ${p.pronunciation_tr ? `<div class="mod-pron-row"><span class="mod-pron-label">🗣️ Okunuş</span><span class="mod-pron-value">${esc(p.pronunciation_tr)}</span></div>` : ''}
           <button type="button" class="mod-listen-btn builder-listen mod-listen-sm" data-text="${esc(p.target)}" data-lang="${lang}">🔊 Dinle</button>
           ${nw ? `<div class="mod-new-words"><strong>📖 Yeni kelimeler</strong>${nw}</div>` : ''}
@@ -297,7 +302,7 @@
         ${meaning ? `<p><strong>Türkçesi:</strong> ${esc(meaning)}</p>` : ''}
         ${pron ? `<p><strong>Okunuş:</strong> ${esc(pron)}</p>` : ''}
         <button type="button" class="mod-listen-btn builder-listen" data-text="${esc(word)}" data-lang="${lang}">🔊 Dinle</button>
-        ${exTarget ? `<div class="mod-popup-example"><span class="mod-flag">🇬🇧</span>${esc(exTarget)}</div>` : ''}
+        ${exTarget ? `<div class="mod-popup-example"><span class="mod-flag">🇺🇸</span>${esc(exTarget)}</div>` : ''}
         ${exTr ? `<div class="mod-popup-example"><span class="mod-flag">🇹🇷</span>${esc(exTr)}</div>` : ''}
       </div>`;
     overlay.addEventListener('click', (e) => {
@@ -316,6 +321,7 @@
   function renderUsageMap(usage, lang) {
     if (!usage || typeof usage !== 'object') return '';
     const rows = [];
+    if (usage.english_variant_tr) rows.push(`<p class="mod-variant">${esc(usage.english_variant_tr)}</p>`);
     if (usage.part_of_speech_tr) rows.push(`<p><strong>Tür:</strong> ${esc(usage.part_of_speech_tr)}</p>`);
     if (usage.countability_tr) rows.push(`<p><strong>Sayılabilirlik:</strong> ${esc(usage.countability_tr)}</p>`);
     if (usage.meaning_tr) rows.push(`<p><strong>Anlam:</strong> ${esc(usage.meaning_tr)}</p>`);
@@ -330,7 +336,7 @@
       rows.push(`<div class="mod-phrases-block"><strong>Yaygın ifadeler</strong>${
         usage.common_phrases.map((p) => `
           <div class="mod-phrase-item">
-            <div class="mod-card-line"><span class="mod-flag">🇬🇧</span>${esc(p.en)}</div>
+            <div class="mod-card-line"><span class="mod-flag">🇺🇸</span>${esc(p.en)}</div>
             ${p.tr ? `<div class="mod-card-line"><span class="mod-flag">🇹🇷</span>${esc(p.tr)}</div>` : ''}
             ${formatPronLine(p.pronunciation_tr, p.ipa) ? `<div class="mod-pron-row"><span class="mod-pron-label">${formatPronLine(p.pronunciation_tr, p.ipa)}</span></div>` : ''}
             <button type="button" class="mod-listen-btn builder-listen mod-listen-sm" data-text="${esc(p.en)}" data-lang="${lang || 'en'}">🔊 Dinle</button>
@@ -344,7 +350,7 @@
       rows.push(`<div class="mod-alt-terms"><strong>💡 Alternatif ifadeler</strong>${
         usage.alternative_terms_tr.map((t) => `
           <div class="mod-alt-term-item">
-            <div class="mod-card-line"><span class="mod-flag">🇬🇧</span><strong>${esc(t.en)}</strong> → ${esc(t.tr || '')}</div>
+            <div class="mod-card-line"><span class="mod-flag">🇺🇸</span><strong>${esc(t.en)}</strong> → ${esc(t.tr || '')}</div>
             ${formatPronLine(t.pronunciation_tr, t.ipa) ? `<div class="mod-pron-row mod-pron-inline">${formatPronLine(t.pronunciation_tr, t.ipa)}</div>` : ''}
             ${t.note_tr ? `<p class="mod-alt-note">${esc(t.note_tr)}</p>` : ''}
           </div>`).join('')
@@ -359,7 +365,7 @@
     const blocks = patterns.map((p) => {
       const exs = (p.examples || []).map((e) => `
         <div class="mod-pattern-mini">
-          <span class="mod-flag">🇬🇧</span>${esc(e.target)}
+          <span class="mod-flag">🇺🇸</span>${esc(e.target)}
           ${e.tr ? `<br><span class="mod-flag">🇹🇷</span>${esc(e.tr)}` : ''}
         </div>`).join('');
       return `
@@ -377,7 +383,7 @@
     const rows = clauses.map((c) => `
       <div class="mod-clause">
         <div><span class="mod-flag">🇹🇷</span>${esc(c.clause_tr)}</div>
-        <div><span class="mod-flag">🇬🇧</span>${esc(c.target)}</div>
+        <div><span class="mod-flag">🇺🇸</span>${esc(c.target)}</div>
         ${c.role_tr ? `<small>${esc(c.role_tr)}</small>` : ''}
       </div>`).join('');
     return `<div class="mod-clauses"><h4>Cümle parçaları</h4>${rows}</div>`;

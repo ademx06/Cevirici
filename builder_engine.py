@@ -1,7 +1,7 @@
 """Cümle Kur + Kendini Test Et — kelime/cümle üretimi, yapılandırılmış analiz, telaffuz."""
 from __future__ import annotations
 
-APP_VERSION = "2026.09.01-v14"
+APP_VERSION = "2026.09.01-v15"
 
 import difflib
 import json
@@ -26,6 +26,7 @@ from pronunciation_service import (
     strip_teaching_header,
 )
 from word_teaching_engine import (
+    ENGLISH_VARIANT,
     SENTENCE_TEACHING_V3_PROMPT,
     analyze_word_profile,
     build_rule_examples_for_word,
@@ -338,7 +339,7 @@ def generate_word_lesson(
             examples = fallback
 
     tw_pron = get_word(target_lang, target_word)
-    usage = build_usage_from_profile(profile, target_lang)
+    usage = build_usage_from_profile(profile, target_lang, target_word)
     if profile.get("regional_variants"):
         usage["regional_variants"] = profile["regional_variants"]
     word_explanation = build_rich_word_explanation(word_tr, target_word, profile)
@@ -360,6 +361,7 @@ def generate_word_lesson(
             "meaning_tr": profile.get("meaning_tr"),
         },
         "word_explanation_tr": word_explanation,
+        "english_variant": ENGLISH_VARIANT,
         "usage": usage,
         "examples": examples[:13],
     }

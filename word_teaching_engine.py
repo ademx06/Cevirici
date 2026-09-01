@@ -12,6 +12,31 @@ from pronunciation_service import (
     word_meaning_tr,
     word_role_tr,
 )
+from word_icons import lookup_emoji
+
+# Varsayılan İngilizce varyantı — Amerikan İngilizcesi
+ENGLISH_VARIANT = "en-US"
+ENGLISH_VARIANT_LABEL_TR = "🇺🇸 Amerikan İngilizcesi (varsayılan)"
+
+# Bilinen US/UK farkları — kartlarda bilgi notu olarak gösterilir
+US_UK_VARIANT_NOTES: dict[str, str] = {
+    "corn": "🇬🇧 British English: bazen sweetcorn veya maize denir; 🇺🇸 American English: corn",
+    "faucet": "🇺🇸 American English: faucet · 🇬🇧 British English: tap",
+    "tap": "🇬🇧 British English: tap · 🇺🇸 American English: faucet",
+    "soda": "🇺🇸 soda / pop · 🇬🇧 fizzy drink / soft drink",
+    "elevator": "🇺🇸 elevator · 🇬🇧 lift",
+    "lift": "🇬🇧 lift · 🇺🇸 elevator",
+    "truck": "🇺🇸 truck · 🇬🇧 lorry",
+    "lorry": "🇬🇧 lorry · 🇺🇸 truck",
+    "apartment": "🇺🇸 apartment · 🇬🇧 flat",
+    "flat": "🇬🇧 flat · 🇺🇸 apartment",
+    "cookie": "🇺🇸 cookie · 🇬🇧 biscuit (tatlı)",
+    "biscuit": "🇬🇧 biscuit · 🇺🇸 cookie",
+    "pants": "🇺🇸 pants (pantolon) · 🇬🇧 trousers",
+    "trousers": "🇬🇧 trousers · 🇺🇸 pants",
+    "color": "🇺🇸 color · 🇬🇧 colour",
+    "colour": "🇬🇧 colour · 🇺🇸 color",
+}
 
 # ── Yasak şablon kalıpları (kelime yerine koyma) ──
 BANNED_TEMPLATE_RE = [
@@ -205,7 +230,7 @@ Hedef kelime (çeviri): "{target_word}"
 2. Başka kelimenin (coffee, table, socks) kalıplarını kopyalama.
 3. Yaygın fiiller ve ifadelerde her İngilizce öğenin Türkçe anlamı dolu olmalı.
 4. Doğal günlük İngilizce; yapay çeviri yok (❌ black soda → ✅ diet soda / cola).
-5. US/UK farkı varsa belirt (ör. faucet/tap, soda/pop).
+5. Varsayılan Amerikan İngilizcesi (US); UK farkı varsa bilgi notu olarak belirt (ör. faucet/tap, corn/sweetcorn).
 
 JSON döndür:
 {{
@@ -317,6 +342,11 @@ KNOWN_CATEGORIES: dict[str, str] = {
     "ayakkabı": "footwear", "ayakkabi": "footwear", "shoe": "footwear", "shoes": "footwear",
     "bardak": "drinkware", "glass": "drinkware", "fincan": "drinkware", "cup": "drinkware",
     "tabak": "drinkware", "plate": "drinkware", "kase": "drinkware", "bowl": "drinkware",
+    "mısır": "food", "misir": "food", "corn": "food", "sweetcorn": "food",
+    "elma": "fruit", "apple": "fruit", "muz": "fruit", "banana": "fruit",
+    "domates": "vegetable", "tomato": "vegetable", "havuç": "vegetable", "carrot": "vegetable",
+    "ekmek": "food", "bread": "food", "peynir": "food", "cheese": "food",
+    "kedi": "animal", "cat": "animal", "köpek": "animal", "dog": "animal",
 }
 
 # Çeviri başarısız olunca bilinen TR→EN eşleşmeleri
@@ -328,46 +358,62 @@ KNOWN_TR_TO_EN: dict[str, str] = {
     "ev": "home", "pazar": "market", "market": "market", "su": "water", "çay": "tea",
     "bardak": "glass", "fincan": "cup", "tabak": "plate", "kase": "bowl", "çatal": "fork",
     "bıçak": "knife", "bicak": "knife", "kaşık": "spoon", "kasik": "spoon",
+    "mısır": "corn", "misir": "corn", "mısır tanesi": "corn", "tatlı mısır": "corn",
+    "elma": "apple", "muz": "banana", "portakal": "orange", "domates": "tomato",
+    "havuç": "carrot", "havuc": "carrot", "patates": "potato", "ekmek": "bread", "peynir": "cheese",
+    "yumurta": "egg", "tavuk": "chicken", "balık": "fish", "balik": "fish",
+    "kedi": "cat", "köpek": "dog", "kopek": "dog", "kuş": "bird", "kus": "bird",
+    "koltuk": "sofa", "yatak": "bed", "dolap": "wardrobe", "mutfak": "kitchen",
+    "okul": "school", "hastane": "hospital", "bisiklet": "bicycle",
 }
 
+# Çeviri API'sinin döndürdüğü varyantları Amerikan İngilizcesine normalize et
+EN_TARGET_ALIASES: dict[str, str] = {
+    "sweetcorn": "corn",
+    "sweet corn": "corn",
+    "sweet-corn": "corn",
+    "maize": "corn",
+    "tap": "faucet",
+    "lift": "elevator",
+    "lorry": "truck",
+    "flat": "apartment",
+    "colour": "color",
+    "trousers": "pants",
+    "biscuit": "cookie",
+    "crisps": "chips",
+    "chips": "fries",
+    "petrol": "gas",
+    "bonnet": "hood",
+}
+
+
+def _normalize_en_target(word_tr: str, target_word: str) -> str:
+    """API çevirisini Amerikan İngilizcesi kanonik formuna getir."""
+    tw = safe_str(target_word).strip().lower()
+    tw = EN_TARGET_ALIASES.get(tw, tw)
+    tw = re.sub(r"\s+", " ", tw)
+    if tw in EN_TARGET_ALIASES:
+        tw = EN_TARGET_ALIASES[tw]
+    return tw
+
+
 def resolve_target_word(word_tr: str, target_word: str, target_lang: str) -> str:
-    """Çeviri Türkçe döndüyse bilinen İngilizce karşılığı kullan."""
+    """Çeviri Türkçe döndüyse bilinen İngilizce karşılığı kullan; US English öncelikli."""
+    raw = safe_str(word_tr).strip()
     wt = _norm(word_tr)
     if target_lang == "en":
+        # Ülke adı: Mısır (büyük M) → Egypt
+        if raw in ("Mısır", "Misir", "MISIR"):
+            return "egypt"
         known = KNOWN_TR_TO_EN.get(wt) or KNOWN_TR_TO_EN.get(word_tr.lower())
         if known:
             return known.lower()
-        tw = safe_str(target_word).strip().lower()
+        tw = _normalize_en_target(word_tr, target_word)
         if not tw or tw == wt or tw == word_tr.lower():
             return (known or tw or word_tr).lower()
         return tw
     tw = safe_str(target_word).strip()
     return tw or word_tr
-
-WORD_ICONS: dict[str, str] = {
-    "kahve": "☕", "coffee": "☕", "çay": "🍵", "tea": "🍵",
-    "soda": "🥤", "gazoz": "🥤", "kola": "🥤", "cola": "🥤",
-    "masa": "🪑", "table": "🪑", "sandalye": "💺", "chair": "💺",
-    "musluk": "🚰", "faucet": "🚰", "tap": "🚰",
-    "araba": "🚗", "car": "🚗", "otomobil": "🚗",
-    "mutlu": "😊", "happy": "😊",
-    "çalışmak": "💼", "work": "💼", "çalış": "💼",
-    "ev": "🏠", "home": "🏠", "kitap": "📚", "book": "📚",
-    "su": "💧", "water": "💧", "market": "🛒", "pazar": "🛒",
-    "kapı": "🚪", "kapi": "🚪", "door": "🚪",
-    "pencere": "🪟", "window": "🪟",
-    "telefon": "📱", "phone": "📱",
-    "kalem": "✏️", "pen": "✏️",
-    "ayakkabı": "👟", "ayakkabi": "👟", "shoe": "👟", "shoes": "👟",
-    "bardak": "🥛", "glass": "🥛", "glasses": "🥛", "fincan": "☕", "cup": "☕",
-    "tabak": "🍽️", "plate": "🍽️", "kase": "🥣", "bowl": "🥣",
-}
-
-CATEGORY_ICONS: dict[str, str] = {
-    "beverage": "🥤", "furniture": "🪑", "plumbing": "🚰", "vehicle": "🚗",
-    "adjective": "😊", "verb": "💼", "place": "📍", "object": "📦", "footwear": "👟",
-    "drinkware": "🥛",
-}
 
 SENTENCE_TYPE_LABELS: dict[str, str] = {
     "location": "📍 Konum",
@@ -397,36 +443,9 @@ SENTENCE_TYPE_LABELS: dict[str, str] = {
 
 
 def word_icon_for(word_tr: str, target_word: str, category: str = "general") -> str:
-    """İkon — kelime sözlüğü → kategori → anahtar kelime; asla alakasız 📖 kullanma."""
-    for w in (_norm(word_tr), _norm(target_word)):
-        if w in WORD_ICONS:
-            return WORD_ICONS[w]
-    cat = detect_category(word_tr, target_word)
-    if cat in CATEGORY_ICONS:
-        return CATEGORY_ICONS[cat]
-    # Türkçe anahtar kelime tahmini
-    wt = _norm(word_tr)
-    keyword_icons = (
-        (("kahve", "çay", "gazoz", "kola", "soda", "cola", "su", "süt", "meyve"), "🥤"),
-        (("masa", "sandalye", "koltuk", "yatak", "dolap"), "🪑"),
-        (("ayakkabı", "ayakkabi", "bot", "çorap", "corap"), "👟"),
-        (("araba", "otomobil", "bisiklet", "otobüs", "tren", "uçak"), "🚗"),
-        (("musluk", "lavabo", "duş", "banyo"), "🚰"),
-        (("kapı", "kapi", "pencere", "duvar", "tavan"), "🪟"),
-        (("kitap", "defter", "gazete", "dergi"), "📚"),
-        (("telefon", "bilgisayar", "tablet", "kamera"), "📱"),
-        (("kalem", "silgi", "kağıt", "defter"), "✏️"),
-        (("mutlu", "üzgün", "yorgun", "kızgın", "heyecan"), "😊"),
-        (("çalış", "calis", "koş", "kos", "yürü"), "💼"),
-        (("ev", "market", "pazar", "okul", "hastane", "park"), "📍"),
-        (("yemek", "ekmek", "peynir", "et", "sebze", "meyve"), "🍽️"),
-        (("kedi", "köpek", "kuş", "balık"), "🐾"),
-        (("güneş", "yağmur", "kar", "bulut"), "🌤️"),
-    )
-    for keys, icon in keyword_icons:
-        if any(k in wt for k in keys):
-            return icon
-    return "🏷️"
+    """İkon — merkezi sözlükten; asla alakasız 📖 veya masa→sandalye karışıklığı yok."""
+    cat = category if category != "general" else detect_category(word_tr, target_word)
+    return lookup_emoji(word_tr, target_word, cat)
 
 
 def _norm(s: str) -> str:
@@ -858,6 +877,34 @@ def _rule_word_profile(
             },
             "avoid_patterns": ["black soda", "I love soda", "These socks are warm"],
             "avoid_reason_tr": "Gazoz için black soda doğal değil; diet soda veya cola kullan.",
+        }
+    elif category == "food" and (wt in ("mısır", "misir") or tw in ("corn", "sweetcorn", "maize")):
+        base = {
+            "part_of_speech": "noun",
+            "countability": "both",
+            "semantic_category": "food",
+            "meaning_tr": word_tr,
+            "usage_notes_tr": (
+                f"«{word_tr}» → corn. Amerikan İngilizcesinde mısır tanesi/bitki için standart kelime "
+                "corn'dur (sweet corn, corn on the cob, canned corn). "
+                "İngiliz İngilizcesinde bazen sweetcorn veya maize de kullanılır; "
+                "biz varsayılan olarak Amerikan İngilizcesi (corn) öğretiyoruz."
+            ),
+            "common_verbs": ["eat", "cook", "boil", "grill", "grow", "buy", "serve"],
+            "common_collocations": [
+                "corn on the cob", "sweet corn", "canned corn", "fresh corn", "corn soup",
+            ],
+            "common_patterns": [
+                "I like corn.", "We had corn for dinner.", "Can you buy some corn?",
+            ],
+            "article_notes_tr": "Madde: corn (sayılamaz) · Porsiyon: an ear of corn / some corn",
+            "regional_variants": {
+                "us": "corn",
+                "uk": "sweetcorn / maize",
+                "note_tr": US_UK_VARIANT_NOTES.get("corn", ""),
+            },
+            "avoid_patterns": ["I love corn Egypt", "corn country"],
+            "avoid_reason_tr": "Mısır (ülke) için Egypt kullan; küçük m ile mısır (yiyecek) için corn.",
         }
     elif category == "beverage" and (wt in ("kahve", "coffee") or tw == "coffee"):
         base = dict(profiles["beverage"])
@@ -1747,7 +1794,11 @@ def validate_lesson_quality(
     return True
 
 
-def build_usage_from_profile(profile: dict[str, Any], target_lang: str) -> dict[str, Any]:
+def build_usage_from_profile(
+    profile: dict[str, Any],
+    target_lang: str,
+    target_word: str = "",
+) -> dict[str, Any]:
     pos = profile.get("part_of_speech", "noun")
     pos_tr = {"noun": "isim", "verb": "fiil", "adjective": "sıfat", "adverb": "zarf"}.get(pos, pos)
     count = profile.get("countability", "")
@@ -1845,7 +1896,9 @@ def build_usage_from_profile(profile: dict[str, Any], target_lang: str) -> dict[
         "patterns": patterns[:4],
         "article_notes_tr": profile.get("article_notes_tr"),
         "avoid_reason_tr": profile.get("avoid_reason_tr"),
-        "regional_note_tr": (profile.get("regional_variants") or {}).get("note_tr"),
+        "regional_note_tr": (profile.get("regional_variants") or {}).get("note_tr")
+            or US_UK_VARIANT_NOTES.get(_en_target_word(target_word), ""),
+        "english_variant_tr": ENGLISH_VARIANT_LABEL_TR,
         "common_mistakes_tr": profile.get("avoid_reason_tr") or (
             "Türkçe kelime sırasını birebir kopyalama; her kelimenin doğal fiillerini kullan."
         ),
