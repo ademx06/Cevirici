@@ -78,8 +78,25 @@ VERBS_TR: dict[str, str] = {
     "knock": "çalmak", "wipe": "silmek", "clear": "toplamak",
     "order": "sipariş etmek", "sip": "yudumlamak", "serve": "servis etmek",
     "pour": "dökmek", "chill": "soğutmak",
+    "fill": "doldurmak", "break": "kırmak", "wash": "yıkamak", "dry": "kurulamak",
+    "raise": "kaldırmak", "hold": "tutmak", "collect": "toplamak",
 }
 
+GRAMMAR_BADGES: dict[str, str] = {
+    "basic": "🌅 RUTİN",
+    "present": "🔄 ŞU AN",
+    "past": "🕐 GEÇMİŞ",
+    "future": "🔮 GELECEK",
+    "question": "❓ SORU",
+    "negative": "⛔ OLUMSUZ",
+    "imperative": "👉 EMİR",
+    "polite_request": "🗣️ RİCA",
+    "advice": "🤝 TEKLİF",
+    "obligation": "📋 ZORUNLULUK",
+    "possibility": "🎲 İHTİMAL",
+    "conditional": "🔀 KOŞUL",
+    "dialogue": "💬 DİYALOG",
+}
 GRAMMAR_PATTERNS: dict[str, dict[str, Any]] = {
     "basic": {"num": 1, "label_tr": "1. Temel kullanım"},
     "present": {"num": 2, "label_tr": "2. Şimdiki zaman"},
@@ -161,6 +178,14 @@ CATEGORY_PHRASES: dict[str, list[dict[str, str]]] = {
     "vehicle": [
         {"en": "drive the car", "tr": "arabayı sürmek"},
         {"en": "park the car", "tr": "arabayı park etmek"},
+    ],
+    "drinkware": [
+        {"en": "a glass of water", "tr": "bir bardak su"},
+        {"en": "an empty glass", "tr": "boş bardak"},
+        {"en": "break a glass", "tr": "bardak kırmak"},
+        {"en": "fill the glass", "tr": "bardağı doldurmak"},
+        {"en": "wash the glasses", "tr": "bardakları yıkamak"},
+        {"en": "raise a glass", "tr": "(kadeh) kaldırmak"},
     ],
 }
 
@@ -284,6 +309,8 @@ KNOWN_CATEGORIES: dict[str, str] = {
     "kalem": "object", "pen": "object",
     "ev": "place", "home": "place", "market": "place", "pazar": "place",
     "ayakkabı": "footwear", "ayakkabi": "footwear", "shoe": "footwear", "shoes": "footwear",
+    "bardak": "drinkware", "glass": "drinkware", "fincan": "drinkware", "cup": "drinkware",
+    "tabak": "drinkware", "plate": "drinkware", "kase": "drinkware", "bowl": "drinkware",
 }
 
 # Çeviri başarısız olunca bilinen TR→EN eşleşmeleri
@@ -293,18 +320,22 @@ KNOWN_TR_TO_EN: dict[str, str] = {
     "araba": "car", "mutlu": "happy", "çalışmak": "work", "calismak": "work",
     "ayakkabı": "shoe", "ayakkabi": "shoe", "sandalye": "chair", "telefon": "phone",
     "ev": "home", "pazar": "market", "market": "market", "su": "water", "çay": "tea",
+    "bardak": "glass", "fincan": "cup", "tabak": "plate", "kase": "bowl", "çatal": "fork",
+    "bıçak": "knife", "bicak": "knife", "kaşık": "spoon", "kasik": "spoon",
 }
 
 def resolve_target_word(word_tr: str, target_word: str, target_lang: str) -> str:
     """Çeviri Türkçe döndüyse bilinen İngilizce karşılığı kullan."""
-    tw = safe_str(target_word).strip()
-    if target_lang == "en":
-        tw = tw.lower()
     wt = _norm(word_tr)
-    if target_lang == "en" and (not tw or tw == wt or tw == word_tr.lower() or not tw.isascii()):
-        fallback = KNOWN_TR_TO_EN.get(wt) or KNOWN_TR_TO_EN.get(word_tr.lower())
-        if fallback:
-            return fallback.lower()
+    if target_lang == "en":
+        known = KNOWN_TR_TO_EN.get(wt) or KNOWN_TR_TO_EN.get(word_tr.lower())
+        if known:
+            return known.lower()
+        tw = safe_str(target_word).strip().lower()
+        if not tw or tw == wt or tw == word_tr.lower():
+            return (known or tw or word_tr).lower()
+        return tw
+    tw = safe_str(target_word).strip()
     return tw or word_tr
 
 WORD_ICONS: dict[str, str] = {
@@ -322,11 +353,14 @@ WORD_ICONS: dict[str, str] = {
     "telefon": "📱", "phone": "📱",
     "kalem": "✏️", "pen": "✏️",
     "ayakkabı": "👟", "ayakkabi": "👟", "shoe": "👟", "shoes": "👟",
+    "bardak": "🥛", "glass": "🥛", "glasses": "🥛", "fincan": "☕", "cup": "☕",
+    "tabak": "🍽️", "plate": "🍽️", "kase": "🥣", "bowl": "🥣",
 }
 
 CATEGORY_ICONS: dict[str, str] = {
     "beverage": "🥤", "furniture": "🪑", "plumbing": "🚰", "vehicle": "🚗",
     "adjective": "😊", "verb": "💼", "place": "📍", "object": "📦", "footwear": "👟",
+    "drinkware": "🥛",
 }
 
 SENTENCE_TYPE_LABELS: dict[str, str] = {
@@ -423,6 +457,16 @@ def _resolve_category(word_tr: str, target_word: str, category: str | None = Non
     if cat == "furniture" and wt not in ("masa", "sandalye") and tw not in ("table", "chair"):
         return "object"
     return cat or "general"
+
+
+def _english_leaked_turkish(target: str, word_tr: str, target_word: str) -> bool:
+    """İngilizce cümlede Türkçe kelime kaldı mı? (ör. The bardak is here)"""
+    wt = _norm(word_tr)
+    tw = _en_target_word(target_word)
+    if not wt or wt == tw or len(wt) < 3:
+        return False
+    tokens = set(re.findall(r"[a-zçğıöşüâîû]+", _norm(target)))
+    return wt in tokens
 
 
 def _tr_contains_word(text: str, word_tr: str) -> bool:
@@ -792,6 +836,41 @@ def _rule_word_profile(
             "Türkçedeki «kahve içmek» İngilizcede drink/have coffee ile kurulur. "
             "Bir porsiyon için a coffee da kullanılabilir."
         )
+    elif category == "drinkware" and (wt in ("bardak",) or tw == "glass"):
+        base = {
+            "part_of_speech": "noun",
+            "countability": "both",
+            "semantic_category": "drinkware",
+            "meaning_tr": "bardak (kap)",
+            "usage_notes_tr": (
+                "«bardak» → glass. İngilizcede glass iki anlama gelir: "
+                "sayılabilir olarak «bardak» (a glass, three glasses) ve "
+                "sayılamaz olarak «cam» materyali (made of glass). "
+                "Çoğul glasses bağlama göre «bardaklar» veya «gözlük» olabilir. "
+                "Doğal kalıp: a glass of water (bir bardak su). "
+                "❌ I want a glass tek başına kaba — Can I have a glass of water? veya "
+                "Could I get an empty glass, please? daha doğal."
+            ),
+            "common_verbs": ["fill", "break", "wash", "dry", "raise", "hold", "pour"],
+            "common_collocations": [
+                "a glass of water", "an empty glass", "break a glass",
+                "wash the glasses", "fill the glass", "the glasses",
+            ],
+            "common_patterns": [
+                "Can I have a glass of water?",
+                "Would you like a glass of cold water?",
+                "There isn't a glass on the table.",
+            ],
+            "article_notes_tr": (
+                "Bardak (kap): a glass / the glass / an empty glass. "
+                "Cam (materyal): glass (sayılamaz, artikel yok: Glass is fragile)."
+            ),
+            "avoid_patterns": ["I want glass", "drink the glass", "open the glass"],
+            "avoid_reason_tr": (
+                "Restoranda bardak isterken içeceği de belirt: a glass of water. "
+                "Boş bardak için: an empty glass, please."
+            ),
+        }
     return {"target_word": target_word, **base}
 
 
@@ -969,7 +1048,84 @@ def _thirteen_pattern_examples_en(
         return _vehicle_pattern_examples(W, T)
     if category == "plumbing":
         return _plumbing_pattern_examples(W, T)
+    if category == "drinkware":
+        return _drinkware_pattern_examples(W, T, wt, tw)
     return _object_pattern_examples(W, T, category)
+
+
+def _drinkware_pattern_examples(W: str, T: str, wt: str, tw: str) -> list[dict[str, Any]]:
+    """Bardak / glass — doğal a glass of… kalıpları."""
+    if tw == "glass":
+        return [
+            _pe(W, "Her yemekte bir bardak su içerim.", "I drink a glass of water with every meal.", "basic",
+                "I + drink + a glass of water + with every meal",
+                "1️⃣ Genel anlam\nGünlük rutin: her yemekte bir bardak su içmek.\n\n"
+                "2️⃣ a glass of water\n«Bir bardak su» kalıbı — glass + of + içecek.\n\n"
+                "3️⃣ with every meal\n«Her yemekte / yemeklerde» anlamı.\n\n"
+                "❌ I drink water glass — doğal değil."),
+            _pe(W, "O, bardakları yıkıyor.", "He is washing the glasses.", "present",
+                "He + is + washing + the glasses",
+                "1️⃣ Şimdiki zaman\nis + washing → yıkıyor.\n\n"
+                "2️⃣ glasses\nGlass çoğulu glasses olur (glaasız).\n\n"
+                "3️⃣ the glasses\nBelirli bardaklar → the glasses.",
+                scenario_badge="🔄 ŞU AN"),
+            _pe(W, "Yanlışlıkla bir bardak kırdım.", "I accidentally broke a glass.", "past",
+                "I + accidentally + broke + a glass",
+                "1️⃣ Geçmiş zaman\nbroke → kırdım (break'in geçmişi).\n\n"
+                "2️⃣ accidentally\nYanlışlıkla / kazara.\n\n"
+                "3️⃣ a glass\nTekil bardak → a glass.",
+                scenario_badge="🕐 GEÇMİŞ"),
+            _pe(W, "Yemeğe bir bardak su koyacağım.", "I will pour a glass of water for dinner.", "future",
+                "I + will + pour + a glass of water",
+                "1️⃣ Gelecek zaman\nwill + pour → koyacağım / dolduracağım.\n\n"
+                "2️⃣ pour a glass of\nBardağı doldurmak için doğal fiil: pour.\n\n"
+                "3️⃣ for dinner\nYemek için."),
+            _pe(W, "Masada kaç bardak var?", "How many glasses are on the table?", "question",
+                "How many + glasses + are + on the table",
+                "1️⃣ Soru cümlesi\nHow many → kaç tane\n\n"
+                "2️⃣ glasses are\nÇoğul: are (is değil).\n\n"
+                "3️⃣ on the table\nMasada → on the table."),
+            _pe(W, "Masada hiç bardak yok.", "There isn't a glass on the table.", "negative",
+                "There + isn't + a glass + on the table",
+                "1️⃣ Olumsuz / yokluk\nThere isn't a… → … yok (tekil).\n\n"
+                "2️⃣ a glass\nTekil bardak.\n\n"
+                "3️⃣ on the table\nMasada → on the table.",
+                scenario_badge="⛔ OLUMSUZ"),
+            _pe(W, "Bardağı doldur.", "Fill the glass.", "imperative",
+                "Fill + the glass",
+                "1️⃣ Emir kipi\nFill → doldur\n\n"
+                "2️⃣ the glass\nBelirli bardak.\n\n"
+                "Emirde özne yazılmaz."),
+            _pe(W, "Boş bir bardak alabilir miyim?", "Can I have an empty glass?", "polite_request",
+                "Can + I + have + an empty glass",
+                "1️⃣ Rica cümlesi\nCan I have…? → … alabilir miyim?\n\n"
+                "2️⃣ an empty glass\nEmpty sesli harfle başlar → an (a değil).\n\n"
+                "3️⃣ Boş bardak isteği\nİçecek değil, sadece bardak için doğal kalıp.",
+                scenario_badge="🗣️ RİCA"),
+            _pe(W, "Bir bardak soğuk su ister misiniz?", "Would you like a glass of cold water?", "advice",
+                "Would + you + like + a glass of cold water",
+                "1️⃣ Kibar teklif\nWould you like…? → … ister misiniz?\n\n"
+                "2️⃣ cold water\nSıfat isimden önce: cold water.\n\n"
+                "3️⃣ a glass of\nBir bardak … kalıbı.",
+                scenario_badge="🤝 TEKLİF"),
+            _pe(W, "Bardak toplamam lazım.", "I need to collect the glasses.", "obligation",
+                "I + need to + collect + the glasses",
+                "1️⃣ Zorunluluk\nneed to + fiil → …-mem lazım.\n\n"
+                "2️⃣ collect the glasses\nBardakları toplamak."),
+            _pe(W, "Bardak kırılmış olabilir.", "The glass might be broken.", "possibility",
+                "The + glass + might + be + broken",
+                "1️⃣ İhtimal\nmight be → … olabilir / …-mış olabilir.\n\n"
+                "2️⃣ broken\nKırık (sıfat)."),
+            _pe(W, "Bardak kırılırsa dikkatli ol.", "If the glass breaks, be careful.", "conditional",
+                "If + the glass + breaks, + be careful",
+                "1️⃣ Koşul cümlesi\nIf … breaks → … kırılırsa\n\n"
+                "2️⃣ be careful\nDikkatli ol (emir/tavsiye)."),
+            _pe(W, "A: Bir bardak su ister misin? B: Evet, lütfen.", "A: Would you like a glass of water? B: Yes, please.", "dialogue",
+                "A: Would you like…? B: Yes, please",
+                "1️⃣ Günlük diyalog\nKibar teklif + kısa cevap.\n\n"
+                "2️⃣ Yes, please\nEvet, lütfen — çok doğal cevap."),
+        ]
+    return _object_pattern_examples(W, T, "drinkware")
 
 
 def _pe(
@@ -980,8 +1136,10 @@ def _pe(
     structure_tr: str,
     how: str,
     pattern_tr: str | None = None,
+    scenario_badge: str | None = None,
 ) -> dict[str, Any]:
-    return _ex(W, tr, target, grammar_pattern, structure_tr, how, pattern_tr=pattern_tr, grammar_pattern=grammar_pattern)
+    return _ex(W, tr, target, grammar_pattern, structure_tr, how,
+                 pattern_tr=pattern_tr, grammar_pattern=grammar_pattern, scenario_badge=scenario_badge)
 
 
 def _object_pattern_examples(W: str, T: str, category: str) -> list[dict[str, Any]]:
@@ -1409,9 +1567,12 @@ def _ex(
     pattern_examples: list[dict[str, Any]] | None = None,
     important_note_tr: str | None = None,
     grammar_pattern: str | None = None,
+    scenario_badge: str | None = None,
 ) -> dict[str, Any]:
     pat_key = _resolve_grammar_pattern(sentence_type, grammar_pattern)
-    scenario = _pattern_label(pat_key)
+    badge = scenario_badge or GRAMMAR_BADGES.get(pat_key, "")
+    label = _pattern_label(pat_key)
+    scenario = f"{badge} ({label})" if badge else label
     structure_label = f"Dil Bilgisi Formülü: {structure_tr}"
     pat = pattern_tr
     if pat and not pat.lower().startswith("kelime şablonu"):
@@ -1422,6 +1583,7 @@ def _ex(
         "target": target,
         "sentence_type": pat_key,
         "sentence_type_label": scenario,
+        "scenario_badge": badge or None,
         "grammar_pattern": pat_key,
         "grammar_topic": pat_key,
         "difficulty": "A1" if pat_key in ("basic", "question") else "A2",
@@ -1497,6 +1659,8 @@ def _validate_word_example(
     wt, tw = _norm(word_tr), _en_target_word(target_word)
     norm_target = _norm(target)
     if not target or len(how) < 100:
+        return False
+    if _english_leaked_turkish(target, word_tr, target_word):
         return False
     if GENERIC_STRUCTURE_LABEL_RE.search(label):
         return False

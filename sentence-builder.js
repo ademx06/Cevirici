@@ -60,6 +60,7 @@
       mutlu: '😊', happy: '😊',
       ayakkabı: '👟', ayakkabi: '👟', shoe: '👟', shoes: '👟',
       soda: '🥤', gazoz: '🥤', kola: '🥤', cola: '🥤',
+      bardak: '🥛', glass: '🥛', glasses: '🥛', fincan: '☕', cup: '☕',
       süt: '🥛', milk: '🥛', ekmek: '🍞', bread: '🍞',
       kedi: '🐱', cat: '🐱', köpek: '🐶', dog: '🐶',
     };
@@ -82,6 +83,7 @@
       [['çalış', 'calis', 'koş'], '💼'],
       [['ev', 'market', 'okul', 'hastane'], '📍'],
       [['yemek', 'ekmek', 'peynir'], '🍽️'],
+      [['bardak', 'fincan', 'tabak'], '🥛'],
       [['kedi', 'köpek', 'kuş'], '🐾'],
     ];
     for (const [keys, em] of keywordIcons) {
@@ -236,8 +238,13 @@
 
   function renderExampleCard(ex, lang, idx) {
     const cardId = `ex-${idx}`;
-    const typeLabel = ex.sentence_type_label || ex.sentence_type || '';
+    const typeLabel = ex.scenario_badge || ex.sentence_type_label || ex.sentence_type || '';
     const typeBadge = typeLabel ? `<span class="mod-badge">${esc(typeLabel)}</span>` : '';
+    const wbSimple = (ex.word_breakdown || []).length
+      ? `<div class="mod-wb-simple">${(ex.word_breakdown || []).map((p) =>
+          `<div class="mod-wb-line"><span>${esc(p.token || '')}</span> → <span>${esc(p.pronunciation_tr || p.pronunciation_hint || '')}</span> → <span>${esc(p.meaning_tr || '')}</span></div>`
+        ).join('')}</div>`
+      : '';
     return `
       <article class="mod-card" data-idx="${idx}">
         ${typeBadge}
@@ -245,6 +252,7 @@
         <div class="mod-card-line mod-card-target"><span class="mod-flag">🌍</span>${esc(ex.target)}</div>
         <button type="button" class="mod-listen-btn builder-listen" data-text="${esc(ex.target)}" data-lang="${lang}">🔊 Cümleyi dinle</button>
         ${renderPronunciationBlock(ex, lang, cardId)}
+        ${wbSimple}
         ${renderTeachingBlock(ex, lang)}
       </article>`;
   }
@@ -694,8 +702,24 @@
     searchTimer = setTimeout(renderSavedLists, 200);
   }
 
+  async function initAppVersion() {
+    const bar = $('appVersionBar');
+    if (!bar) return;
+    try {
+      const r = await fetch('/api/status');
+      const d = await r.json();
+      const v = d.app_version || '?';
+      const ok = d.ok ? '✅' : '⚠️';
+      bar.textContent = `${ok} Güncel sürüm: ${v}`;
+      bar.classList.toggle('app-version-ok', !!d.app_version);
+    } catch {
+      bar.textContent = '⚠️ Sürüm kontrol edilemedi';
+    }
+  }
+
   function init() {
     initLangSelect();
+    initAppVersion();
     renderSavedLists();
     wordMic = makeInputMic('wordMicBtn', 'wordInput', true);
     sentenceMic = makeInputMic('sentenceMicBtn', 'sentenceInput', true);

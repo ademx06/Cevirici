@@ -31,6 +31,7 @@ def fake_translate(text: str, from_lang: str, to_lang: str) -> str:
         "ayakkabı": "shoe",
         "ayakkabi": "shoe",
         "soda": "soda",
+        "bardak": "glass",
         "araba": "car",
         "mutlu": "happy",
         "çalışmak": "work",
@@ -323,6 +324,29 @@ def test_thirteen_grammar_patterns():
     print("TEST thirteen patterns OK:", len(examples), "examples")
 
 
+def test_bardak_glass_lesson():
+    result = generate_word_lesson("bardak", "en", fake_translate)
+    assert result["ok"], result
+    assert result.get("word_icon") == "🥛"
+    assert result.get("target_word") == "glass"
+    examples = result.get("examples") or []
+    assert len(examples) >= 10
+    for ex in examples:
+        tg = safe_str(ex.get("target")).lower()
+        tr = safe_str(ex.get("tr")).lower()
+        assert "bardak" not in tg, f"Turkish leaked in EN: {tg}"
+        assert "glass" in tg or "glasses" in tg, f"missing glass: {tg}"
+        assert "bardak" in tr or "bardakları" in tr or "bardağı" in tr
+    targets = " ".join(safe_str(e.get("target")).lower() for e in examples)
+    assert "glass of water" in targets or "empty glass" in targets
+    usage = result.get("usage") or {}
+    for v in usage.get("common_verbs") or []:
+        assert v.get("tr"), f"empty verb: {v}"
+    for p in usage.get("common_phrases") or []:
+        assert p.get("tr"), f"empty phrase: {p}"
+    print("TEST bardak/glass lesson OK:", len(examples))
+
+
 def test_door_icon():
     result = generate_word_lesson("kapı", "en", fake_translate)
     assert result["ok"], result
@@ -374,6 +398,7 @@ if __name__ == "__main__":
     test_shoe_no_socks_leak()
     test_soda_lesson()
     test_thirteen_grammar_patterns()
+    test_bardak_glass_lesson()
     test_word_sequence_isolation()
     test_door_icon()
     test_grade_word_correct()
