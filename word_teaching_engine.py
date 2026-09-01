@@ -236,7 +236,7 @@ GENERIC_STRUCTURE_LABEL_RE = re.compile(
 
 QUALITY_RULE_CATEGORIES = frozenset({
     "beverage", "furniture", "footwear", "eyewear", "tobacco", "plumbing",
-    "vehicle", "drinkware", "food", "snack", "abstract", "document",
+    "vehicle", "drinkware", "food", "snack", "abstract", "document", "clothing",
 })
 
 CATEGORY_PHRASES: dict[str, list[dict[str, str]]] = {
@@ -271,6 +271,13 @@ CATEGORY_PHRASES: dict[str, list[dict[str, str]]] = {
         {"en": "quit smoking", "tr": "sigarayı bırakmak"},
         {"en": "cigarette smoke", "tr": "sigara dumanı"},
         {"en": "put out a cigarette", "tr": "sigarayı söndürmek"},
+    ],
+    "clothing": [
+        {"en": "wear socks", "tr": "çorap giymek"},
+        {"en": "a pair of socks", "tr": "bir çift çorap"},
+        {"en": "put on your shirt", "tr": "gömleğini giymek"},
+        {"en": "take off your jacket", "tr": "ceketini çıkarmak"},
+        {"en": "wash your clothes", "tr": "kıyafetlerini yıkamak"},
     ],
     "object": [],
     "plumbing": [
@@ -475,6 +482,7 @@ KNOWN_CATEGORIES: dict[str, str] = {
     "masa": "furniture", "table": "furniture", "sandalye": "furniture", "chair": "furniture",
     "musluk": "plumbing", "faucet": "plumbing", "tap": "plumbing",
     "araba": "vehicle", "car": "vehicle", "otomobil": "vehicle",
+    "bisiklet": "vehicle", "bicycle": "vehicle", "bike": "vehicle",
     "mutlu": "adjective", "happy": "adjective",
     "çalışmak": "verb", "work": "verb", "çalış": "verb",
     "kitap": "object", "book": "object", "telefon": "object", "phone": "object",
@@ -501,6 +509,13 @@ KNOWN_CATEGORIES: dict[str, str] = {
     "gözlük": "eyewear", "gozluk": "eyewear", "glasses": "eyewear", "sunglasses": "eyewear",
     "sigara": "tobacco", "cigarette": "tobacco", "cigarettes": "tobacco",
     "tütün": "tobacco", "tutun": "tobacco", "tobacco": "tobacco",
+    "çorap": "clothing", "corap": "clothing", "sock": "clothing", "socks": "clothing",
+    "gömlek": "clothing", "gomlek": "clothing", "shirt": "clothing",
+    "şemsiye": "object", "semsiye": "object", "umbrella": "object",
+    "yastık": "object", "yastik": "object", "pillow": "object",
+    "bıçak": "object", "bicak": "object", "knife": "object",
+    "kalem": "object", "pen": "object", "radyo": "object", "radio": "object",
+    "parfüm": "object", "parfum": "object", "perfume": "object",
 }
 
 # Çeviri başarısız olunca bilinen TR→EN eşleşmeleri
@@ -528,6 +543,9 @@ KNOWN_TR_TO_EN: dict[str, str] = {
     "eğlence": "entertainment", "eglence": "entertainment",
     "koltuk": "sofa", "yatak": "bed", "dolap": "wardrobe", "mutfak": "kitchen",
     "okul": "school", "hastane": "hospital", "bisiklet": "bicycle",
+    "çorap": "socks", "corap": "socks", "yastık": "pillow", "bıçak": "knife",
+    "bicak": "knife", "kalem": "pen", "yastik": "pillow", "radyo": "radio",
+    "parfüm": "perfume", "parfum": "perfume",
 }
 
 # Çeviri API'sinin döndürdüğü varyantları Amerikan İngilizcesine normalize et
@@ -561,6 +579,34 @@ def _normalize_en_target(word_tr: str, target_word: str) -> str:
     return tw
 
 
+_LLM_EN_WORD_CACHE: dict[str, str] = {}
+
+
+def _llm_resolve_english_word(word_tr: str) -> str:
+    """Çeviri API Türkçe döndürdüyse veya bilinmiyorsa AI ile İngilizce karşılık bul."""
+    wt = _norm(word_tr)
+    if not wt:
+        return ""
+    if wt in _LLM_EN_WORD_CACHE:
+        return _LLM_EN_WORD_CACHE[wt]
+    if not llm_available():
+        return ""
+    try:
+        parsed = _llm_json(
+            'Return JSON only: {"en": "American English word or short phrase"}',
+            f"Turkish vocabulary word: {word_tr}",
+            max_tokens=80,
+        )
+        en = safe_str((parsed or {}).get("en") or (parsed or {}).get("target_word")).strip().lower()
+        en = EN_TARGET_ALIASES.get(en, en)
+        if en and en != wt and _norm(en) != wt:
+            _LLM_EN_WORD_CACHE[wt] = en
+            return en
+    except Exception:
+        pass
+    return ""
+
+
 def resolve_target_word(word_tr: str, target_word: str, target_lang: str) -> str:
     """Çeviri Türkçe döndüyse bilinen İngilizce karşılığı kullan; US English öncelikli."""
     raw = safe_str(word_tr).strip()
@@ -572,6 +618,9 @@ def resolve_target_word(word_tr: str, target_word: str, target_lang: str) -> str
         known = KNOWN_TR_TO_EN.get(wt) or KNOWN_TR_TO_EN.get(word_tr.lower())
         if known:
             return known.lower()
+        llm_en = _llm_resolve_english_word(word_tr)
+        if llm_en:
+            return llm_en.lower()
         tw = _normalize_en_target(word_tr, target_word)
         if not tw or tw == wt or tw == word_tr.lower():
             return (known or tw or word_tr).lower()
@@ -649,6 +698,8 @@ def _infer_semantic_category(word_tr: str, target_word: str) -> str:
         return "eyewear"
     if _is_tobacco_like(wt, tw):
         return "tobacco"
+    if _is_clothing_like(wt, tw):
+        return "clothing"
     if _is_beverage_like(wt, tw):
         return "beverage"
     food_hints = (
@@ -664,7 +715,10 @@ def _infer_semantic_category(word_tr: str, target_word: str) -> str:
     place_hints = ("ev", "okul", "hastane", "market", "home", "school", "hospital", "store")
     if _any_category_hint(word_tr, target_word, place_hints):
         return "place"
-    vehicle_hints = ("araba", "otobüs", "tren", "car", "bus", "train", "plane", "bike")
+    vehicle_hints = (
+        "araba", "otomobil", "otobüs", "tren", "bisiklet", "motosiklet", "scooter",
+        "car", "bus", "train", "plane", "bike", "bicycle", "motorcycle", "scooter",
+    )
     if _any_category_hint(word_tr, target_word, vehicle_hints):
         return "vehicle"
     document_hints = (
@@ -693,6 +747,14 @@ def _is_eyewear_like(word_tr: str, target_word: str) -> bool:
 
 def _is_tobacco_like(word_tr: str, target_word: str) -> bool:
     hints = ("sigara", "cigarette", "cigarettes", "tütün", "tutun", "tobacco", "vape", "nargile", "hookah")
+    return _any_category_hint(word_tr, target_word, hints)
+
+
+def _is_clothing_like(word_tr: str, target_word: str) -> bool:
+    hints = (
+        "çorap", "corap", "sock", "socks", "gömlek", "gomlek", "shirt", "pantolon", "pants",
+        "elbise", "dress", "ceket", "jacket", "kazak", "sweater", "tişört", "tisort", "t-shirt",
+    )
     return _any_category_hint(word_tr, target_word, hints)
 
 
@@ -785,8 +847,12 @@ def _is_wrong_verb_collocation(target_norm: str, word_tr: str, target_word: str)
         if " a glasses" in target_norm or "glasses is " in target_norm:
             return True
     if cat not in ("food", "snack", "beverage") and not _is_beverage_like(word_tr, target_word):
-        if any(p in f" {target_norm} " for p in (" eat ", " eating ", " ate ")):
-            if tw and tw in target_norm and tw not in ("corn", "fish"):
+        if tw and tw in target_norm and tw not in ("corn", "fish"):
+            if re.search(
+                rf"\b(?:eat|eating|ate|drink|drinking|drank|chew|chewing)\s+"
+                rf"(?:the\s+|a\s+|an\s+|my\s+|your\s+|some\s+)?{re.escape(tw)}\b",
+                target_norm,
+            ):
                 return True
     return False
 
@@ -1227,15 +1293,27 @@ def _rule_word_profile(
             "semantic_category": "object",
             "meaning_tr": word_tr,
             "usage_notes_tr": (
-                f"«{word_tr}» sayılabilir bir nesnedir. "
-                "Bağlama göre doğal fiiller seçilir; her nesne için aynı kalıp kullanılmaz."
+                f"«{word_tr}» günlük hayatta kullanılan bir nesnedir. "
+                "buy, find, use, carry, need gibi fiillerle doğal cümleler kurulur."
             ),
-            "common_verbs": ["use", "need", "find", "buy", "see", "have"],
-            "common_collocations": [f"the {target_word}", f"a {target_word}"],
-            "common_patterns": [f"The {target_word} is...", f"I need the {target_word}."],
-            "article_notes_tr": f"the {target_word.lower()} / a {target_word.lower()}",
-            "avoid_patterns": ["I love X", "Do you want X", "Bring the X", "I am using the X"],
-            "avoid_reason_tr": "Her nesne için aynı şablon kullanılmaz; kelimenin gerçek kullanımına göre fiil seçilir.",
+            "common_verbs": ["buy", "find", "use", "carry", "need", "pick up", "put down", "look for"],
+            "common_collocations": [
+                f"my {target_word}", f"a new {target_word}", f"where is my {target_word}",
+                f"look for my {target_word}", f"buy a new {target_word}",
+            ],
+            "common_patterns": [
+                f"I often use my {target_word} at home.",
+                f"Where is my {target_word}?",
+                f"I need to buy a new {target_word}.",
+            ],
+            "article_notes_items": [
+                {"en": f"my {target_word}", "tr": f"benim {word_tr}"},
+                {"en": f"a new {target_word}", "tr": f"yeni bir {word_tr}"},
+                {"en": f"the {target_word}", "tr": f"{word_tr}"},
+            ],
+            "article_notes_tr": f"my {target_word} → benim {word_tr} / a new {target_word} → yeni bir {word_tr}",
+            "avoid_patterns": ["I love X", "Do you want X", "Bring the X", "I am using the X", "eat the", "drink the"],
+            "avoid_reason_tr": "Her nesne için aynı şablon kullanılmaz; yemek/içmek fiilleri nesnelerle kullanılmaz.",
         },
         "footwear": {
             "part_of_speech": "noun",
@@ -1259,6 +1337,35 @@ def _rule_word_profile(
             "article_notes_tr": "Tekil: a shoe · Çoğul: shoes · Bir çift: a pair of shoes",
             "avoid_patterns": ["These socks are warm", "I love socks"],
             "avoid_reason_tr": "Ayakkabı öğretirken çorap (socks) ana konu olmamalı.",
+        },
+        "clothing": {
+            "part_of_speech": "noun",
+            "countability": "both",
+            "semantic_category": "clothing",
+            "meaning_tr": word_tr,
+            "usage_notes_tr": (
+                f"«{word_tr}» giyim eşyasıdır. wear, put on, take off, wash, buy "
+                f"gibi fiillerle doğal cümleler kurulur."
+            ),
+            "common_verbs": ["wear", "put on", "take off", "wash", "buy", "fold", "pack", "iron"],
+            "common_collocations": [
+                f"wear {target_word}", f"put on your {target_word}",
+                f"take off your {target_word}", f"wash your {target_word}",
+                f"buy new {target_word}", f"a pair of {target_word}",
+            ],
+            "common_patterns": [
+                f"I wear {target_word} every day.",
+                f"Where are my {target_word}?",
+                f"I need to wash my {target_word}.",
+            ],
+            "article_notes_items": [
+                {"en": f"my {target_word}", "tr": f"benim {word_tr}"},
+                {"en": f"a pair of {target_word}", "tr": f"bir çift {word_tr}"},
+                {"en": f"new {target_word}", "tr": f"yeni {word_tr}"},
+            ],
+            "article_notes_tr": f"my {target_word} → benim {word_tr}",
+            "avoid_patterns": ["eat socks", "drink shirt", "I love socks (without context)"],
+            "avoid_reason_tr": "Giyim eşyaları yenmez/içilmez; giyinmek, yıkamak, almak fiilleri kullanılır.",
         },
         "eyewear": {
             "part_of_speech": "noun",
@@ -1382,22 +1489,9 @@ def _rule_word_profile(
             "avoid_reason_tr": "Sakız açılmaz veya 'kullanılmaz'; çiğnenir, paylaşılır, atılır.",
         },
     }
-    base = profiles.get(category, {
-        "part_of_speech": "noun",
-        "countability": "countable",
-        "semantic_category": category,
-        "meaning_tr": word_tr,
-        "usage_notes_tr": (
-            f"«{word_tr}» kelimesi için bağlama uygun doğal fiiller seçilmelidir. "
-            "Her kelimeye aynı kalıp uygulanmaz."
-        ),
-        "common_verbs": [],
-        "common_collocations": [],
-        "common_patterns": [],
-        "article_notes_tr": None,
-        "avoid_patterns": ["I love X", "Do you want X", "Bring the X", "I am using the X", "The X is here"],
-        "avoid_reason_tr": "Mekanik şablonlar (Bring/Use/The X is here) bu kelime için doğal değildir.",
-    })
+    if category == "general":
+        category = "object"
+    base = profiles.get(category, profiles["object"])
     wt, tw = _norm(word_tr), _en_target_word(target_word)
     if category == "beverage" and (wt in ("soda", "gazoz", "kola") or tw in ("soda", "cola")):
         base = {
@@ -1601,6 +1695,8 @@ def _thirteen_pattern_examples_en(
         return _beverage_pattern_examples(W, T, wt, tw)
     if category == "footwear":
         return _footwear_pattern_examples(W, T)
+    if category == "clothing":
+        return _clothing_pattern_examples(W, T, wt, tw)
     if category == "eyewear" or _is_eyewear_like(wt, tw):
         return _eyewear_pattern_examples(W, T, wt, tw)
     if category == "tobacco" or _is_tobacco_like(wt, tw):
@@ -1840,6 +1936,41 @@ def _abstract_noun_pattern_examples(W: str, T: str, wt: str, tw: str) -> list[di
     ]
 
 
+def _clothing_pattern_examples(W: str, T: str, wt: str, tw: str) -> list[dict[str, Any]]:
+    """Çorap, gömlek vb. — wear/put on/wash kalıpları."""
+    item = T if tw.endswith("s") else (T if T.endswith("s") else T)
+    pair = f"a pair of {item}" if item.endswith("s") else f"a {item}"
+    my = f"my {item}"
+    return [
+        _pe(W, f"Her gün {W} giyerim.", f"I wear {item} every day.", "routine",
+            f"I + wear + {item}", f"Günlük: wear → giymek/takmak.", scenario_badge="🌅 RUTİN"),
+        _pe(W, f"Şu an temiz {W} arıyorum.", f"I am looking for clean {item} right now.", "present",
+            f"looking for clean {item}", f"Şu an: looking for → arıyorum.", scenario_badge="🔄 ŞU AN"),
+        _pe(W, f"Dün yeni {W} aldım.", f"I bought new {item} yesterday.", "past",
+            f"bought new {item}", f"Geçmiş: bought new … → yeni … aldım.", scenario_badge="🕐 GEÇMİŞ"),
+        _pe(W, f"Yarın {W} yıkayacağım.", f"I will wash my {item} tomorrow.", "future",
+            f"will wash my {item}", f"Gelecek: wash → yıkamak.", scenario_badge="🔮 GELECEK"),
+        _pe(W, f"{W.capitalize()} nerede?", f"Where are my {item}?" if item.endswith("s") else f"Where is my {item}?", "question",
+            f"Where are/is my {item}", f"Soru: Where is/are my …?"),
+        _pe(W, f"Bu {W} artık giymiyorum.", f"I don't wear these {item} anymore." if item.endswith("s") else f"I don't wear this {item} anymore.", "negative",
+            f"don't wear", f"Olumsuz: don't wear → giymiyorum.", scenario_badge="⛔ OLUMSUZ"),
+        _pe(W, f"{W.capitalize()} giy.", f"Put on your {item}.", "imperative",
+            f"Put on your {item}", f"Emir: Put on → giy/tak."),
+        _pe(W, f"{W.capitalize()} ödünç alabilir miyim?", f"Could I borrow your {item}?", "polite_request",
+            f"borrow your {item}", f"Kibar rica: Could I borrow …?"),
+        _pe(W, f"Kışın kalın {W} giymelisin.", f"You should wear warm {item} in winter.", "advice",
+            f"should wear warm {item}", f"Tavsiye: should wear warm …"),
+        _pe(W, f"Yeni {W} almam lazım.", f"I need to buy new {item}.", "obligation",
+            f"need to buy new {item}", f"Gereklilik: need to buy …"),
+        _pe(W, f"{W.capitalize()} çantada olabilir.", f"My {item} might be in the bag.", "possibility",
+            f"might be in the bag", f"Olasılık: might be in …"),
+        _pe(W, f"Hava soğuksa {W} giy.", f"If it's cold, wear your {item}.", "conditional",
+            f"If it's cold, wear", f"Koşul: If it's cold, wear …"),
+        _pe(W, f"A: {W.capitalize()} var mı? B: Evet, dolapta.", f"A: Do you have extra {item}? B: Yes, in the closet.", "dialogue",
+            f"Do you have extra {item}", f"Diyalog: Do you have extra …?"),
+    ]
+
+
 def _eyewear_pattern_examples(W: str, T: str, wt: str, tw: str) -> list[dict[str, Any]]:
     """Gözlük — glasses (çoğul); wear/put on/take off kalıpları."""
     glasses = "glasses" if "glass" in tw else T
@@ -1979,10 +2110,46 @@ def _snack_pattern_examples(W: str, T: str, wt: str, tw: str) -> list[dict[str, 
 
 
 def _safe_object_pattern_examples(W: str, T: str, category: str) -> list[dict[str, Any]]:
-    """Bilinmeyen nesneler — mekanik şablon YOK; boş döner, LLM doldurur."""
+    """Bilinmeyen nesneler — evrensel doğal kalıplar (asla boş dönme)."""
     if _is_beverage_like(W, T):
         return _sparkling_water_pattern_examples(W, _canonical_beverage_phrase(T))
-    return []
+    return _universal_object_pattern_examples(W, T)
+
+
+def _universal_object_pattern_examples(W: str, T: str) -> list[dict[str, Any]]:
+    """Her nesne için 13 doğal cümle — mekanik şablon yok."""
+    tw = _en_target_word(T)
+    my = f"my {tw}"
+    a_new = f"a new {tw}"
+    the = f"the {tw}"
+    return [
+        _pe(W, f"Evde sık {W} kullanırım.", f"I often use {my} at home.", "routine",
+            f"often use {my}", f"Günlük kullanım: often use my … → sık kullanırım.", scenario_badge="🌅 RUTİN"),
+        _pe(W, f"Şu an {W} arıyorum.", f"I am looking for {my} right now.", "present",
+            f"looking for {my}", f"Şu an: looking for → arıyorum.", scenario_badge="🔄 ŞU AN"),
+        _pe(W, f"Dün yeni {W} aldım.", f"I bought {a_new} yesterday.", "past",
+            f"bought {a_new}", f"Geçmiş: bought a new … → yeni … aldım.", scenario_badge="🕐 GEÇMİŞ"),
+        _pe(W, f"Yarın {W} alacağım.", f"I will buy {a_new} tomorrow.", "future",
+            f"will buy {a_new}", f"Gelecek: will buy → alacağım.", scenario_badge="🔮 GELECEK"),
+        _pe(W, f"{W.capitalize()} nerede?", f"Where is {my}?", "question",
+            f"Where is {my}", f"Soru: Where is my …? → … nerede?"),
+        _pe(W, f"{W.capitalize()} bulamıyorum.", f"I can't find {my}.", "negative",
+            f"can't find {my}", f"Olumsuz: can't find → bulamıyorum.", scenario_badge="⛔ OLUMSUZ"),
+        _pe(W, f"{W.capitalize()} buraya koy.", f"Put {the} here, please.", "imperative",
+            f"Put {the} here", f"Emir: Put … here → buraya koy."),
+        _pe(W, f"{W.capitalize()} uzatabilir misin?", f"Could you pass me {my}?", "polite_request",
+            f"pass me {my}", f"Kibar rica: Could you pass me …?"),
+        _pe(W, f"{W.capitalize()} dikkatli kullanmalısın.", f"You should use {my} carefully.", "advice",
+            f"use {my} carefully", f"Tavsiye: use … carefully → dikkatli kullan."),
+        _pe(W, f"Yeni {W} almam lazım.", f"I need to buy {a_new}.", "obligation",
+            f"need to buy {a_new}", f"Gereklilik: need to buy → almam lazım."),
+        _pe(W, f"{W.capitalize()} arabada olabilir.", f"{my.capitalize()} might be in the car.", "possibility",
+            f"might be in the car", f"Olasılık: might be in the car."),
+        _pe(W, f"Görürsen {W} söyle.", f"If you see {my}, tell me.", "conditional",
+            f"If you see {my}", f"Koşul: If you see …, tell me."),
+        _pe(W, f"A: {W.capitalize()} gördün mü? B: Evet, masada.", f"A: Have you seen {my}? B: Yes, on the table.", "dialogue",
+            f"Have you seen {my}", f"Diyalog: Have you seen my …?"),
+    ]
 
 
 def _object_pattern_examples(W: str, T: str, category: str) -> list[dict[str, Any]]:
@@ -2710,6 +2877,89 @@ def validate_lesson_quality(
                 if bad in safe_str(ex.get("target")).lower():
                     return False
     return True
+
+
+GENERIC_OBJECT_VERBS = frozenset({"use", "need", "find", "buy", "see", "have"})
+
+
+def _profile_needs_upgrade(profile: dict[str, Any], word_tr: str, target_word: str) -> bool:
+    """Profil boş veya jenerik nesne şablonu mu?"""
+    verbs = {safe_str(v).strip().lower() for v in (profile.get("common_verbs") or []) if safe_str(v).strip()}
+    if not verbs:
+        return True
+    if verbs <= GENERIC_OBJECT_VERBS:
+        return True
+    coll = [safe_str(c).strip().lower() for c in (profile.get("common_collocations") or [])]
+    tw = _en_target_word(target_word)
+    if len(coll) <= 2 and all(c in (f"the {tw}", f"a {tw}") for c in coll):
+        return True
+    if not profile.get("article_notes_items") and not profile.get("article_notes_tr"):
+        return True
+    return False
+
+
+def _lesson_category(word_tr: str, target_word: str) -> str:
+    """Ders için kategori; bilinmeyen kelimelerde boş profil yerine object kullan."""
+    category = detect_category(word_tr, target_word)
+    if category == "general":
+        return "object"
+    return category
+
+
+def guarantee_word_lesson(
+    word_tr: str,
+    target_word: str,
+    target_lang: str,
+    profile: dict[str, Any],
+    examples: list[dict[str, Any]],
+    translate_fn: Callable[[str, str, str], str] | None = None,
+) -> tuple[dict[str, Any], list[dict[str, Any]], str]:
+    """Her kelime için garanti: profil + en az 13 doğal örnek; asla boş dönme."""
+    category = _lesson_category(word_tr, target_word)
+    if _profile_needs_upgrade(profile, word_tr, target_word) or not (profile.get("common_verbs") or []):
+        rule_profile = _rule_word_profile(word_tr, target_word, target_lang, category)
+        profile = {**rule_profile, **{
+            k: v for k, v in profile.items()
+            if k in ("meaning_tr", "usage_notes_tr", "regional_variants") and v
+        }}
+    profile["semantic_category"] = category
+
+    examples = sanitize_word_examples(examples, word_tr, target_word, profile, translate_fn)
+    seen = {_norm(safe_str(ex.get("target"))) for ex in examples if safe_str(ex.get("target")).strip()}
+
+    for source in (
+        _thirteen_pattern_examples_en(word_tr, target_word, category),
+        build_rule_examples_for_word(word_tr, target_word, profile),
+    ):
+        for ex in source:
+            key = _norm(safe_str(ex.get("target")))
+            if not key or key in seen:
+                continue
+            cand = dict(ex)
+            if _validate_word_example(cand, word_tr, target_word, profile):
+                examples.append(cand)
+                seen.add(key)
+            if len(examples) >= 13:
+                break
+        if len(examples) >= 13:
+            break
+
+    if len(examples) < 13:
+        for ex in _thirteen_pattern_examples_en(word_tr, target_word, category):
+            key = _norm(safe_str(ex.get("target")))
+            if not key or key in seen:
+                continue
+            examples.append(dict(ex))
+            seen.add(key)
+            if len(examples) >= 13:
+                break
+
+    examples = sanitize_word_examples(examples[:13], word_tr, target_word, profile, translate_fn)
+    if len(examples) < 13:
+        examples = _thirteen_pattern_examples_en(word_tr, target_word, category)[:13]
+
+    category = profile.get("semantic_category") or category
+    return profile, examples[:13], category
 
 
 def _verb_meaning_tr(verb_key: str) -> str:

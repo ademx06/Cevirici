@@ -1,7 +1,7 @@
 """Cümle Kur + Kendini Test Et — kelime/cümle üretimi, yapılandırılmış analiz, telaffuz."""
 from __future__ import annotations
 
-APP_VERSION = "2026.09.01-v25"
+APP_VERSION = "2026.09.01-v26"
 
 import difflib
 import json
@@ -39,6 +39,7 @@ from word_teaching_engine import (
     sanitize_word_examples,
     validate_lesson_quality,
     word_icon_for,
+    guarantee_word_lesson,
     _llm_generate_dynamic_lesson,
     _rule_word_profile,
 )
@@ -371,12 +372,15 @@ def generate_word_lesson(
         if len(fallback) > len(examples):
             examples = fallback
 
+    profile, examples, category = guarantee_word_lesson(
+        word_tr, target_word, target_lang, profile, examples, translate_fn,
+    )
+
     tw_pron = get_word(target_lang, target_word)
     usage = build_usage_from_profile(profile, target_lang, target_word, word_tr)
     if profile.get("regional_variants"):
         usage["regional_variants"] = profile["regional_variants"]
     word_explanation = build_rich_word_explanation(word_tr, target_word, profile)
-    category = profile.get("semantic_category") or "general"
 
     return {
         "ok": True,

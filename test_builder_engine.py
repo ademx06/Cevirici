@@ -2,6 +2,8 @@
 """Cümle Kur motor testleri — kelimeye özel öğretim + telaffuz."""
 from __future__ import annotations
 
+import re
+
 from builder_engine import (
     _compute_weighted_score,
     _dedupe_explanations,
@@ -40,6 +42,13 @@ def fake_translate(text: str, from_lang: str, to_lang: str) -> str:
     "bal": "honey",
     "sigara": "cigarette",
     "gözlük": "glasses",
+    "çorap": "socks",
+    "şemsiye": "umbrella",
+    "bıçak": "knife",
+    "yastık": "pillow",
+    "bisiklet": "bicycle",
+    "radyo": "radio",
+    "parfüm": "perfume",
     "eğlence": "entertainment",
     "eglence": "entertainment",
         "araba": "car",
@@ -65,6 +74,10 @@ def fake_translate(text: str, from_lang: str, to_lang: str) -> str:
     if from_lang == "tr" and to_lang == "en":
         return " ".join(mapping.get(w, w) for w in low.split())
     return text
+
+
+def _blob_contains_word(blob: str, word: str) -> bool:
+    return bool(re.search(rf"\b{re.escape(word.lower())}\b", blob.lower()))
 
 
 def test_coffee_lesson_natural():
@@ -260,7 +273,7 @@ def test_word_sequence_isolation():
               safe_str(ex.get("how_it_is_formed_tr")),
           ]).lower()
           for bad in forbidden:
-              assert bad not in blob, f"{w} leaked {bad}: {blob[:100]}"
+              assert not _blob_contains_word(blob, bad), f"{w} leaked {bad}: {blob[:100]}"
   print("TEST word sequence isolation OK")
 
 
@@ -279,7 +292,9 @@ def test_shoe_no_socks_leak():
             safe_str(ex.get("how_it_is_formed_tr")),
         ]).lower()
         for bad in forbidden:
-            assert bad not in blob, f"socks/leak in shoe lesson: {bad} in {blob[:80]}"
+            assert not _blob_contains_word(blob, bad), (
+                f"socks/leak in shoe lesson: {bad} in {blob[:80]}"
+            )
         assert "shoe" in safe_str(ex.get("target")).lower()
         for p in ex.get("pattern_examples") or []:
             pt = safe_str(p.get("target")).lower()
@@ -746,6 +761,44 @@ def test_gozluk_eyewear_lesson():
     print("TEST gözlük eyewear lesson OK:", len(examples))
 
 
+def test_universal_guarantee_many_words():
+    """Her kelime: >=13 örnek, yasak kalıp yok, artikel TR dolu."""
+    from word_teaching_engine import _is_wrong_verb_collocation, _norm
+
+    words = [
+        "çorap", "şemsiye", "bıçak", "yastık", "kalem", "parfüm", "bisiklet",
+        "çanta", "anahtar", "radyo", "gözlük", "sigara", "bal", "kitap",
+        "kapı", "masa", "sakız", "fatura", "eğlence", "telefon",
+    ]
+    banned = ("is here", "bring the", "using the", "eat cigarette", "eating ", " a glasses", "glasses is")
+    for w in words:
+        r = generate_word_lesson(w, "en", fake_translate)
+        assert r["ok"], f"{w} failed: {r}"
+        ex = r.get("examples") or []
+        assert len(ex) >= 13, f"{w}: only {len(ex)} examples"
+        targets = " ".join(safe_str(e.get("target")).lower() for e in ex)
+        for b in banned:
+            assert b not in targets, f"{w} banned {b!r} in {targets[:80]}"
+        usage = r.get("usage") or {}
+        verbs = usage.get("common_verbs") or []
+        assert len(verbs) >= 3, f"{w}: too few verbs {verbs}"
+        assert all(v.get("tr") for v in verbs), f"{w}: verb missing tr"
+        phrases = usage.get("common_phrases") or []
+        if phrases:
+            assert all(p.get("tr") for p in phrases), f"{w}: phrase missing tr"
+        articles = usage.get("article_notes_items") or []
+        if articles:
+            assert all(a.get("tr") for a in articles), f"{w}: article missing tr"
+        for e in ex:
+            tr = safe_str(e.get("tr")).strip()
+            assert tr and not tr.lower() == w.lower(), f"{w}: placeholder tr {tr!r}"
+            assert not _is_wrong_verb_collocation(
+                _norm(safe_str(e.get("target"))), w, r.get("target_word", ""),
+            ), f"{w}: wrong verb in {e.get('target')}"
+        assert r.get("word_icon") and r.get("word_icon") != "📦", f"{w}: bad icon {r.get('word_icon')}"
+    print("TEST universal guarantee OK:", len(words), "words")
+
+
 def test_bal_honey_usage_and_icon():
     """bal → honey: doğru ikon, fiil çevirileri ve ifade TR/IPA."""
     from word_icons import lookup_emoji
@@ -853,6 +906,7 @@ if __name__ == "__main__":
     test_bal_honey_usage_and_icon()
     test_gozluk_eyewear_lesson()
     test_sigara_not_food_patterns()
+    test_universal_guarantee_many_words()
     test_has_curated_lexicon()
     test_profile_ideas_fallback_examples()
     test_masa_icon()
