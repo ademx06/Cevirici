@@ -265,19 +265,37 @@
     });
   }
 
-  function renderTeachingBlock(ex, lang) {
+  function isMobileView() {
+    return window.matchMedia('(max-width: 520px)').matches;
+  }
+
+  function formatTeachingText(text) {
+    const raw = String(text || '').trim();
+    if (!raw) return '';
+    return raw.split(/\n+/).map((line) => {
+      const t = line.trim();
+      if (!t) return '';
+      if (/^[1-9]️⃣/.test(t) || t.startsWith('❌')) {
+        return `<p class="mod-teach-step mod-teach-heading">${esc(t)}</p>`;
+      }
+      return `<p class="mod-teach-step">${esc(t)}</p>`;
+    }).filter(Boolean).join('');
+  }
+
+  function renderTeachingBlock(ex, lang, opts = {}) {
     const how = ex.how_it_is_formed_tr || ex.explanation_tr || '';
     const why = ex.why_this_structure_tr || '';
     const note = ex.important_note_tr || '';
     const label = ex.structure_label_tr || '';
     const pattern = ex.pattern_tr || '';
+    const open = opts.open ? ' open' : '';
     return `
-      <details class="mod-details" open>
-        <summary>🧠 Nasıl kuruldu?</summary>
-        <div class="mod-detail-text mod-detail-pre">${esc(how)}</div>
-        ${why ? `<p class="mod-detail-why">${esc(why)}</p>` : ''}
-        ${note ? `<p class="mod-warn">${esc(note)}</p>` : ''}
-        ${ex.structure_tr ? `<p class="mod-structure">📚 Dil Bilgisi Formülü: ${esc(ex.structure_tr)}</p>` : ''}
+      <details class="mod-details mod-teach-details"${open}>
+        <summary>🧠 Nasıl kuruldu? <span class="mod-teach-hint">dil bilgisi adım adım</span></summary>
+        <div class="mod-detail-text mod-teach-body">${formatTeachingText(how)}</div>
+        ${why ? `<p class="mod-detail-why">💡 ${esc(why)}</p>` : ''}
+        ${note ? `<p class="mod-warn">⚠️ ${esc(note)}</p>` : ''}
+        ${ex.structure_tr ? `<p class="mod-structure">📐 Formül: <code>${esc(ex.structure_tr)}</code></p>` : ''}
         ${label && !label.includes(ex.structure_tr || '___') ? `<p class="mod-structure-label">${esc(label)}</p>` : ''}
         ${pattern ? `<p class="mod-pattern-tr">${esc(pattern)}</p>` : ''}
         ${renderWordBreakdown(ex)}
@@ -289,7 +307,8 @@
     const cardId = `ex-${idx}`;
     const typeLabel = ex.scenario_badge || ex.sentence_type_label || ex.sentence_type || '';
     const typeBadge = typeLabel ? `<span class="mod-badge">${esc(typeLabel)}</span>` : '';
-    if (compact) {
+    const useCompact = compact || (isMobileView() && idx > 0);
+    if (useCompact) {
       const pronLine = formatPronLine(ex.pronunciation_tr, ex.ipa);
       return `
       <article class="mod-card mod-card-compact" data-idx="${idx}">
@@ -298,6 +317,7 @@
         <div class="mod-card-line mod-card-target"><span class="mod-flag">🇺🇸</span>${esc(ex.target)}</div>
         ${pronLine ? `<p class="mod-pron-inline">${pronLine}</p>` : ''}
         <button type="button" class="mod-listen-btn builder-listen" data-text="${esc(ex.target)}" data-lang="${lang}">🔊 Dinle</button>
+        ${renderTeachingBlock(ex, lang, { open: false })}
       </article>`;
     }
     const wbSimple = (ex.word_breakdown || []).length
@@ -316,7 +336,7 @@
         <button type="button" class="mod-listen-btn builder-listen" data-text="${esc(ex.target)}" data-lang="${lang}">🔊 Cümleyi dinle</button>
         ${renderPronunciationBlock(ex, lang, cardId)}
         ${wbSimple}
-        ${renderTeachingBlock(ex, lang)}
+        ${renderTeachingBlock(ex, lang, { open: !isMobileView() || idx === 0 })}
       </article>`;
   }
 
@@ -453,7 +473,6 @@
     const usageMap = renderUsageMap(usage, lang);
     const icon = resolveWordIcon(data, data.word_icon);
     const examples = (data.examples || []).map((ex, i) => renderExampleCard(ex, lang, i, false)).join('');
-    const ver = data.app_version ? `<p class="mod-version">Sürüm: ${esc(data.app_version)}</p>` : '';
     const heroPron = formatPronLine(data.pronunciation_tr, data.ipa);
     box.innerHTML = `
       <div class="mod-hero mod-hero-green">
@@ -464,14 +483,17 @@
         </div>
       </div>
       ${data.word_explanation_tr ? `<p class="mod-lead">${esc(data.word_explanation_tr)}</p>` : ''}
-      <div class="mod-info-card">
-        <h3>📖 Kelime kullanım haritası</h3>
-        ${usageMap || (usage.noun_tr ? `<p>${esc(usage.noun_tr)}</p>` : '')}
-        ${usage.common_mistakes_tr ? `<p class="mod-warn">⚠️ ${esc(usage.common_mistakes_tr)}</p>` : ''}
+      <div class="mod-info-card mod-info-collapsible">
+        <details>
+          <summary>📖 Kelime kullanım haritası</summary>
+          <div class="mod-info-body">
+            ${usageMap || (usage.noun_tr ? `<p>${esc(usage.noun_tr)}</p>` : '')}
+            ${usage.common_mistakes_tr ? `<p class="mod-warn">⚠️ ${esc(usage.common_mistakes_tr)}</p>` : ''}
+          </div>
+        </details>
       </div>
-      <h3 class="mod-section-title">Örnek cümleler <small class="mod-section-hint">kelimeye özel doğal kullanım</small></h3>
+      <h3 class="mod-section-title">13 örnek cümle <small class="mod-section-hint">AI · doğal kullanım</small></h3>
       ${examples}
-      ${ver}
       <button type="button" id="saveWordBtn" class="mod-action-btn mod-action-save">⭐ Öğrendiklerime Ekle</button>`;
     box.querySelector('#saveWordBtn')?.addEventListener('click', saveCurrentWord);
     bindListenButtons(box);
@@ -583,7 +605,7 @@
     const reqId = ++wordRequestSeq;
     currentWordLesson = null;
     busy = true;
-    showLoading('Cümleler oluşturuluyor…');
+    showLoading('AI öğretmen ders hazırlıyor… (10–30 sn)');
     try {
       const r = await fetch('/api/builder/word', {
         method: 'POST',
@@ -593,7 +615,11 @@
       const data = await r.json();
       if (reqId !== wordRequestSeq) return;
       if (!r.ok || !data.ok) {
-        $('wordResult').innerHTML = '';
+        const retry = data.ai_retry
+          ? `<button type="button" class="mod-retry-btn" id="retryWordBtn">🔄 Tekrar dene</button>`
+          : '';
+        $('wordResult').innerHTML = `<div class="mod-error-card"><p>${esc(data.error_tr || 'Bir hata oluştu')}</p>${retry}</div>`;
+        $('retryWordBtn')?.addEventListener('click', buildWord);
         setUi(data.error_tr || 'Bir hata oluştu', false);
         return;
       }
@@ -777,117 +803,8 @@
     searchTimer = setTimeout(renderSavedLists, 200);
   }
 
-  function parseVersionNum(version) {
-    const m = String(version || '').match(/-v(\d+)$/i);
-    return m ? parseInt(m[1], 10) : 0;
-  }
-
-  function clientBundleVersion() {
-    return document.querySelector('meta[name="app-version"]')?.content?.trim() || '';
-  }
-
-  function shouldOfferUpdate(serverVersion) {
-    const bundle = clientBundleVersion();
-    const stored = localStorage.getItem('builderAppVersion') || '';
-    const serverNum = parseVersionNum(serverVersion);
-    const bundleNum = parseVersionNum(bundle);
-    const storedNum = parseVersionNum(stored);
-    if (bundle && serverVersion && bundle !== serverVersion) return true;
-    if (serverNum > storedNum) return true;
-    return false;
-  }
-
-  async function fetchAppStatus() {
-    const r = await fetch('/api/status', { cache: 'no-store' });
-    return r.json();
-  }
-
-  function hardReloadApp() {
-    const base = window.location.pathname || '/sentence-builder.html';
-    window.location.replace(`${base}?v=${Date.now()}`);
-  }
-
-  async function pollForNewVersion(baselineVersion, maxAttempts = 36) {
-    const baseline = parseVersionNum(baselineVersion);
-    for (let i = 0; i < maxAttempts; i += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 5000));
-      try {
-        const d = await fetchAppStatus();
-        const next = parseVersionNum(d.app_version);
-        if (next > baseline) {
-          localStorage.setItem('builderAppVersion', d.app_version || '');
-          hardReloadApp();
-          return true;
-        }
-      } catch {
-        /* keep polling */
-      }
-    }
-    hardReloadApp();
-    return false;
-  }
-
-  function renderAppVersionBar(d, opts = {}) {
-    const bar = $('appVersionBar');
-    const text = $('appVersionText');
-    const btn = $('appUpdateBtn');
-    if (!bar || !text) return;
-    const v = d?.app_version || '?';
-    const target = d?.target_app_version || clientBundleVersion() || v;
-    const stale = shouldOfferUpdate(v);
-    const updating = !!opts.updating;
-    const ok = d?.ok ? '✅' : '⚠️';
-    text.textContent = updating
-      ? `⏳ Güncelleniyor… (şu an ${v})`
-      : stale
-        ? `${ok} Eski sürüm: ${v} · Hedef: ${target}`
-        : `${ok} Güncel sürüm: ${v}`;
-    bar.classList.toggle('app-version-stale', stale || updating);
-    bar.classList.toggle('app-version-ok', !stale && !!d?.app_version);
-    if (btn) {
-      btn.classList.toggle('hidden', !stale && !updating);
-      btn.disabled = updating;
-      btn.textContent = updating ? 'Güncelleniyor…' : 'Programı Güncelle';
-    }
-    if (!stale && v && v !== '?') {
-      localStorage.setItem('builderAppVersion', v);
-    }
-  }
-
-  async function runAppUpdate() {
-    const btn = $('appUpdateBtn');
-    if (!btn || btn.disabled) return;
-    let baseline = '?';
-    try {
-      const current = await fetchAppStatus();
-      baseline = current.app_version || '?';
-      renderAppVersionBar(current, { updating: true });
-    } catch {
-      renderAppVersionBar({ ok: false, app_version: '?' }, { updating: true });
-    }
-    btn.disabled = true;
-    try {
-      await fetch('/api/deploy-update', { method: 'POST', cache: 'no-store' });
-    } catch {
-      /* deploy hook yoksa bile sayfa yenileme ve polling devam etsin */
-    }
-    await pollForNewVersion(baseline);
-  }
-
-  async function initAppVersion() {
-    const btn = $('appUpdateBtn');
-    btn?.addEventListener('click', runAppUpdate);
-    try {
-      const d = await fetchAppStatus();
-      renderAppVersionBar(d);
-    } catch {
-      renderAppVersionBar({ ok: false, app_version: '?' });
-    }
-  }
-
   function init() {
     initLangSelect();
-    initAppVersion();
     renderSavedLists();
     wordMic = makeInputMic('wordMicBtn', 'wordInput', true);
     sentenceMic = makeInputMic('sentenceMicBtn', 'sentenceInput', true);

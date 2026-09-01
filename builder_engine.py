@@ -1,7 +1,7 @@
 """Cümle Kur + Kendini Test Et — kelime/cümle üretimi, yapılandırılmış analiz, telaffuz."""
 from __future__ import annotations
 
-APP_VERSION = "2026.09.01-v37"
+APP_VERSION = "2026.09.01-v38"
 
 import difflib
 import json
@@ -43,6 +43,7 @@ from word_teaching_engine import (
     word_icon_for,
     guarantee_word_lesson,
     try_ai_word_lesson,
+    templates_allowed,
     upgrade_word_lesson_teaching,
     _rule_word_profile,
 )
@@ -383,13 +384,22 @@ def generate_word_lesson(
             word_tr, target_word, target_lang, profile, examples, translate_fn, ai_only=True,
         )
         quality_issues = collect_lesson_quality_issues(examples, word_tr, target_word, profile)
-        if len(examples) >= 13 and not quality_issues:
-            pass
-        else:
-            # Groq limiti / API hatası veya eksik AI çıktısı — kullanıcıya hata gösterme
-            profile, examples, category = _apply_quality_word_lesson_fallbacks(
-                word_tr, target_word, target_lang, profile, examples, translate_fn, known_words,
-            )
+        if len(examples) < 13 or quality_issues:
+            if templates_allowed():
+                profile, examples, category = _apply_quality_word_lesson_fallbacks(
+                    word_tr, target_word, target_lang, profile, examples, translate_fn, known_words,
+                )
+            else:
+                issue_hint = quality_issues[0] if quality_issues else "yetersiz örnek"
+                return {
+                    "ok": False,
+                    "error_tr": (
+                        f"«{word_tr}» için AI dersi şu an tamamlanamadı. "
+                        "Lütfen birkaç saniye sonra tekrar dene."
+                    ),
+                    "ai_retry": True,
+                    "debug_issue": issue_hint[:120],
+                }
     else:
         profile, examples, category = _apply_quality_word_lesson_fallbacks(
             word_tr, target_word, target_lang, profile, examples, translate_fn, known_words,

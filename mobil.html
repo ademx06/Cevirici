@@ -10,7 +10,8 @@
   <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%23060B18' width='100' height='100' rx='20'/><text x='50' y='62' font-size='48' text-anchor='middle' fill='%2338BDF8'>🌍</text></svg>">
   <link rel="manifest" href="manifest.json">
   <title>iPhone — Adres & Yardım</title>
-  <link rel="stylesheet" href="styles.css">
+  <meta name="app-version" content="2026.09.01-v38">
+  <link rel="stylesheet" href="styles.css?v=62">
 </head>
 <body>
   <div class="app mobil-app">
@@ -136,5 +137,11 @@
       });
     })();
   </script>
+  <div id="appVersionBar" class="app-version-bar menu-version-bar" aria-live="polite">
+    <span id="appVersionText">Yükleniyor…</span>
+    <button type="button" id="appUpdateBtn" class="app-update-btn hidden">Programı Güncelle</button>
+  </div>
+  <script src="app-version.js?v=1"></script>
+  <script>document.addEventListener('DOMContentLoaded', () => AppVersion.init());</script>
 </body>
 </html>

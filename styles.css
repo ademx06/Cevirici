@@ -2868,3 +2868,136 @@ body {
   display: none !important;
 }
 
+/* ── Ana menü sürüm çubuğu ── */
+.menu-app {
+  padding-bottom: calc(52px + env(safe-area-inset-bottom));
+}
+
+.menu-version-bar {
+  font-size: 12px;
+}
+
+/* ── Cümle Kur mobil iyileştirmeleri v38 ── */
+.builder-app {
+  padding-bottom: calc(88px + env(safe-area-inset-bottom));
+}
+
+.mod-card-compact {
+  padding: 12px;
+  margin-bottom: 8px;
+}
+
+.mod-card-compact .mod-card-line {
+  font-size: 15px;
+}
+
+.mod-teach-details {
+  margin-top: 10px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  padding-top: 8px;
+}
+
+.mod-teach-details summary {
+  font-size: 14px;
+  font-weight: 600;
+  color: #A5F3FC;
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mod-teach-details summary::-webkit-details-marker { display: none; }
+
+.mod-teach-hint {
+  font-size: 11px;
+  font-weight: 400;
+  color: #64748B;
+}
+
+.mod-teach-body {
+  margin-top: 8px;
+}
+
+.mod-teach-step {
+  font-size: 13px;
+  line-height: 1.55;
+  color: #CBD5E1;
+  margin: 0 0 6px;
+}
+
+.mod-teach-heading {
+  color: #F8FAFC;
+  font-weight: 600;
+  margin-top: 10px;
+}
+
+.mod-info-collapsible details {
+  border-radius: 14px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  padding: 10px 12px;
+}
+
+.mod-info-collapsible summary {
+  font-weight: 600;
+  cursor: pointer;
+  color: #E2E8F0;
+}
+
+.mod-info-body {
+  margin-top: 10px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.mod-error-card {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  border-radius: 16px;
+  padding: 16px;
+  text-align: center;
+}
+
+.mod-retry-btn {
+  margin-top: 12px;
+  border: none;
+  border-radius: 12px;
+  padding: 12px 20px;
+  background: linear-gradient(135deg, #0EA5E9, #2563EB);
+  color: #fff;
+  font-weight: 600;
+  font-size: 15px;
+  width: 100%;
+  cursor: pointer;
+}
+
+.mod-dock {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.mod-wb-table {
+  display: block;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  font-size: 12px;
+}
+
+@media (max-width: 520px) {
+  .mod-header h1 { font-size: 18px; }
+  .mod-hero { padding: 12px; }
+  .mod-hero-icon { font-size: 36px; }
+  .mod-section-title { font-size: 16px; }
+  .mod-composer input {
+    font-size: 16px;
+    min-height: 44px;
+  }
+  .mod-mic-btn, .mod-send-btn {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .mod-card .mod-pron-block { display: none; }
+  .mod-card-compact .mod-pron-block { display: none; }
+}
+

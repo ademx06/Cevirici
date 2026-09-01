@@ -503,21 +503,29 @@ def test_profile_ideas_fallback_examples():
 
 
 def test_ai_first_pipeline_without_llm():
-    """AI yokken bile garanti katmanı 13 örnek döndürür."""
+    """AI yokken şablon modu (geliştirme) ile 13 örnek döndürür."""
     from word_teaching_engine import AI_LESSON_MAX_ATTEMPTS, try_ai_word_lesson
 
     assert AI_LESSON_MAX_ATTEMPTS >= 5
     profile = {"common_verbs": ["wear"], "semantic_category": "clothing"}
     _, examples, issues = try_ai_word_lesson("çorap", "socks", "en", profile)
     assert issues, "LLM yokken sorun listesi beklenir"
-    r = generate_word_lesson("çorap", "en", fake_translate)
-    assert r["ok"], r
-    assert len(r.get("examples") or []) >= 13
+    old = os.environ.get("WORD_LESSON_ALLOW_TEMPLATES")
+    os.environ["WORD_LESSON_ALLOW_TEMPLATES"] = "1"
+    try:
+        r = generate_word_lesson("çorap", "en", fake_translate)
+        assert r["ok"], r
+        assert len(r.get("examples") or []) >= 13
+    finally:
+        if old is None:
+            os.environ.pop("WORD_LESSON_ALLOW_TEMPLATES", None)
+        else:
+            os.environ["WORD_LESSON_ALLOW_TEMPLATES"] = old
     print("TEST AI-first fallback OK:", len(r.get("examples") or []))
 
 
-def test_ai_only_mode_falls_back_when_api_unavailable():
-    """AI-only modda API/limit hatası olsa bile ders üretilir (kullanıcıya hata gösterilmez)."""
+def test_ai_only_mode_no_template_fallback():
+    """Canlı modda API kapalıyken şablon yerine hata döner."""
     import education_engine
     from unittest.mock import patch
     from word_teaching_engine import ai_only_lesson_enabled
@@ -528,11 +536,10 @@ def test_ai_only_mode_falls_back_when_api_unavailable():
     try:
         with patch.object(education_engine, "_llm_json", return_value=None):
             assert ai_only_lesson_enabled("en")
-            for word in ("araba", "cüzdan", "şemsiye"):
-                r = generate_word_lesson(word, "en", fake_translate)
-                assert r["ok"], f"{word} failed: {r}"
-                assert len(r.get("examples") or []) >= 13, f"{word}: {len(r.get('examples') or [])}"
-        print("TEST ai-only API fallback OK")
+            r = generate_word_lesson("araba", "en", fake_translate)
+            assert not r["ok"], f"Şablon yedek beklenmiyor: {r}"
+            assert r.get("ai_retry"), r
+        print("TEST ai-only no template fallback OK")
     finally:
         if old_flag is not None:
             os.environ["WORD_LESSON_ALLOW_TEMPLATES"] = old_flag
@@ -1114,7 +1121,7 @@ if __name__ == "__main__":
     test_araba_car_natural()
     test_semsiye_umbrella_natural()
     test_ai_first_pipeline_without_llm()
-    test_ai_only_mode_falls_back_when_api_unavailable()
+    test_ai_only_mode_no_template_fallback()
     test_market_rich_teaching()
     test_sessiz_quiet_natural_lesson()
     test_pos_mandatory_lessons()

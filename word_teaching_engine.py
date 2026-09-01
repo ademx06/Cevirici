@@ -20,7 +20,12 @@ from word_lexicon import build_lexicon_examples, get_word_usage_phrases, get_wor
 ENGLISH_VARIANT = "en-US"
 
 # AI birincil kelime dersi — ChatGPT gibi: önce AI, başarısızsa retry; şablon yedek YOK
-AI_LESSON_MAX_ATTEMPTS = 5
+AI_LESSON_MAX_ATTEMPTS = 8
+
+
+def templates_allowed() -> bool:
+    """Şablon/kayıtlı kalıp yalnızca geliştirme modunda."""
+    return os.getenv("WORD_LESSON_ALLOW_TEMPLATES", "").strip().lower() in ("1", "true", "yes", "on")
 
 
 def ai_only_lesson_enabled(target_lang: str) -> bool:
@@ -29,8 +34,7 @@ def ai_only_lesson_enabled(target_lang: str) -> bool:
         return False
     if not llm_available():
         return False
-    flag = os.getenv("WORD_LESSON_ALLOW_TEMPLATES", "").strip().lower()
-    if flag in ("1", "true", "yes", "on"):
+    if templates_allowed():
         return False
     return True
 
@@ -450,6 +454,18 @@ Bu kelimeyle insanlar günlük hayatta ne yapar? Hangi fiiller doğal? (kapı→
 - common_collocations: ana dili İngilizce konuşanların söylediği kalıplar (en az 4)
 - article_notes_items: a/an/the kullanımı (en az 2)
 
+[ÖĞRETİCİ AÇIKLAMA — HER CÜMLE İÇİN ZORUNLU]
+how_it_is_formed_tr en az 280 karakter; ChatGPT gibi adım adım öğret:
+1️⃣ Genel anlam — Bu cümle günlük hayatta ne anlatır?
+2️⃣ Ana yapı — İngilizce iskelet + «Türkçe karşılık»
+3️⃣ Özne — Kim/ne yapıyor? (I, she, the dog…)
+4️⃣ Yüklem/fiil — Ne yapıyor? Zamanı nedir? (went, is buying, will call…)
+5️⃣ Nesne/tümleç — Varsa neyi/kime/nereye? (my wallet, to the market…)
+6️⃣ Diğer öğeler — Zarf, sıfat, edat, bağlaç varsa NE İŞE YARADIĞINI açıkla (quickly→nasıl, because→neden, with→birlikte)
+7️⃣ ❌ Yaygın hata — Bu kelimeyle yapılmaması gereken kalıp (varsa)
+
+word_breakdown: cümledeki önemli kelimeler için token, role_tr (özne/fiil/nesne/zarf/sıfat/edat), meaning_tr
+
 JSON:
 {{
   "meaning_tr": "temel Türkçe anlam",
@@ -472,7 +488,10 @@ JSON:
       "target": "English sentence with {target_word}",
       "sentence_type": "basic|present|past|future|question|negative|imperative|polite_request|advice|obligation|possibility|conditional|dialogue",
       "structure_tr": "özne + fiil + ...",
-      "how_it_is_formed_tr": "en az 200 karakter; 1️⃣ genel anlam 2️⃣ ana yapı 3️⃣ dil bilgisi adımları"
+      "how_it_is_formed_tr": "1️⃣ Genel anlam\\n...\\n2️⃣ Ana yapı\\n...\\n3️⃣ Özne\\n...\\n4️⃣ Yüklem\\n...\\n5️⃣ Nesne/tümleç\\n...\\n6️⃣ Diğer öğeler\\n...",
+      "word_breakdown": [
+        {{"token": "I", "role_tr": "özne", "meaning_tr": "ben"}}
+      ]
     }}
   ]
 }}"""
@@ -4507,9 +4526,12 @@ def _profile_needs_upgrade(profile: dict[str, Any], word_tr: str, target_word: s
 
 
 def teaching_explanation_is_rich(how: str) -> bool:
-    """Öğretici açıklama yeterince derin mi? (adımlı, en az ~120 karakter)."""
+    """Öğretici açıklama yeterince derin mi? (adımlı, dil bilgisi rolleri)."""
     text = safe_str(how).strip()
-    return len(text) >= 120 and "1️⃣" in text and "2️⃣" in text
+    if len(text) < 180 or "1️⃣" not in text or "2️⃣" not in text:
+        return False
+    grammar_markers = ("özne", "fiil", "yüklem", "nesne", "zarf", "sıfat", "edat", "bağlaç", "subject", "verb", "object")
+    return any(m in text.lower() for m in grammar_markers)
 
 
 def upgrade_word_lesson_teaching(
@@ -4518,7 +4540,9 @@ def upgrade_word_lesson_teaching(
     target_word: str,
     profile: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    """AI veya kısa şablon açıklamalarını zengin kategori kalıplarıyla güçlendir."""
+    """AI açıklamalarını şablon kalıplarıyla güçlendir — yalnızca geliştirme modunda."""
+    if not templates_allowed():
+        return examples
     patterns = build_rule_examples_for_word(word_tr, target_word, profile)
     if not patterns:
         return examples
