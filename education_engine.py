@@ -3380,7 +3380,13 @@ def _gemini_api_request(body: dict[str, Any], max_tokens: int) -> str | None:
         return None
     configured = os.environ.get("GEMINI_MODEL", DEFAULT_GEMINI_MODEL).strip()
     models: list[str] = []
-    for candidate in (configured, DEFAULT_GEMINI_MODEL, "gemini-2.5-flash", "gemini-2.0-flash"):
+    for candidate in (
+        configured,
+        DEFAULT_GEMINI_MODEL,
+        "gemini-3.5-flash",
+        "gemini-2.5-flash",
+        "gemini-2.0-flash",
+    ):
         if candidate and candidate not in models:
             models.append(candidate)
     headers = _api_headers({
@@ -3578,19 +3584,27 @@ def _parse_json_object(raw: str) -> dict[str, Any] | None:
     return None
 
 
-def _llm_json(system: str, user: str, max_tokens: int = 380) -> dict[str, Any] | None:
+def _llm_json(
+    system: str,
+    user: str,
+    max_tokens: int = 380,
+    *,
+    prefer: str | None = None,
+) -> dict[str, Any] | None:
     """Yapılandırılmış JSON yanıt — Groq / Gemini / OpenAI (sırayla dener)."""
     providers = _llm_providers_in_order()
+    if prefer and prefer in providers:
+        providers = [prefer] + [p for p in providers if p != prefer]
     if not providers:
         return None
-    raw: str | None = None
     for provider in providers:
         raw = _llm_chat_json_raw(provider, system, user, max_tokens)
-        if raw:
-            break
-    if not raw:
-        return None
-    return _parse_json_object(raw)
+        if not raw:
+            continue
+        parsed = _parse_json_object(raw)
+        if parsed:
+            return parsed
+    return None
 
 
 def _format_history_for_ai(history: list[dict], limit: int = 8) -> str:
