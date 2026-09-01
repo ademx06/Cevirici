@@ -17,7 +17,7 @@ from education_engine import (
 )
 from pronunciation_service import (
     apply_pronunciation_to_example,
-    build_sentence,
+    build_pronunciation_bundle,
     enrich_pattern_examples,
     get_word,
     register_word,
@@ -30,6 +30,7 @@ from word_teaching_engine import (
     generate_examples_from_profile,
     rule_sentence_teaching,
     validate_lesson_quality,
+    word_icon_for,
 )
 
 # ── Yasak / şablon açıklamalar ──
@@ -128,8 +129,8 @@ def _dedupe_explanations(examples: list[dict[str, Any]]) -> bool:
 
 
 def _rule_pronunciation_en(text: str) -> dict[str, Any]:
-    """Geriye dönük uyumluluk — merkezi telaffuz servisini kullanır."""
-    return build_sentence(text, "en")
+    """Geriye dönük uyumluluk."""
+    return build_pronunciation_bundle(text, "en")
 
 
 def _pronunciation_bundle(
@@ -137,11 +138,10 @@ def _pronunciation_bundle(
     target_lang: str,
     focus_words: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Merkezi telaffuz sözlüğü — LLM ile telaffuz üretilmez."""
     text = safe_str(text).strip()
     if not text:
         return {"pronunciation_tr": "", "ipa": "", "word_pronunciations": []}
-    return build_sentence(text, target_lang, focus_words)
+    return build_pronunciation_bundle(text, target_lang, focus_words)
 
 
 def _merge_teaching_fields(ex: dict[str, Any]) -> dict[str, Any]:
@@ -256,16 +256,20 @@ def generate_word_lesson(
 
     tw_pron = get_word(target_lang, target_word)
     usage = build_usage_from_profile(profile, target_lang)
+    if profile.get("regional_variants"):
+        usage["regional_variants"] = profile["regional_variants"]
     word_explanation = (
         f"«{word_tr}» → {target_word}. "
         f"{profile.get('usage_notes_tr') or usage.get('usage_notes_tr') or ''}"
     ).strip()
+    category = profile.get("semantic_category") or "general"
 
     return {
         "ok": True,
         "word_tr": word_tr,
         "target_lang": target_lang,
         "target_word": target_word,
+        "word_icon": word_icon_for(word_tr, target_word, category),
         "pronunciation_tr": tw_pron["pronunciation_tr"],
         "ipa": tw_pron.get("ipa", ""),
         "word_profile": {

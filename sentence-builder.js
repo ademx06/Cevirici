@@ -80,6 +80,16 @@
   function renderWordBreakdown(ex) {
     const items = ex.word_breakdown || ex.parts || [];
     if (!items.length) return '';
+    const hasPron = items.some((p) => p.pronunciation_tr || p.pronunciation_hint);
+    if (hasPron) {
+      return `<table class="mod-wb-table"><thead><tr><th>İngilizce</th><th>Okunuş</th><th>Türkçesi</th><th>Görevi</th></tr></thead><tbody>${
+        items.map((p) => {
+          const tok = p.token || p.tr || '';
+          const pron = p.pronunciation_tr || p.pronunciation_hint || '';
+          return `<tr><td>${esc(tok)}</td><td>${esc(pron)}</td><td>${esc(p.meaning_tr || '')}</td><td>${esc(p.role_tr || '')}</td></tr>`;
+        }).join('')
+      }</tbody></table>`;
+    }
     return `<ul class="mod-parts">${items.map((p) => {
       const tok = p.token || p.tr || '';
       const role = p.role_tr ? `<small>${esc(p.role_tr)}</small>` : '';
@@ -96,7 +106,7 @@
       const cardId = `pat-${i}`;
       const nw = (p.new_words || []).map((w) => `
         <button type="button" class="mod-nw-chip builder-word-chip" data-word="${esc(w.word)}" data-meaning="${esc(w.meaning_tr || '')}" data-pron="${esc(w.pronunciation_tr || '')}" data-example-target="${esc(w.example_target || '')}" data-example-tr="${esc(w.example_tr || '')}" data-lang="${lang}">
-          ${esc(w.word)} → ${esc(w.meaning_tr || '')}
+          ${esc(w.word)} → ${esc(w.meaning_tr || '')}${w.pronunciation_tr ? ` → ${esc(w.pronunciation_tr)}` : ''}
         </button>`).join('');
       return `
         <li class="mod-pattern-card">
@@ -169,7 +179,8 @@
 
   function renderExampleCard(ex, lang, idx) {
     const cardId = `ex-${idx}`;
-    const typeBadge = ex.sentence_type ? `<span class="mod-badge">${esc(ex.sentence_type)}</span>` : '';
+    const typeLabel = ex.sentence_type_label || ex.sentence_type || '';
+    const typeBadge = typeLabel ? `<span class="mod-badge">${esc(typeLabel)}</span>` : '';
     return `
       <article class="mod-card" data-idx="${idx}">
         ${typeBadge}
@@ -229,7 +240,7 @@
     if (usage.common_verbs_tr) rows.push(`<p><strong>Yaygın fiiller:</strong> ${esc(usage.common_verbs_tr)}</p>`);
     if (usage.collocations_tr) rows.push(`<p><strong>Yaygın ifadeler:</strong> ${esc(usage.collocations_tr)}</p>`);
     if (usage.article_notes_tr) rows.push(`<p><strong>Artikel:</strong> ${esc(usage.article_notes_tr)}</p>`);
-    if (usage.usage_notes_tr) rows.push(`<p>${esc(usage.usage_notes_tr)}</p>`);
+    if (usage.regional_note_tr) rows.push(`<p class="mod-regional">${esc(usage.regional_note_tr)}</p>`);
     return rows.length ? rows.join('') : '';
   }
 
@@ -279,10 +290,11 @@
     const usage = data.usage || {};
     const patterns = (usage.patterns || []).map((p) => `<li>${esc(p)}</li>`).join('');
     const usageMap = renderUsageMap(usage);
+    const icon = data.word_icon || '📖';
     const examples = (data.examples || []).map((ex, i) => renderExampleCard(ex, lang, i)).join('');
     box.innerHTML = `
       <div class="mod-hero mod-hero-green">
-        <div class="mod-hero-icon">☕</div>
+        <div class="mod-hero-icon">${icon}</div>
         <div>
           <h2>${esc(data.word_tr)}</h2>
           <p class="mod-hero-sub">${esc(data.target_word)}${data.pronunciation_tr ? ` · 🗣️ ${esc(data.pronunciation_tr)}` : ''}</p>
@@ -310,6 +322,7 @@
     const saved = LS.saveWord({
       word_tr: currentWordLesson.word_tr,
       target_word: currentWordLesson.target_word,
+      word_icon: currentWordLesson.word_icon,
       pronunciation_tr: currentWordLesson.pronunciation_tr,
       ipa: currentWordLesson.ipa,
       target_lang: currentWordLesson.target_lang,

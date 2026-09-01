@@ -127,6 +127,36 @@ EN_CANONICAL: dict[str, str] = {
     "cold": "kould",
     "coming": "ka-ming",
     "aren't": "arent",
+    "faucet": "fô-sıt",
+    "tap": "tep",
+    "leak": "li:k",
+    "leaking": "li-king",
+    "turn": "törn",
+    "off": "of",
+    "on": "on",
+    "bathroom": "bat-rum",
+    "kitchen": "ki-çın",
+    "repair": "ri-per",
+    "repaired": "ri-perd",
+    "install": "in-stol",
+    "replace": "ri-pleys",
+    "fix": "fiks",
+    "buy": "bay",
+    "new": "nü",
+    "car": "kar",
+    "drive": "drayv",
+    "park": "park",
+    "garage": "ga-raj",
+    "broken": "brou-kın",
+    "happy": "hepi",
+    "sad": "sed",
+    "feel": "fiil",
+    "seem": "siim",
+    "looks": "luks",
+    "harder": "hardır",
+    "sundays": "san-deyz",
+    "why": "vay",
+    "could": "kud",
 }
 
 EN_IPA: dict[str, str] = {
@@ -174,9 +204,21 @@ EN_WORD_MEANINGS: dict[str, str] = {
     "menu": "menü",
     "cold": "soğuk",
     "morning": "sabah",
-    "coming": "gelmek (ing)",
-    "aren't": "değil mi? (tag)",
-    "doesn't": "-miyor (olumsuz)",
+    "faucet": "musluk",
+    "bathroom": "banyo",
+    "leaking": "sızdırıyor",
+    "leak": "sızmak / sızdırmak",
+    "turn": "çevirmek",
+    "repair": "tamir etmek",
+    "fix": "tamir etmek / düzeltmek",
+    "car": "araba",
+    "garage": "garaj",
+    "happy": "mutlu",
+    "because": "çünkü",
+    "nothing": "hiçbir şey",
+    "cook": "pişirmek / yemek yapmak",
+    "market": "market / pazar",
+    "home": "ev",
 }
 
 TEACHING_HEADER_RE = re.compile(
@@ -295,6 +337,81 @@ def build_sentence(
     }
 
 
+# Doğal konuşma telaffuzu — kelime kelime birleştirmeden (linking, weak forms)
+SENTENCE_NATURAL_EN: dict[str, str] = {
+    "the faucet is in the kitchen.": "Dı fô-sıt iz in dı ki-çın.",
+    "the faucet is leaking.": "Dı fô-sıt iz li-king.",
+    "turn off the faucet.": "Törn of dı fô-sıt.",
+    "could you turn off the faucet?": "Kud yu törn of dı fô-sıt?",
+    "why is the faucet leaking?": "Vay iz dı fô-sıt li-king?",
+    "i need to buy a new kitchen faucet.": "Ay ni:d-tı bay e nü ki-çın fô-sıt.",
+    "i need to have the faucet repaired.": "Ay ni:d-tı hev dı fô-sıt ri-perd.",
+    "the bathroom faucet is leaking.": "Dı bat-rum fô-sıt iz li-king.",
+    "the table is in the kitchen.": "Dı tey-bıl iz in dı ki-çın.",
+    "i need to go to the market because i have nothing to cook at home.": (
+        "Ay ni:d-tı gou tı dı markit bikoz ay hev nathing tı kuk ət houm."
+    ),
+    "i drink coffee every morning.": "Ay drink kofi evri mor-ning.",
+    "can i have a coffee?": "Ken ay hev e kofi?",
+}
+
+
+def _sentence_key(text: str) -> str:
+    return re.sub(r"\s+", " ", safe_str(text).strip().lower())
+
+
+def build_sentence_natural(text: str, lang: str = "en") -> str:
+    """Cümle telaffuzu — doğal bağlantılar; kelime tablosundan ayrı."""
+    text = safe_str(text).strip()
+    if not text:
+        return ""
+    if lang == "en":
+        key = _sentence_key(text)
+        if key in SENTENCE_NATURAL_EN:
+            pron = SENTENCE_NATURAL_EN[key]
+            if text[0].isupper():
+                return pron[0].upper() + pron[1:]
+            return pron
+    base = build_sentence(text, lang)["pronunciation_tr"]
+    links = (
+        ("turn of", "törn-of"),
+        ("törn of", "törn-of"),
+        ("ni:d tu", "ni:d-tı"),
+        ("nid tu", "ni:d-tı"),
+        ("hev tu", "hev-tı"),
+        ("tu bay", "tı-bay"),
+        ("tı gou", "tı-gou"),
+        ("gou tu", "gou-tu"),
+        ("tu dı", "tu-dı"),
+        ("iz li-king", "iz-li-king"),
+        ("iz in", "iz-in"),
+        ("kud yu", "kud-yu"),
+        ("vay iz", "vay-iz"),
+        ("dont layk", "dont-layk"),
+        ("du yu", "du-yu"),
+    )
+    pron = base.lower()
+    for a, b in links:
+        pron = pron.replace(a, b)
+    if text[0].isupper():
+        pron = pron[0].upper() + pron[1:]
+    return pron[:160]
+
+
+def build_pronunciation_bundle(
+    text: str,
+    lang: str = "en",
+    focus_words: list[str] | None = None,
+) -> dict[str, Any]:
+    """Kelime tablosu + doğal cümle telaffuzu birlikte."""
+    words_bundle = build_sentence(text, lang, focus_words)
+    return {
+        "pronunciation_tr": build_sentence_natural(text, lang),
+        "ipa": words_bundle.get("ipa", ""),
+        "word_pronunciations": words_bundle.get("word_pronunciations") or [],
+    }
+
+
 def strip_teaching_header(text: str) -> str:
     """UI'da tekrarlanan 🧠 Nasıl kuruldu? başlığını metinden çıkar."""
     t = safe_str(text).strip()
@@ -361,7 +478,7 @@ def enrich_pattern_card(
     if not target:
         return dict(card)
 
-    bundle = build_sentence(target, lang, focus_words)
+    bundle = build_pronunciation_bundle(target, lang, focus_words)
     out: dict[str, Any] = {
         "target": target,
         "tr": safe_str(card.get("tr")).strip(),
@@ -418,7 +535,7 @@ def apply_pronunciation_to_example(
     target = safe_str(ex.get("target")).strip()
     if not target:
         return ex
-    bundle = build_sentence(target, lang, focus_words)
+    bundle = build_pronunciation_bundle(target, lang, focus_words)
     ex["pronunciation_tr"] = bundle["pronunciation_tr"]
     ex["ipa"] = bundle.get("ipa") or ex.get("ipa") or ""
     ex["word_pronunciations"] = bundle["word_pronunciations"]

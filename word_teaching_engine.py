@@ -122,9 +122,62 @@ KNOWN_CATEGORIES: dict[str, str] = {
     "kahve": "beverage", "coffee": "beverage", "çay": "beverage", "tea": "beverage",
     "su": "beverage", "water": "beverage", "süt": "beverage", "milk": "beverage",
     "masa": "furniture", "table": "furniture", "sandalye": "furniture", "chair": "furniture",
+    "musluk": "plumbing", "faucet": "plumbing", "tap": "plumbing",
+    "araba": "vehicle", "car": "vehicle", "otomobil": "vehicle",
+    "mutlu": "adjective", "happy": "adjective",
+    "çalışmak": "verb", "work": "verb", "çalış": "verb",
     "kitap": "object", "book": "object", "telefon": "object", "phone": "object",
     "ev": "place", "home": "place", "market": "place", "pazar": "place",
 }
+
+WORD_ICONS: dict[str, str] = {
+    "kahve": "☕", "coffee": "☕", "çay": "🍵", "tea": "🍵",
+    "masa": "🪑", "table": "🪑", "sandalye": "🪑",
+    "musluk": "🚰", "faucet": "🚰", "tap": "🚰",
+    "araba": "🚗", "car": "🚗", "otomobil": "🚗",
+    "mutlu": "😊", "happy": "😊",
+    "çalışmak": "💼", "work": "💼", "çalış": "💼",
+    "ev": "🏠", "home": "🏠", "kitap": "📚", "book": "📚",
+    "su": "💧", "water": "💧", "market": "🛒", "pazar": "🛒",
+}
+
+CATEGORY_ICONS: dict[str, str] = {
+    "beverage": "☕", "furniture": "🪑", "plumbing": "🚰", "vehicle": "🚗",
+    "adjective": "😊", "verb": "💼", "place": "📍", "object": "📦", "general": "📖",
+}
+
+SENTENCE_TYPE_LABELS: dict[str, str] = {
+    "location": "📍 Konum",
+    "description": "📌 Tanım",
+    "problem": "🔧 Problem",
+    "action": "🛠️ Eylem",
+    "request": "🗣️ Rica",
+    "question": "❓ Soru",
+    "shopping": "🛒 Alışveriş",
+    "repair": "👨‍🔧 Tamir",
+    "daily": "💬 Günlük konuşma",
+    "past": "🕐 Geçmiş",
+    "future": "🔮 Gelecek",
+    "present_continuous": "🔄 Şu an",
+    "negative": "⛔ Olumsuz",
+    "offer": "🤝 Teklif",
+    "need_to": "📋 Gereklilik",
+    "imperative": "👉 Emir",
+    "existence": "📍 Var/yok",
+    "routine": "🌅 Rutin",
+    "movement": "🚶 Hareket",
+    "experience": "🧠 Deneyim",
+    "comparison": "⚖️ Karşılaştırma",
+    "warning": "⚠️ Uyarı",
+    "advice": "💡 Tavsiye",
+}
+
+
+def word_icon_for(word_tr: str, target_word: str, category: str = "general") -> str:
+    for w in (_norm(word_tr), _norm(target_word)):
+        if w in WORD_ICONS:
+            return WORD_ICONS[w]
+    return CATEGORY_ICONS.get(category, "📖")
 
 
 def _norm(s: str) -> str:
@@ -234,6 +287,69 @@ def _rule_word_profile(
             "avoid_patterns": ["I love market"],
             "avoid_reason_tr": "Yerler sevilmek yerine gidilir veya bulunulur.",
         },
+        "plumbing": {
+            "part_of_speech": "noun",
+            "countability": "countable",
+            "semantic_category": "plumbing",
+            "meaning_tr": word_tr,
+            "usage_notes_tr": (
+                f"«{word_tr}» evdeki su musluğu anlamına gelir. "
+                "turn on/off, leak, fix, repair, install gibi fiillerle kullanılır."
+            ),
+            "common_verbs": ["turn on", "turn off", "fix", "repair", "replace", "install", "clean"],
+            "common_collocations": [
+                "kitchen faucet", "bathroom faucet", "turn off the faucet",
+                "the faucet is leaking", "water is coming from the faucet",
+            ],
+            "common_patterns": ["Turn off the faucet.", "The faucet is leaking."],
+            "article_notes_tr": "the faucet — belirli musluk; a new faucet — yeni musluk.",
+            "regional_variants": {
+                "us": target_word if target_word == "faucet" else "faucet",
+                "uk": "tap",
+                "note_tr": "🇺🇸 American English: faucet · 🇬🇧 British English: tap",
+            },
+            "avoid_patterns": ["drink the faucet", "eat the faucet", "I love faucet"],
+            "avoid_reason_tr": "Musluk içilmez veya sevilmez; açma/kapama/tamir fiilleri kullanılır.",
+        },
+        "vehicle": {
+            "part_of_speech": "noun",
+            "countability": "countable",
+            "semantic_category": "vehicle",
+            "meaning_tr": word_tr,
+            "usage_notes_tr": f"«{word_tr}» taşıt; drive, park, fix, buy ile doğal kullanılır.",
+            "common_verbs": ["drive", "park", "buy", "fix", "wash", "rent"],
+            "common_collocations": [f"drive the {target_word}", f"park the {target_word}", "new car"],
+            "common_patterns": [f"The {target_word} is...", f"I drive a {target_word}"],
+            "article_notes_tr": "a car / the car",
+            "avoid_patterns": ["drink the car", "I love car (without context)"],
+            "avoid_reason_tr": "Araç fiilleri: sürmek, park etmek, tamir etmek.",
+        },
+        "adjective": {
+            "part_of_speech": "adjective",
+            "countability": "n/a",
+            "semantic_category": "adjective",
+            "meaning_tr": word_tr,
+            "usage_notes_tr": f"«{word_tr}» sıfattır; am/is/are + sıfat veya feel/look + sıfat ile kullanılır.",
+            "common_verbs": ["be", "feel", "look", "seem", "make"],
+            "common_collocations": [f"I am {target_word}", f"feel {target_word}", f"look {target_word}"],
+            "common_patterns": [f"I am {target_word}.", f"She looks {target_word}."],
+            "article_notes_tr": None,
+            "avoid_patterns": ["I happy (without am)"],
+            "avoid_reason_tr": "Sıfatlar genelde be fiili veya feel/look ile gelir.",
+        },
+        "verb": {
+            "part_of_speech": "verb",
+            "countability": "n/a",
+            "semantic_category": "verb",
+            "meaning_tr": word_tr,
+            "usage_notes_tr": f"«{word_tr}» fiildir; özne + fiil + nesne/zarf yapısı kullanılır.",
+            "common_verbs": [target_word],
+            "common_collocations": [f"I {target_word}", f"need to {target_word}", f"don't {target_word}"],
+            "common_patterns": [f"I {target_word} every day.", f"Do you {target_word} here?"],
+            "article_notes_tr": None,
+            "avoid_patterns": [],
+            "avoid_reason_tr": "Fiil çekimine dikkat: works, worked, working.",
+        },
     }
     base = profiles.get(category, {
         "part_of_speech": "noun",
@@ -294,8 +410,8 @@ def _category_examples_en(
         ]
 
     if category == "furniture":
-        return [
-            _ex(W, f"{W.capitalize()} mutfakta.", f"The {T} is in the kitchen.", "description",
+        examples = [
+            _ex(W, f"{W.capitalize()} mutfakta.", f"The {T} is in the kitchen.", "location",
                 f"The + {T} + is + in the kitchen",
                 f"Bu cümlede «{W}» özne.\n\n"
                 f"The {T} → belirli masa\nis → tekil «be» fiili\nin the kitchen → mutfakta\n\n"
@@ -305,11 +421,17 @@ def _category_examples_en(
                 f"Var/yok: There is…\n\n"
                 f"on the {T} → masanın üzerinde\n\n"
                 "on edatı «üzerinde» anlamı verir."),
-            _ex(W, f"Bardakları masaya koy.", f"Please put the cups on the {T}.", "imperative",
+            _ex(W, f"Bardakları masaya koy.", f"Please put the cups on the {T}.", "action",
                 f"Put + the cups + on the {T}",
                 f"Emir: fiil ile başlar (Please opsiyonel)\n\n"
                 f"put … on the {T} → … masanın üzerine koy\n\n"
-                "put + nesne + on + yer kalıbı çok yaygın."),
+                "put + nesne + on + yer kalıbı çok yaygın.",
+                pattern_tr="Put + nesne + on the [şey]",
+                pattern_examples=[{
+                    "target": f"Put the book on the {T}.",
+                    "tr": f"Kitabı {W}nın üzerine koy.",
+                    "new_words": [{"word": "book", "meaning_tr": "kitap"}],
+                }]),
             _ex(W, f"Masada oturduk.", f"We sat at the {T}.", "past",
                 f"We + sat + at the {T}",
                 f"Geçmiş: sat (sit'in geçmişi)\n\n"
@@ -325,6 +447,99 @@ def _category_examples_en(
                 f"Can you…? → …-ebilir misin?\n\n"
                 f"move the {T} → masayı taşımak\n\n"
                 "Mobilya için move doğal bir fiildir."),
+        ]
+        return examples
+
+    if category == "plumbing":
+        return [
+            _ex(W, f"{W.capitalize()} mutfakta.", f"The {T} is in the kitchen.", "location",
+                f"The + {T} + is + in the kitchen",
+                f"The → belirli musluk\n{T} → {W}\nis → tekil be fiili\nin the kitchen → mutfakta"),
+            _ex(W, f"{W.capitalize()} su sızdırıyor.", f"The {T} is leaking.", "problem",
+                f"The + {T} + is + leaking",
+                f"1️⃣ Genel anlam: Musluk şu anda su sızdırıyor.\n\n"
+                f"The → belirli musluk\nis → tekil yardımcı fiil\nleaking → sızdırıyor (is + fiil-ing)\n\n"
+                "❓ Neden -ing? Devam eden durum için Present Continuous yapısı.\n\n"
+                "Genel yapı: Subject + is/are + verb-ing",
+                pattern_tr="The [place] faucet is [verb-ing].",
+                pattern_examples=[{
+                    "target": "The bathroom faucet is leaking.",
+                    "tr": "Banyo musluğu su sızdırıyor.",
+                    "new_words": [
+                        {"word": "bathroom", "meaning_tr": "banyo"},
+                        {"word": "leaking", "meaning_tr": "sızdırıyor"},
+                    ],
+                }]),
+            _ex(W, f"Musluğu kapat.", f"Turn off the {T}.", "action",
+                f"Turn off + the {T}",
+                f"turn off → kapatmak (musluk, ışık, cihaz için çok yaygın)\n\n"
+                f"❓ Neden turn off? İngilizcede musluk/ışık kapatırken bu phrasal verb kullanılır.\n\n"
+                f"the {T} → belirli musluk"),
+            _ex(W, f"Musluğu kapatabilir misin?", f"Could you turn off the {T}?", "request",
+                f"Could + you + turn off + the {T}",
+                f"Could you…? → kibar rica\n\n"
+                "turn off the faucet = musluğu kapatmak"),
+            _ex(W, f"{W.capitalize()} neden akıyor?", f"Why is the {T} leaking?", "question",
+                f"Why + is + the {T} + leaking",
+                f"Soru: Why + is + özne + fiil-ing?\n\n"
+                f"Why → neden\nleaking → sızdırıyor"),
+            _ex(W, f"Yeni bir mutfak musluğu almam gerekiyor.", f"I need to buy a new kitchen {T}.", "shopping",
+                f"I + need to + buy + a new kitchen {T}",
+                f"need to + fiil → …-mem lazım\n\n"
+                f"a new kitchen {T} → yeni mutfak musluğu\n\n"
+                "kitchen faucet = mutfak musluğu (sıfat + isim)"),
+            _ex(W, f"Musluğu tamir ettirmem gerekiyor.", f"I need to have the {T} repaired.", "repair",
+                f"I + need to + have + the {T} + repaired",
+                f"have something repaired → bir şeyi tamir ettirmek\n\n"
+                f"Bu yapı «musluğu tamir ettirmem lazım» anlamını verir."),
+        ]
+
+    if category == "vehicle":
+        return [
+            _ex(W, f"{W.capitalize()} garajda.", f"The {T} is in the garage.", "location",
+                f"The + {T} + is + in the garage", f"The {T} → araba\ngarage → garaj"),
+            _ex(W, f"Yeni bir {W} aldım.", f"I bought a new {T}.", "shopping",
+                f"I + bought + a new {T}", f"a new {T} → yeni araba\nbought → aldım"),
+            _ex(W, f"{W.capitalize()} bozuk.", f"The {T} is broken.", "problem",
+                f"The + {T} + is + broken", f"broken → bozuk (sıfat)\nis broken → bozuk durumda"),
+            _ex(W, f"{W} kullanabilir misin?", f"Can you drive the {T}?", "request",
+                f"Can + you + drive + the {T}", f"drive the {T} → arabayı sürmek"),
+            _ex(W, f"{W} tamir etmem lazım.", f"I need to fix the {T}.", "repair",
+                f"I + need to + fix + the {T}", f"fix the {T} → arabayı tamir etmek"),
+            _ex(W, f"{W} nereye park ettin?", f"Where did you park the {T}?", "question",
+                f"Where + did + you + park + the {T}", f"park → park etmek\nWhere did you…? → nereye…?"),
+        ]
+
+    if category == "adjective":
+        return [
+            _ex(W, f"Mutluyum.", f"I am {T}.", "description",
+                f"I + am + {T}", f"am + sıfat → …-yım/-ım\n\n❌ I happy — am gerekli"),
+            _ex(W, f"Mutlu görünüyor.", f"She looks {T}.", "description",
+                f"She + looks + {T}", f"look + sıfat → … gibi görünmek"),
+            _ex(W, f"Mutlu musun?", f"Are you {T}?", "question",
+                f"Are + you + {T}", f"Soru: Are + özne + sıfat?"),
+            _ex(W, f"Bu beni mutlu ediyor.", f"This makes me {T}.", "action",
+                f"This + makes + me + {T}", f"make + kişi + sıfat → …-i mutlu etmek"),
+            _ex(W, f"Dün mutluydum.", f"I was {T} yesterday.", "past",
+                f"I + was + {T}", f"was → geçmişte be fiili"),
+            _ex(W, f"Mutlu görünüyorlar.", f"They seem {T}.", "description",
+                f"They + seem + {T}", f"seem + sıfat → … gibi görünmek"),
+        ]
+
+    if category == "verb":
+        return [
+            _ex(W, f"Her gün çalışırım.", f"I {T} every day.", "routine",
+                f"I + {T} + every day", f"Geniş zaman: I + fiil(yalın)"),
+            _ex(W, f"Pazar günleri çalışmam.", f"I don't {T} on Sundays.", "negative",
+                f"I + don't + {T}", f"don't + fiil(yalın) → …-mıyorum"),
+            _ex(W, f"Burada çalışıyor musun?", f"Do you {T} here?", "question",
+                f"Do + you + {T}", f"Soru: Do + özne + fiil?"),
+            _ex(W, f"Daha çok çalışmam lazım.", f"I need to {T} harder.", "need_to",
+                f"I + need to + {T}", f"need to + fiil → …-mem lazım"),
+            _ex(W, f"Şu an çalışıyor.", f"She is {T}ing now.", "present_continuous",
+                f"She + is + {T}ing", f"is + fiil-ing → şu anda …-yor"),
+            _ex(W, f"Dün geç saate kadar çalıştım.", f"I {T}ed late yesterday.", "past",
+                f"I + {T}ed + late", f"Geçmiş zaman: fiil + -ed (düzenli fiiller)"),
         ]
 
     if category == "place":
@@ -357,21 +572,25 @@ def _ex(
     sentence_type: str,
     structure_tr: str,
     how: str,
+    pattern_tr: str | None = None,
+    pattern_examples: list[dict[str, Any]] | None = None,
+    important_note_tr: str | None = None,
 ) -> dict[str, Any]:
     return {
         "tr": tr,
         "target": target,
         "sentence_type": sentence_type,
+        "sentence_type_label": SENTENCE_TYPE_LABELS.get(sentence_type, sentence_type),
         "grammar_topic": sentence_type,
-        "difficulty": "A1" if sentence_type in ("description", "question") else "A2",
+        "difficulty": "A1" if sentence_type in ("description", "question", "location") else "A2",
         "structure_tr": structure_tr,
         "structure_label_tr": "Kelimeye özel doğal yapı",
         "word_breakdown": [],
         "how_it_is_formed_tr": how,
         "why_this_structure_tr": f"Bu yapı «{word_tr}» kelimesinin doğal kullanımına uygundur.",
-        "important_note_tr": None,
-        "pattern_tr": None,
-        "pattern_examples": [],
+        "important_note_tr": important_note_tr,
+        "pattern_tr": pattern_tr,
+        "pattern_examples": pattern_examples or [],
     }
 
 
@@ -452,6 +671,10 @@ def validate_lesson_quality(
             for bad in ("i love", "do you want", "don't drink", "don't like"):
                 if bad in safe_str(ex.get("target")).lower():
                     return False
+        if profile.get("semantic_category") in ("plumbing", "furniture", "vehicle"):
+            for bad in ("i love", "do you want", "don't drink", "drink the", "eat the"):
+                if bad in safe_str(ex.get("target")).lower():
+                    return False
     return True
 
 
@@ -477,6 +700,7 @@ def build_usage_from_profile(profile: dict[str, Any], target_lang: str) -> dict[
         "patterns": patterns[:4],
         "article_notes_tr": profile.get("article_notes_tr"),
         "avoid_reason_tr": profile.get("avoid_reason_tr"),
+        "regional_note_tr": (profile.get("regional_variants") or {}).get("note_tr"),
         "common_mistakes_tr": profile.get("avoid_reason_tr") or (
             "Türkçe kelime sırasını birebir kopyalama; her kelimenin doğal fiillerini kullan."
         ),

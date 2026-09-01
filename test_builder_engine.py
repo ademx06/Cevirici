@@ -15,7 +15,7 @@ from builder_engine import (
     learning_level_from_stats,
     srs_weight,
 )
-from pronunciation_service import build_sentence, get_word
+from pronunciation_service import build_pronunciation_bundle, get_word
 from word_teaching_engine import detect_category, validate_lesson_quality
 
 
@@ -23,6 +23,10 @@ def fake_translate(text: str, from_lang: str, to_lang: str) -> str:
     mapping = {
         "kahve": "coffee",
         "masa": "table",
+        "musluk": "faucet",
+        "araba": "car",
+        "mutlu": "happy",
+        "çalışmak": "work",
         "kahve seviyorum.": "I love coffee.",
         "kahve sevmiyorum.": "I don't like coffee.",
         "kahve ister misin?": "Do you want coffee?",
@@ -94,10 +98,44 @@ def test_pronunciation_consistency():
         words = {w["word"].lower(): w["pronunciation_tr"] for w in (ex.get("word_pronunciations") or [])}
         if "coffee" in words:
             assert words["coffee"] == "kofi"
-    sent = build_sentence("I don't like coffee.", "en")
+    sent = build_pronunciation_bundle("I don't like coffee.", "en")
     w = {x["word"].lower(): x["pronunciation_tr"] for x in sent["word_pronunciations"]}
     assert w.get("coffee") == "kofi"
     print("TEST pronunciation consistency OK")
+
+
+def test_faucet_lesson():
+    result = generate_word_lesson("musluk", "en", fake_translate)
+    assert result["ok"], result
+    assert result.get("word_icon") == "🚰"
+    examples = result["examples"]
+    assert len(examples) >= 5
+    banned = ("i love faucet", "do you want faucet", "drink the faucet")
+    for ex in examples:
+        t = safe_str(ex.get("target")).lower()
+        for b in banned:
+            assert b not in t
+    targets = " ".join(safe_str(ex.get("target")).lower() for ex in examples)
+    assert "leak" in targets or "turn off" in targets
+    # Doğal cümle telaffuzu kelime birleştirmeden farklı olabilir
+    leak_ex = next((e for e in examples if "leaking" in safe_str(e.get("target")).lower()), None)
+    if leak_ex:
+        assert leak_ex.get("pronunciation_tr")
+    print("TEST faucet lesson OK")
+
+
+def test_car_happy_work_distinct():
+    for word_tr, tw, icon in (
+        ("araba", "car", "🚗"),
+        ("mutlu", "happy", "😊"),
+        ("çalışmak", "work", "💼"),
+    ):
+        result = generate_word_lesson(word_tr, "en", fake_translate)
+        assert result["ok"], result
+        assert result.get("word_icon") == icon, f"{word_tr} icon"
+        targets = [safe_str(e.get("target")).lower() for e in result["examples"]]
+        assert not any("i love " + tw in t for t in targets), f"template on {word_tr}"
+    print("TEST car/happy/work distinct OK")
 
 
 def test_no_duplicate_teaching_header():
@@ -175,6 +213,8 @@ if __name__ == "__main__":
     test_coffee_lesson_natural()
     test_table_lesson_no_template_copy()
     test_pronunciation_consistency()
+    test_faucet_lesson()
+    test_car_happy_work_distinct()
     test_no_duplicate_teaching_header()
     test_pronunciation_rules()
     test_market_sentence_teaching()
