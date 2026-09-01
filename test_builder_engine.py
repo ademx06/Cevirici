@@ -37,6 +37,8 @@ def fake_translate(text: str, from_lang: str, to_lang: str) -> str:
         "fatura": "invoice",
     "sakız": "gum",
     "sakiz": "gum",
+    "eğlence": "entertainment",
+    "eglence": "entertainment",
         "araba": "car",
         "mutlu": "happy",
         "çalışmak": "work",
@@ -605,6 +607,79 @@ def test_door_icon():
     print("TEST door icon OK")
 
 
+def test_placeholder_turkish_rejected():
+    """Yalnızca kelime olan Türkçe (❌ 'Eğlence') örnekler elenmeli."""
+    from word_teaching_engine import (
+        _is_placeholder_turkish,
+        _validate_word_example,
+        sanitize_word_examples,
+    )
+
+    assert _is_placeholder_turkish("Eğlence", "eğlence")
+    assert _is_placeholder_turkish("", "eğlence")
+    assert not _is_placeholder_turkish("Bu akşam için iyi bir eğlence bulmalıyız.", "eğlence")
+
+    bad = {
+        "tr": "Eğlence",
+        "target": "What kind of entertainment do you prefer?",
+        "sentence_type": "question",
+        "structure_tr": "What kind of entertainment",
+        "how_it_is_formed_tr": "Bu cümle eğlence kelimesinin doğal kullanımını gösterir. Soru kalıbı.",
+        "structure_label_tr": "Dil Bilgisi Formülü: What kind of entertainment",
+    }
+    assert not _validate_word_example(dict(bad), "eğlence", "entertainment")
+
+    good = {
+        "tr": "Ne tür eğlence tercih edersin?",
+        "target": "What kind of entertainment do you prefer?",
+        "sentence_type": "question",
+        "structure_tr": "What kind of entertainment",
+        "how_it_is_formed_tr": "Bu cümle eğlence kelimesinin doğal kullanımını gösterir. Soru kalıbı.",
+        "structure_label_tr": "Dil Bilgisi Formülü: What kind of entertainment",
+    }
+    assert _validate_word_example(dict(good), "eğlence", "entertainment")
+
+    mixed = [
+        good,
+        bad,
+        {
+            "tr": "Parti için eğlence ayarlamam gerekiyor.",
+            "target": "I need to arrange entertainment for the party.",
+            "sentence_type": "obligation",
+            "structure_tr": "arrange entertainment",
+            "how_it_is_formed_tr": "Bu cümle eğlence kelimesinin doğal kullanımını gösterir. Gereklilik kalıbı.",
+            "structure_label_tr": "Dil Bilgisi Formülü: arrange entertainment",
+        },
+    ]
+    cleaned = sanitize_word_examples(mixed, "eğlence", "entertainment")
+    assert len(cleaned) == 2
+    for ex in cleaned:
+        assert not _is_placeholder_turkish(ex.get("tr"), "eğlence")
+    print("TEST placeholder turkish rejected OK")
+
+
+def test_eglence_natural_lesson():
+    """eğlence → entertainment; tüm örneklerde tam Türkçe cümle olmalı."""
+    from word_teaching_engine import _is_placeholder_turkish
+
+    result = generate_word_lesson("eğlence", "en", fake_translate)
+    assert result["ok"], result
+    assert result.get("target_word") == "entertainment", result.get("target_word")
+    examples = result["examples"]
+    assert len(examples) >= 10, f"Expected 10+ examples, got {len(examples)}"
+    targets = " ".join(safe_str(ex.get("target")).lower() for ex in examples)
+    assert "entertainment" in targets
+    banned = ("the entertainment is here", "bring the entertainment", "i am using the entertainment")
+    for b in banned:
+        assert b not in targets, f"Banned: {b}"
+    for ex in examples:
+        tr = safe_str(ex.get("tr")).strip()
+        assert tr, f"Missing TR: {ex.get('target')}"
+        assert not _is_placeholder_turkish(tr, "eğlence"), f"Placeholder TR: {tr!r} for {ex.get('target')}"
+        assert len(tr.split()) >= 3, f"TR too short: {tr!r}"
+    print("TEST eğlence natural lesson OK:", len(examples))
+
+
 def test_grade_word_correct():
     result = grade_word_answer("kahve", "coffee", "I drink coffee every morning.", "en", fake_translate)
     assert result["ok"], result
@@ -660,6 +735,8 @@ if __name__ == "__main__":
     test_fatura_invoice_lesson()
     test_fatura_not_horse_icon()
     test_sakiz_natural_lesson()
+    test_placeholder_turkish_rejected()
+    test_eglence_natural_lesson()
     test_has_curated_lexicon()
     test_profile_ideas_fallback_examples()
     test_masa_icon()

@@ -1,7 +1,7 @@
 """Cümle Kur + Kendini Test Et — kelime/cümle üretimi, yapılandırılmış analiz, telaffuz."""
 from __future__ import annotations
 
-APP_VERSION = "2026.09.01-v22"
+APP_VERSION = "2026.09.01-v23"
 
 import difflib
 import json
@@ -341,7 +341,7 @@ def generate_word_lesson(
         if len(rule_examples) > len(examples):
             examples = rule_examples
 
-    examples = sanitize_word_examples(examples, word_tr, target_word, profile)
+    examples = sanitize_word_examples(examples, word_tr, target_word, profile, translate_fn)
 
     if len(examples) < 8 and target_lang == "en" and not has_curated_lexicon(word_tr, target_word):
         dynamic = _llm_generate_dynamic_lesson(word_tr, target_word, target_lang)
@@ -353,6 +353,7 @@ def generate_word_lesson(
                 word_tr,
                 target_word,
                 profile,
+                translate_fn,
             )
             if len(retry) >= len(examples):
                 examples = retry
@@ -365,6 +366,7 @@ def generate_word_lesson(
             word_tr,
             target_word,
             profile,
+            translate_fn,
         )
         if len(fallback) > len(examples):
             examples = fallback

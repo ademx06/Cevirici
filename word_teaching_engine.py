@@ -298,6 +298,7 @@ KELİME PROFİLİ (SADECE BU KELİME — önceki kelime yok):
     ❌ I am using the [word], Bring the [word], This is my [word], Check the [word] regularly
     ✅ door: knock on the door, close the door behind you | table: set the table, wipe the table
 11. Türkçe çeviri doğal Türkçe olmalı; İngilizce cümleyle birebir anlam eşleşmeli.
+12. Türkçe (tr) alanı ASLA boş veya yalnızca kelime olamaz. ❌ tr: "Eğlence" — ✅ tr: "Bu akşam için eğlence arıyoruz."
 
 Her örnek alanları:
 - tr, target, sentence_type (request/negative/...)
@@ -339,6 +340,7 @@ Bu kelimeyle insanlar günlük hayatta ne yapar? Hangi fiiller doğal? (kapı→
   basic, present, past, future, question, negative, imperative, polite_request, advice, obligation, possibility, conditional, dialogue
 - Her örnekte hedef kelime geçmeli
 - Türkçe cümleler doğal Türkçe; İngilizce cümleler Amerikan İngilizcesi
+- Her örnekte "tr" TAM Türkçe cümle olmalı — yalnızca kelime YASAK (❌ "Eğlence" → ✅ "Bu akşam eğlence arıyoruz.")
 - common_verbs: bu kelimeyle gerçekten kullanılan fiiller (en az 5)
 - common_collocations: ana dili İngilizce konuşanların söylediği kalıplar (en az 4)
 - article_notes_items: a/an/the kullanımı (en az 2)
@@ -441,6 +443,7 @@ KNOWN_CATEGORIES: dict[str, str] = {
     "sakız": "snack", "sakiz": "snack", "gum": "snack", "chewing gum": "snack",
     "şeker": "snack", "seker": "snack", "candy": "snack", "çikolata": "snack", "cikolata": "snack",
     "chocolate": "snack", "bisküvi": "snack", "biskivi": "snack", "cookie": "snack",
+    "eğlence": "abstract", "eglence": "abstract", "entertainment": "abstract",
 }
 
 # Çeviri başarısız olunca bilinen TR→EN eşleşmeleri
@@ -463,6 +466,7 @@ KNOWN_TR_TO_EN: dict[str, str] = {
     "çanta": "bag", "canta": "bag", "valiz": "suitcase", "şemsiye": "umbrella",
     "semsiye": "umbrella", "gözlük": "glasses", "gozluk": "glasses",
     "sakız": "gum", "sakiz": "gum",
+    "eğlence": "entertainment", "eglence": "entertainment",
     "koltuk": "sofa", "yatak": "bed", "dolap": "wardrobe", "mutfak": "kitchen",
     "okul": "school", "hastane": "hospital", "bisiklet": "bicycle",
 }
@@ -592,6 +596,8 @@ def _infer_semantic_category(word_tr: str, target_word: str) -> str:
         return "document"
     if _is_snack_like(wt, tw):
         return "snack"
+    if _is_abstract_like(wt, tw):
+        return "abstract"
     object_hints = (
         "çanta", "canta", "bag", "valiz", "suitcase", "cüzdan", "wallet",
         "şemsiye", "umbrella", "gözlük", "glasses", "saat", "watch",
@@ -611,6 +617,17 @@ def _is_beverage_like(word_tr: str, target_word: str) -> bool:
         "wine", "lemonade", "sparkling", "mineral", "latte", "espresso", "smoothie",
     )
     return any(h in wt for h in tr_hints) or any(h in tw for h in en_hints)
+
+
+def _is_abstract_like(word_tr: str, target_word: str) -> bool:
+    """Soyut/sayılamayan isimler: entertainment, happiness, freedom vb."""
+    wt, tw = _norm(word_tr), _norm(target_word)
+    hints = (
+        "eğlence", "eglence", "entertainment", "mutluluk", "happiness", "özgürlük", "freedom",
+        "güven", "trust", "saygı", "respect", "başarı", "success", "umut", "hope", "korku", "fear",
+        "sevinç", "joy", "huzur", "peace", "gurur", "pride", "merak", "curiosity",
+    )
+    return any(h in wt or h in tw for h in hints)
 
 
 def _is_snack_like(word_tr: str, target_word: str) -> bool:
@@ -717,6 +734,26 @@ def _tr_contains_word(text: str, word_tr: str) -> bool:
     return False
 
 
+def _is_placeholder_turkish(tr: str, word_tr: str) -> bool:
+    """Türkçe alan boş veya yalnızca hedef kelime mi? (❌ tr: 'Eğlence')"""
+    text = safe_str(tr).strip()
+    if not text:
+        return True
+    wt = _norm(word_tr)
+    tn = _norm(text)
+    if not wt:
+        return len(tn.split()) < 2
+    stripped = tn.strip(".,?!;:…")
+    if stripped == wt:
+        return True
+    if stripped == wt + "yi" or stripped == wt + "yı" or stripped == wt + "yu" or stripped == wt + "yü":
+        return True
+    words = tn.split()
+    if len(words) < 2 and len(tn) <= len(wt) + 3:
+        return True
+    return False
+
+
 def _has_foreign_word_leak(text: str, word_tr: str, target_word: str) -> bool:
     wt, tw = _norm(word_tr), _en_target_word(target_word)
     markers = FOREIGN_WORD_MARKERS.get(wt) or FOREIGN_WORD_MARKERS.get(tw) or ()
@@ -800,13 +837,94 @@ def _sanitize_example_nested(
     return ex
 
 
+def _llm_backfill_turkish(
+    examples: list[dict[str, Any]],
+    word_tr: str,
+    target_word: str,
+) -> dict[str, str]:
+    """Eksik Türkçe çevirileri AI ile tamamla. target → tr eşlemesi döner."""
+    if not llm_available() or not examples:
+        return {}
+    import json
+    pairs = [
+        {"target": safe_str(ex.get("target")).strip()}
+        for ex in examples
+        if safe_str(ex.get("target")).strip()
+    ]
+    if not pairs:
+        return {}
+    system = (
+        f"Sen Türkçe-İngilizce öğretmenisin. Ders kelimesi: «{word_tr}» (İngilizce: {target_word}).\n"
+        "Her İngilizce cümleyi doğal Türkçeye çevir. Türkçe TAM cümle olmalı — yalnızca kelime yazma.\n"
+        'JSON: {{"items": [{{"target": "İngilizce", "tr": "Türkçe cümle"}}]}}'
+    )
+    parsed = _llm_json(system, json.dumps(pairs, ensure_ascii=False), max_tokens=2000)
+    if not parsed or not isinstance(parsed.get("items"), list):
+        return {}
+    out: dict[str, str] = {}
+    for item in parsed["items"]:
+        if not isinstance(item, dict):
+            continue
+        en = safe_str(item.get("target")).strip()
+        tr = safe_str(item.get("tr")).strip()
+        if en and tr and not _is_placeholder_turkish(tr, word_tr):
+            out[en] = tr
+    return out
+
+
+def ensure_turkish_translations(
+    examples: list[dict[str, Any]],
+    word_tr: str,
+    target_word: str,
+    translate_fn: Callable[[str, str, str], str] | None = None,
+) -> list[dict[str, Any]]:
+    """Boş veya yalnızca kelime olan Türkçe alanları düzelt veya örneği çıkar."""
+    if not examples:
+        return examples
+    need_backfill = [
+        ex for ex in examples
+        if isinstance(ex, dict)
+        and safe_str(ex.get("target")).strip()
+        and _is_placeholder_turkish(safe_str(ex.get("tr")), word_tr)
+    ]
+    if need_backfill and llm_available():
+        mapping = _llm_backfill_turkish(need_backfill, word_tr, target_word)
+        for ex in need_backfill:
+            en = safe_str(ex.get("target")).strip()
+            if en in mapping:
+                ex["tr"] = mapping[en]
+    if translate_fn:
+        for ex in need_backfill:
+            if not _is_placeholder_turkish(safe_str(ex.get("tr")), word_tr):
+                continue
+            en = safe_str(ex.get("target")).strip()
+            if not en:
+                continue
+            try:
+                tr = safe_str(translate_fn(en, "en", "tr")).strip()
+            except Exception:
+                tr = ""
+            if tr and not _is_placeholder_turkish(tr, word_tr):
+                ex["tr"] = tr
+    cleaned: list[dict[str, Any]] = []
+    for ex in examples:
+        if not isinstance(ex, dict):
+            continue
+        if _is_placeholder_turkish(safe_str(ex.get("tr")), word_tr):
+            continue
+        cleaned.append(ex)
+    return cleaned
+
+
 def sanitize_word_examples(
     examples: list[dict[str, Any]],
     word_tr: str,
     target_word: str,
     profile: dict[str, Any] | None = None,
+    translate_fn: Callable[[str, str, str], str] | None = None,
 ) -> list[dict[str, Any]]:
     """Tüm örnekleri doğrula ve iç içe verileri temizle."""
+    examples = ensure_turkish_translations(examples, word_tr, target_word, translate_fn)
     cleaned: list[dict[str, Any]] = []
     for ex in examples:
         if not isinstance(ex, dict):
@@ -1322,6 +1440,8 @@ def _thirteen_pattern_examples_en(
         return _food_pattern_examples(W, T, wt, tw)
     if category == "snack" or _is_snack_like(wt, tw):
         return _snack_pattern_examples(W, T, wt, tw)
+    if category == "abstract" or _is_abstract_like(wt, tw):
+        return _abstract_noun_pattern_examples(W, T, wt, tw)
     return _safe_object_pattern_examples(W, T, category)
 
 
@@ -1491,6 +1611,57 @@ def _food_pattern_examples(W: str, T: str, wt: str, tw: str) -> list[dict[str, A
             f"If you're hungry, + eat + {food}", f"Koşul: If you're hungry, eat …"),
         _pe(W, f"A: {W.capitalize()} ister misin? B: Evet.", f"A: Would you like some {food}? B: Yes, please.", "dialogue",
             f"Would you like + some {food}", f"Diyalog: Would you like some …?"),
+    ]
+
+
+def _abstract_noun_pattern_examples(W: str, T: str, wt: str, tw: str) -> list[dict[str, Any]]:
+    """Soyut/sayılamayan isimler — entertainment, happiness vb.; mekanik şablon yok."""
+    return [
+        _pe(W, f"Bu akşam için iyi bir {W} bulmalıyız.", f"We need to find some good {T} for tonight.", "routine",
+            f"need + some good {T}",
+            f"Günlük plan: need some good {T} — doğal soyut isim kullanımı.",
+            scenario_badge="🌅 RUTİN"),
+        _pe(W, f"O mekân ilginç {W} seçenekleri sunuyor.", f"This place offers interesting {T} options.", "present_continuous",
+            f"offers + interesting {T} + options",
+            f"Şu anki durum: offers interesting {T} options — seçenek sunmak.",
+            scenario_badge="🔄 ŞU AN"),
+        _pe(W, f"{W.capitalize()} sektörü zor bir dönemden geçiyor.", f"The {T} industry is going through a difficult time.", "past",
+            f"the {T} industry + is going through",
+            f"Geçmiş/devam eden durum: the {T} industry — sektör ifadesi.",
+            scenario_badge="🕐 GEÇMİŞ"),
+        _pe(W, f"Cumartesi akşamı için {W} planlıyoruz.", f"We are planning {T} for Saturday night.", "future",
+            f"are planning + {T}",
+            f"Gelecek plan: are planning {T} for Saturday night.",
+            scenario_badge="🔮 GELECEK"),
+        _pe(W, f"Ne tür {W} tercih edersin?", f"What kind of {T} do you prefer?", "question",
+            f"What kind of {T}",
+            f"Soru: What kind of {T} do you prefer? — tercih sorma.",
+            scenario_badge="❓ SORU"),
+        _pe(W, f"Bu etkinlik {W} sunmuyor.", f"This event doesn't offer any {T}.", "negative",
+            f"doesn't offer + any {T}",
+            f"Olumsuz: doesn't offer any {T} — sunmamak.",
+            scenario_badge="⛔ OLUMSUZ"),
+        _pe(W, f"Parti için iyi {W} bul.", f"Find good {T} for the party.", "imperative",
+            f"Find + good {T}",
+            f"Emir: Find good {T} for the party."),
+        _pe(W, f"Bu akşam için {W} önerebilir misin?", f"Could you suggest {T} for tonight?", "polite_request",
+            f"suggest {T}",
+            f"Kibar rica: Could you suggest {T} for tonight?"),
+        _pe(W, f"Çocuklar için uygun {W} seçmelisin.", f"You should choose appropriate {T} for kids.", "advice",
+            f"appropriate {T}",
+            f"Tavsiye: appropriate {T} for kids — uygun seçim."),
+        _pe(W, f"Parti için {W} ayarlamam gerekiyor.", f"I need to arrange {T} for the party.", "obligation",
+            f"arrange {T}",
+            f"Gereklilik: need to arrange {T} for the party."),
+        _pe(W, f"Burada canlı {W} olabilir.", f"There might be live {T} here.", "possibility",
+            f"live {T}",
+            f"Olasılık: There might be live {T} here."),
+        _pe(W, f"Yağmur yağarsa iç mekân {W} planlarız.", f"If it rains, we'll plan indoor {T}.", "conditional",
+            f"indoor {T}",
+            f"Koşul: If it rains, we'll plan indoor {T}."),
+        _pe(W, f"A: {W.capitalize()} var mı? B: Evet, canlı müzik var.", f"A: Is there any {T}? B: Yes, there's live music.", "dialogue",
+            f"Is there any {T}",
+            f"Diyalog: Is there any {T}? — günlük soru."),
     ]
 
 
@@ -1988,7 +2159,9 @@ def _normalize_llm_example(
             f"Bu cümle «{word_tr}» kelimesinin doğal kullanımını gösterir. "
             f"{structure}. Günlük konuşmada sık duyulan bir ifadedir."
         )
-    return _ex(word_tr, tr or word_tr, target, st, structure, how)
+    if _is_placeholder_turkish(tr, word_tr):
+        return None
+    return _ex(word_tr, tr, target, st, structure, how)
 
 
 def _examples_from_profile_content(
@@ -2019,9 +2192,12 @@ def _examples_from_profile_content(
         return []
     examples: list[dict[str, Any]] = []
     for i, item in enumerate(items[:13]):
+        tr_text = safe_str(item.get("tr")).strip()
+        if _is_placeholder_turkish(tr_text, word_tr):
+            continue
         ex = _normalize_llm_example(
             {
-                "tr": item.get("tr") or word_tr,
+                "tr": tr_text,
                 "target": item["en"],
                 "sentence_type": _THIRTEEN_PATTERN_ORDER[i % len(_THIRTEEN_PATTERN_ORDER)],
                 "structure_tr": item["en"],
@@ -2199,7 +2375,9 @@ def _validate_word_example(
     if wt in ("soda", "gazoz", "kola") or tw in ("soda", "cola"):
         if "black soda" in norm_target or "black soda" in tr.lower():
             return False
-    if tr and not _tr_contains_word(tr, word_tr):
+    if not tr or _is_placeholder_turkish(tr, word_tr):
+        return False
+    if not _tr_contains_word(tr, word_tr):
         return False
     if _has_foreign_word_leak(tr, word_tr, target_word):
         return False
