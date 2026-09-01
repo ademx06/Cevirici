@@ -306,7 +306,41 @@ def test_soda_lesson():
         assert v.get("tr"), f"empty verb tr: {v}"
     for p in usage.get("common_phrases") or []:
         assert p.get("tr") and p.get("pronunciation_tr")
+    alts = usage.get("alternative_terms_tr") or []
+    assert len(alts) >= 3, "soda should have alternative TR terms"
+    assert any("sparkling water" in safe_str(a.get("en")).lower() for a in alts)
+    assert any("maden suyu" in safe_str(a.get("tr")).lower() for a in alts)
+    expl = safe_str(result.get("word_explanation_tr"))
+    assert "maden suyu" in expl.lower() or "sparkling water" in expl.lower()
+    assert "/ˈsoʊ.də/" in expl or "sou-da" in expl.lower()
     print("TEST soda lesson OK:", len(examples))
+
+
+def test_word_breakdown_turkish_meanings():
+    """Kelime analizinde her token için Türkçe anlam ve IPA dolu olmalı."""
+    result = generate_word_lesson("bardak", "en", fake_translate)
+    assert result["ok"], result
+    examples = result.get("examples") or []
+    assert examples
+    sample = None
+    for ex in examples:
+        wb = ex.get("word_breakdown") or []
+        if len(wb) >= 5:
+            sample = wb
+            break
+    if not sample:
+        sample = examples[0].get("word_breakdown") or []
+    assert sample, "word_breakdown missing"
+    tokens = {safe_str(w.get("token")).lower(): w for w in sample if isinstance(w, dict)}
+    for key in ("i", "drink", "a", "glass", "of", "water", "with", "every", "meal"):
+        if key not in tokens:
+            continue
+        entry = tokens[key]
+        assert safe_str(entry.get("meaning_tr")).strip(), f"missing TR meaning for {key}"
+        assert safe_str(entry.get("pronunciation_tr")).strip(), f"missing pronunciation for {key}"
+    assert safe_str(tokens.get("glass", {}).get("meaning_tr"))
+    assert safe_str(tokens.get("water", {}).get("meaning_tr"))
+    print("TEST word breakdown TR meanings OK:", len(sample), "tokens")
 
 
 def test_thirteen_grammar_patterns():
@@ -397,7 +431,7 @@ if __name__ == "__main__":
     test_window_no_cross_word_leak()
     test_shoe_no_socks_leak()
     test_soda_lesson()
-    test_thirteen_grammar_patterns()
+    test_word_breakdown_turkish_meanings()
     test_bardak_glass_lesson()
     test_word_sequence_isolation()
     test_door_icon()

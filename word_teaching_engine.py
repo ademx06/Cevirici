@@ -5,7 +5,13 @@ import re
 from typing import Any, Callable
 
 from education_engine import LANG_NAMES, _llm_json, llm_available, safe_str
-from pronunciation_service import build_pronunciation_bundle, tokenize_en, word_meaning_tr
+from pronunciation_service import (
+    build_pronunciation_bundle,
+    get_word,
+    tokenize_en,
+    word_meaning_tr,
+    word_role_tr,
+)
 
 # ── Yasak şablon kalıpları (kelime yerine koyma) ──
 BANNED_TEMPLATE_RE = [
@@ -805,11 +811,35 @@ def _rule_word_profile(
             "semantic_category": "beverage",
             "meaning_tr": word_tr,
             "usage_notes_tr": (
-                f"«{word_tr}» İngilizcede soda veya soft drink olarak geçer. "
-                "🇺🇸 soda/pop · 🇬🇧 bazen fizzy drink. "
-                "Kutu/şişe ile sayılır: a can of soda, a bottle of soda. "
-                "❌ black soda yok — diet soda veya cola kullan."
+                f"İngilizcede «{target_word}» kelimesi bağlama göre farklı anlamlara gelir. "
+                "Amerika'da genellikle şekerli gazlı içeceklerin (kola, gazoz vb.) genel adıdır. "
+                "Türkçede içtiğimiz sade maden suyu/soda anlamı için İngilizcede daha çok "
+                "«sparkling water», «mineral water» veya «club soda» ifadeleri tercih edilir. "
+                "Ayrıca kimyada ve temizlikte «karbonat/yemek sodası» (baking soda) anlamında da sıkça kullanılır. "
+                "Maddesel olarak sayılamazdır (uncountable) ancak porsiyon olarak sayılabilir (countable)."
             ),
+            "alternative_terms_tr": [
+                {
+                    "en": "sparkling water",
+                    "tr": "maden suyu (köpüklü)",
+                    "note_tr": "Türkçedeki «soda» (maden suyu) için en doğal İngilizce ifade",
+                },
+                {
+                    "en": "mineral water",
+                    "tr": "maden suyu / mineral su",
+                    "note_tr": "Şişelenmiş maden suyu",
+                },
+                {
+                    "en": "club soda",
+                    "tr": "club soda / sade maden suyu",
+                    "note_tr": "Restoranlarda sık kullanılır",
+                },
+                {
+                    "en": "baking soda",
+                    "tr": "karbonat / yemek sodası",
+                    "note_tr": "İçecek değil — temizlik ve pişirmede",
+                },
+            ],
             "common_verbs": ["drink", "order", "have", "get", "serve", "buy"],
             "common_collocations": [
                 "a can of soda", "a bottle of soda", "diet soda", "regular soda", "order a soda",
@@ -819,7 +849,7 @@ def _rule_word_profile(
             ],
             "article_notes_tr": (
                 "Madde: soda (sayılamaz) · Porsiyon: a soda / a can of soda · "
-                "Kutu: a can · Şişe: a bottle"
+                "Kutu: a can · Şişe: a bottle · Maden suyu için: sparkling/mineral water"
             ),
             "regional_variants": {
                 "us": "soda / pop",
@@ -1485,28 +1515,25 @@ def _category_examples_en(
 
 
 def _fill_word_breakdown(ex: dict[str, Any], lang: str = "en") -> dict[str, Any]:
-    """Kelime kelime analiz — token, Türkçe okunuş, anlam."""
+    """Kelime kelime analiz — her token için okunuş, IPA, Türkçe anlam ve görev."""
     target = safe_str(ex.get("target")).strip()
     if not target or lang != "en":
         return ex
     bundle = build_pronunciation_bundle(target, lang)
-    existing = {
-        safe_str(p.get("token") or p.get("tr")).lower()
-        for p in (ex.get("word_breakdown") or [])
-        if isinstance(p, dict)
-    }
-    wb: list[dict[str, str]] = list(ex.get("word_breakdown") or [])
+    wb: list[dict[str, str]] = []
     for w in bundle.get("word_pronunciations") or []:
         tok = safe_str(w.get("word")).strip()
-        if not tok or tok.lower() in existing:
+        if not tok:
             continue
+        low = tok.lower()
+        info = get_word(lang, tok)
         wb.append({
             "token": tok,
-            "pronunciation_tr": safe_str(w.get("pronunciation_tr")),
-            "meaning_tr": word_meaning_tr(tok.lower()),
-            "role_tr": "",
+            "pronunciation_tr": safe_str(w.get("pronunciation_tr") or info.get("pronunciation_tr")),
+            "ipa": safe_str(w.get("ipa") or info.get("ipa", "")),
+            "meaning_tr": word_meaning_tr(low),
+            "role_tr": word_role_tr(low),
         })
-        existing.add(tok.lower())
     ex["word_breakdown"] = wb
     if not ex.get("pronunciation_tr"):
         ex["pronunciation_tr"] = bundle.get("pronunciation_tr", "")
@@ -1525,7 +1552,12 @@ def build_rich_word_explanation(
     meaning = safe_str(profile.get("meaning_tr") or word_tr).strip()
     article = safe_str(profile.get("article_notes_tr")).strip()
     regional = safe_str((profile.get("regional_variants") or {}).get("note_tr")).strip()
-    parts = [f"«{word_tr}» → {target_word}."]
+    tw_info = get_word("en", target_word)
+    ipa = safe_str(tw_info.get("ipa")).strip()
+    pron = safe_str(tw_info.get("pronunciation_tr")).strip()
+    ipa_part = f" 🗣️ {ipa}" if ipa else ""
+    pron_part = f" ({pron})" if pron else ""
+    parts = [f"«{word_tr}» → {target_word}.{ipa_part}{pron_part}"]
     if notes:
         parts.append(notes)
     elif meaning:
@@ -1765,9 +1797,36 @@ def build_usage_from_profile(profile: dict[str, Any], target_lang: str) -> dict[
         if not tr:
             continue
         pron = ""
+        ipa = ""
         if target_lang == "en":
-            pron = build_pronunciation_bundle(en, target_lang).get("pronunciation_tr", "")
-        phrases_enriched.append({"en": en, "tr": tr, "pronunciation_tr": pron})
+            bundle = build_pronunciation_bundle(en, target_lang)
+            pron = bundle.get("pronunciation_tr", "")
+            ipa = bundle.get("ipa", "")
+        phrases_enriched.append({"en": en, "tr": tr, "pronunciation_tr": pron, "ipa": ipa})
+
+    alt_terms: list[dict[str, str]] = []
+    for item in profile.get("alternative_terms_tr") or []:
+        if not isinstance(item, dict):
+            continue
+        en = safe_str(item.get("en")).strip()
+        if not en:
+            continue
+        tr = safe_str(item.get("tr")).strip()
+        note = safe_str(item.get("note_tr")).strip()
+        pron = ""
+        ipa = ""
+        if target_lang == "en":
+            info = get_word(target_lang, en.split()[-1] if " " in en else en)
+            bundle = build_pronunciation_bundle(en, target_lang)
+            pron = bundle.get("pronunciation_tr", "") or info.get("pronunciation_tr", "")
+            ipa = bundle.get("ipa", "") or info.get("ipa", "")
+        alt_terms.append({
+            "en": en,
+            "tr": tr,
+            "note_tr": note,
+            "pronunciation_tr": pron,
+            "ipa": ipa,
+        })
 
     verbs_line = ", ".join(
         f"{v['en']} → {v['tr']}" if v.get("tr") else v["en"] for v in verbs_enriched
@@ -1782,6 +1841,7 @@ def build_usage_from_profile(profile: dict[str, Any], target_lang: str) -> dict[
         "common_verbs": verbs_enriched,
         "common_verbs_tr": verbs_line,
         "common_phrases": phrases_enriched,
+        "alternative_terms_tr": alt_terms,
         "patterns": patterns[:4],
         "article_notes_tr": profile.get("article_notes_tr"),
         "avoid_reason_tr": profile.get("avoid_reason_tr"),

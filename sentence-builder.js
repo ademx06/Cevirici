@@ -134,16 +134,31 @@
     try { await audio.play(); } catch { /* ignore */ }
   }
 
+  function formatIpa(ipa) {
+    const raw = (ipa || '').trim();
+    if (!raw) return '';
+    return raw.startsWith('/') ? raw : `/${raw}/`;
+  }
+
+  function formatPronLine(pron, ipa) {
+    const ipaStr = formatIpa(ipa);
+    if (ipaStr && pron) return `🗣️ ${ipaStr} (${pron})`;
+    if (ipaStr) return `🗣️ ${ipaStr}`;
+    if (pron) return `🗣️ ${pron}`;
+    return '';
+  }
   function renderWordBreakdown(ex) {
     const items = ex.word_breakdown || ex.parts || [];
     if (!items.length) return '';
-    const hasPron = items.some((p) => p.pronunciation_tr || p.pronunciation_hint);
+    const hasPron = items.some((p) => p.pronunciation_tr || p.pronunciation_hint || p.ipa);
     if (hasPron) {
-      return `<table class="mod-wb-table"><thead><tr><th>İngilizce</th><th>Okunuş</th><th>Türkçesi</th><th>Görevi</th></tr></thead><tbody>${
+      return `<table class="mod-wb-table"><thead><tr><th>İngilizce</th><th>Okunuş / IPA</th><th>Türkçesi</th><th>Görevi</th></tr></thead><tbody>${
         items.map((p) => {
           const tok = p.token || p.tr || '';
           const pron = p.pronunciation_tr || p.pronunciation_hint || '';
-          return `<tr><td>${esc(tok)}</td><td>${esc(pron)}</td><td>${esc(p.meaning_tr || '')}</td><td>${esc(p.role_tr || '')}</td></tr>`;
+          const ipa = formatIpa(p.ipa);
+          const pronCell = ipa && pron ? `${esc(pron)} ${esc(ipa)}` : esc(pron || ipa);
+          return `<tr><td>${esc(tok)}</td><td>${pronCell}</td><td>${esc(p.meaning_tr || '')}</td><td>${esc(p.role_tr || '')}</td></tr>`;
         }).join('')
       }</tbody></table>`;
     }
@@ -187,16 +202,15 @@
     const wordRows = words.map((w) => `
       <div class="mod-word-pron">
         <span class="mod-word-pron-en">${esc(w.word)}</span>
-        <span class="mod-word-pron-tr">${esc(w.pronunciation_tr)}</span>
-        ${w.ipa ? `<span class="mod-word-pron-ipa hidden" data-ipa-for="${cardId}">${esc(w.ipa)}</span>` : ''}
+        <span class="mod-word-pron-tr">${formatPronLine(w.pronunciation_tr, w.ipa) || esc(w.pronunciation_tr)}</span>
       </div>`).join('');
     return `
       <div class="mod-pron-block">
         <div class="mod-pron-row">
-          <span class="mod-pron-label">🗣️ Okunuş</span>
-          <span class="mod-pron-value">${esc(ex.pronunciation_tr || '')}</span>
+          <span class="mod-pron-label">${formatPronLine(ex.pronunciation_tr, ipa) || '🗣️ Okunuş'}</span>
+          ${!formatPronLine(ex.pronunciation_tr, ipa) ? `<span class="mod-pron-value">${esc(ex.pronunciation_tr || '')}</span>` : ''}
         </div>
-        ${ipa ? `<div class="mod-ipa-row hidden" data-ipa-panel="${cardId}"><span class="mod-ipa-label">IPA</span> ${esc(ipa)}</div>` : ''}
+        ${ipa && !formatPronLine(ex.pronunciation_tr, ipa) ? `<div class="mod-ipa-row" data-ipa-panel="${cardId}"><span class="mod-ipa-label">IPA</span> ${esc(formatIpa(ipa))}</div>` : ''}
         ${wordRows ? `<div class="mod-word-pron-list">${wordRows}</div>` : ''}
         ${ipa ? `<button type="button" class="mod-ipa-toggle" data-ipa-toggle="${cardId}">IPA göster</button>` : ''}
       </div>`;
@@ -241,9 +255,12 @@
     const typeLabel = ex.scenario_badge || ex.sentence_type_label || ex.sentence_type || '';
     const typeBadge = typeLabel ? `<span class="mod-badge">${esc(typeLabel)}</span>` : '';
     const wbSimple = (ex.word_breakdown || []).length
-      ? `<div class="mod-wb-simple">${(ex.word_breakdown || []).map((p) =>
-          `<div class="mod-wb-line"><span>${esc(p.token || '')}</span> → <span>${esc(p.pronunciation_tr || p.pronunciation_hint || '')}</span> → <span>${esc(p.meaning_tr || '')}</span></div>`
-        ).join('')}</div>`
+      ? `<div class="mod-wb-simple">${(ex.word_breakdown || []).map((p) => {
+          const pron = p.pronunciation_tr || p.pronunciation_hint || '';
+          const ipa = formatIpa(p.ipa);
+          const pronPart = ipa && pron ? `${esc(pron)} ${esc(ipa)}` : esc(pron || ipa);
+          return `<div class="mod-wb-line"><span>${esc(p.token || '')}</span> → <span>${pronPart}</span> → <span>${esc(p.meaning_tr || '')}</span></div>`;
+        }).join('')}</div>`
       : '';
     return `
       <article class="mod-card" data-idx="${idx}">
@@ -315,7 +332,7 @@
           <div class="mod-phrase-item">
             <div class="mod-card-line"><span class="mod-flag">🇬🇧</span>${esc(p.en)}</div>
             ${p.tr ? `<div class="mod-card-line"><span class="mod-flag">🇹🇷</span>${esc(p.tr)}</div>` : ''}
-            ${p.pronunciation_tr ? `<div class="mod-pron-row"><span class="mod-pron-label">🗣️</span><span class="mod-pron-value">${esc(p.pronunciation_tr)}</span></div>` : ''}
+            ${formatPronLine(p.pronunciation_tr, p.ipa) ? `<div class="mod-pron-row"><span class="mod-pron-label">${formatPronLine(p.pronunciation_tr, p.ipa)}</span></div>` : ''}
             <button type="button" class="mod-listen-btn builder-listen mod-listen-sm" data-text="${esc(p.en)}" data-lang="${lang || 'en'}">🔊 Dinle</button>
           </div>`).join('')
       }</div>`);
@@ -323,6 +340,16 @@
       rows.push(`<p><strong>Yaygın ifadeler:</strong> ${esc(usage.collocations_tr)}</p>`);
     }
     if (usage.article_notes_tr) rows.push(`<p><strong>Artikel/Konteyner Notu:</strong> ${esc(usage.article_notes_tr)}</p>`);
+    if (usage.alternative_terms_tr?.length) {
+      rows.push(`<div class="mod-alt-terms"><strong>💡 Alternatif ifadeler</strong>${
+        usage.alternative_terms_tr.map((t) => `
+          <div class="mod-alt-term-item">
+            <div class="mod-card-line"><span class="mod-flag">🇬🇧</span><strong>${esc(t.en)}</strong> → ${esc(t.tr || '')}</div>
+            ${formatPronLine(t.pronunciation_tr, t.ipa) ? `<div class="mod-pron-row mod-pron-inline">${formatPronLine(t.pronunciation_tr, t.ipa)}</div>` : ''}
+            ${t.note_tr ? `<p class="mod-alt-note">${esc(t.note_tr)}</p>` : ''}
+          </div>`).join('')
+      }</div>`);
+    }
     if (usage.regional_note_tr) rows.push(`<p class="mod-regional">${esc(usage.regional_note_tr)}</p>`);
     return rows.length ? rows.join('') : '';
   }
@@ -379,12 +406,13 @@
     const icon = resolveWordIcon(data, data.word_icon);
     const examples = (data.examples || []).map((ex, i) => renderExampleCard(ex, lang, i)).join('');
     const ver = data.app_version ? `<p class="mod-version">Sürüm: ${esc(data.app_version)}</p>` : '';
+    const heroPron = formatPronLine(data.pronunciation_tr, data.ipa);
     box.innerHTML = `
       <div class="mod-hero mod-hero-green">
         <div class="mod-hero-icon" id="wordHeroIcon">${icon}</div>
         <div>
           <h2>${esc(data.word_tr)}</h2>
-          <p class="mod-hero-sub">${esc(data.target_word)}${data.pronunciation_tr ? ` · 🗣️ ${esc(data.pronunciation_tr)}` : ''}</p>
+          <p class="mod-hero-sub">${esc(data.target_word)}${heroPron ? ` · ${heroPron}` : ''}</p>
         </div>
       </div>
       ${data.word_explanation_tr ? `<p class="mod-lead">${esc(data.word_explanation_tr)}</p>` : ''}
