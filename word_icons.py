@@ -59,6 +59,7 @@ EMOJI_BY_WORD: dict[str, str] = {
     "saat": "⌚", "watch": "⌚", "clock": "🕐",
     "fatura": "🧾", "invoice": "🧾", "makbuz": "🧾", "receipt": "🧾", "bill": "🧾",
     "dekont": "🧾", "fiş": "🧾", "çanta": "👜", "canta": "👜", "bag": "👜",
+    "sakız": "🍬", "sakiz": "🍬", "gum": "🍬", "şeker": "🍬", "candy": "🍬",
     # Hayvanlar
     "kedi": "🐱", "cat": "🐱", "köpek": "🐶", "kopek": "🐶", "dog": "🐶",
     "kuş": "🐦", "kus": "🐦", "bird": "🐦", "at": "🐴", "horse": "🐴",
@@ -134,7 +135,7 @@ KEYWORD_EMOJI: tuple[tuple[str, ...], str] = (
     (("araba", "car", "otomobil", "taksi", "taxi", "otobüs", "bus"), "🚗"),
     (("musluk", "faucet", "tap", "lavabo", "sink", "banyo", "bathroom"), "🚰"),
     (("kapı", "kapi", "door", "pencere", "window"), "🪟"),
-    (("fatura", "invoice", "makbuz", "receipt", "bill", "dekont", "fiş", "fis"), "🧾"),
+    (("sakız", "sakiz", "gum", "chewing gum", "şeker", "candy", "çikolata", "chocolate", "bisküvi", "cookie"), "🍬"),
     (("kitap", "book", "defter", "notebook", "gazete", "newspaper"), "📚"),
     (("telefon", "phone", "bilgisayar", "computer", "laptop", "tablet"), "📱"),
     (("kedi", "cat", "köpek", "kopek", "dog", "kuş", "bird"), "🐾"),

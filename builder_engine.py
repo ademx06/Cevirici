@@ -1,7 +1,7 @@
 """Cümle Kur + Kendini Test Et — kelime/cümle üretimi, yapılandırılmış analiz, telaffuz."""
 from __future__ import annotations
 
-APP_VERSION = "2026.09.01-v21"
+APP_VERSION = "2026.09.01-v22"
 
 import difflib
 import json
@@ -357,17 +357,16 @@ def generate_word_lesson(
             if len(retry) >= len(examples):
                 examples = retry
 
-    if len(examples) < 3:
+    if len(examples) < 8:
         category = detect_category(word_tr, target_word)
-        if category != "general":
-            profile = _rule_word_profile(word_tr, target_word, target_lang, category)
+        profile = _rule_word_profile(word_tr, target_word, target_lang, category)
         fallback = sanitize_word_examples(
             build_rule_examples_for_word(word_tr, target_word, profile),
             word_tr,
             target_word,
             profile,
         )
-        if len(fallback) >= len(examples):
+        if len(fallback) > len(examples):
             examples = fallback
 
     tw_pron = get_word(target_lang, target_word)

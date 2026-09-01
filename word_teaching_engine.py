@@ -112,9 +112,11 @@ VERBS_TR: dict[str, str] = {
     "fill": "doldurmak", "break": "kırmak", "dry": "kurulamak",
     "raise": "kaldırmak", "hold": "tutmak", "collect": "toplamak",
     "borrow": "ödünç almak", "lend": "ödünç vermek", "finish": "bitirmek",
-    "recommend": "tavsiye etmek", "write": "yazmak", "lock": "kilitlemek",
+    "recommend": "tavsiye etmek",     "write": "yazmak", "lock": "kilitlemek",
     "unlock": "kilidini açmak", "look out of": "…-den dışarı bakmak",
     "eat at": "…-de yemek yemek", "sit on": "…-e oturmak",
+    "chew": "çiğnemek", "swallow": "yutmak", "spit out": "tükürmek / atmak",
+    "share": "paylaşmak", "offer": "teklif etmek",
     "pull up": "çekmek (sandalye)", "pull out": "çekip çıkarmak", "take": "almak",
     "ring": "çalmak (telefon)", "call": "aramak", "text": "mesaj atmak",
     "sign": "imzalamak", "grab": "kapmak / almak",
@@ -436,6 +438,9 @@ KNOWN_CATEGORIES: dict[str, str] = {
     "kedi": "animal", "cat": "animal", "köpek": "animal", "dog": "animal",
     "fatura": "document", "invoice": "document", "makbuz": "document", "receipt": "document",
     "bill": "document", "dekont": "document", "fiş": "document", "fis": "document",
+    "sakız": "snack", "sakiz": "snack", "gum": "snack", "chewing gum": "snack",
+    "şeker": "snack", "seker": "snack", "candy": "snack", "çikolata": "snack", "cikolata": "snack",
+    "chocolate": "snack", "bisküvi": "snack", "biskivi": "snack", "cookie": "snack",
 }
 
 # Çeviri başarısız olunca bilinen TR→EN eşleşmeleri
@@ -457,13 +462,15 @@ KNOWN_TR_TO_EN: dict[str, str] = {
     "fatura": "invoice", "makbuz": "receipt", "dekont": "bank receipt",
     "çanta": "bag", "canta": "bag", "valiz": "suitcase", "şemsiye": "umbrella",
     "semsiye": "umbrella", "gözlük": "glasses", "gozluk": "glasses",
+    "sakız": "gum", "sakiz": "gum",
     "koltuk": "sofa", "yatak": "bed", "dolap": "wardrobe", "mutfak": "kitchen",
     "okul": "school", "hastane": "hospital", "bisiklet": "bicycle",
 }
 
 # Çeviri API'sinin döndürdüğü varyantları Amerikan İngilizcesine normalize et
 EN_TARGET_ALIASES: dict[str, str] = {
-    "sweetcorn": "corn",
+    "chewing gum": "gum",
+    "chewing-gum": "gum",
     "sweet corn": "corn",
     "sweet-corn": "corn",
     "maize": "corn",
@@ -583,6 +590,8 @@ def _infer_semantic_category(word_tr: str, target_word: str) -> str:
     )
     if any(h in wt or h in tw for h in document_hints):
         return "document"
+    if _is_snack_like(wt, tw):
+        return "snack"
     object_hints = (
         "çanta", "canta", "bag", "valiz", "suitcase", "cüzdan", "wallet",
         "şemsiye", "umbrella", "gözlük", "glasses", "saat", "watch",
@@ -602,6 +611,33 @@ def _is_beverage_like(word_tr: str, target_word: str) -> bool:
         "wine", "lemonade", "sparkling", "mineral", "latte", "espresso", "smoothie",
     )
     return any(h in wt for h in tr_hints) or any(h in tw for h in en_hints)
+
+
+def _is_snack_like(word_tr: str, target_word: str) -> bool:
+    wt, tw = _norm(word_tr), _norm(target_word)
+    hints = (
+        "sakız", "sakiz", "gum", "chewing", "şeker", "seker", "candy", "çikolata", "cikolata",
+        "chocolate", "bisküvi", "biskivi", "cookie", "kraker", "cracker", "cips", "chips", "snack",
+        "lollipop", "lolipop", "jelly", "jelibon",
+    )
+    return any(h in wt or h in tw for h in hints)
+
+
+TARGET_WORD_ALIASES: dict[str, tuple[str, ...]] = {
+    "chewing gum": ("gum",),
+    "gum": ("chewing gum",),
+}
+
+
+def _target_word_in_sentence(norm_target: str, tw: str) -> bool:
+    if not tw:
+        return True
+    if tw in norm_target or f"{tw}s" in norm_target:
+        return True
+    for alias in TARGET_WORD_ALIASES.get(tw, ()):
+        if alias in norm_target:
+            return True
+    return False
 
 
 def _is_generic_mechanical_template(target: str) -> bool:
@@ -1028,19 +1064,50 @@ def _rule_word_profile(
             "avoid_patterns": ["open the", "bring the", "I am using the"],
             "avoid_reason_tr": "Belge/fatura açılıp kapatılmaz; ödenir, gönderilir, kontrol edilir.",
         },
+        "snack": {
+            "part_of_speech": "noun",
+            "countability": "both",
+            "semantic_category": "snack",
+            "meaning_tr": word_tr,
+            "usage_notes_tr": (
+                f"«{word_tr}» yenilebilir bir atıştırmalıktır. "
+                "chew, eat, buy, share, offer gibi fiillerle doğal cümleler kurulur. "
+                "Sakız için: chew gum, a piece of gum, blow a bubble — ❌ open the gum, use the gum."
+            ),
+            "common_verbs": ["chew", "eat", "buy", "share", "offer", "swallow", "spit out"],
+            "common_collocations": [
+                "chew gum", "a piece of gum", "sugar-free gum", "blow a bubble",
+                "stick of gum", "share gum",
+            ],
+            "common_patterns": [
+                {"en": "Do you have any gum?", "tr": "Sakızın var mı?"},
+                {"en": "I'm chewing gum right now.", "tr": "Şu an sakız çiğniyorum."},
+                {"en": "Could I have a piece of gum?", "tr": "Bir sakız alabilir miyim?"},
+            ],
+            "article_notes_items": [
+                {"en": "a piece of gum", "tr": "bir sakız"},
+                {"en": "some gum", "tr": "biraz sakız"},
+                {"en": "sugar-free gum", "tr": "şekersiz sakız"},
+            ],
+            "avoid_patterns": ["open the gum", "use the gum", "The gum is here", "bring the gum"],
+            "avoid_reason_tr": "Sakız açılmaz veya 'kullanılmaz'; çiğnenir, paylaşılır, atılır.",
+        },
     }
     base = profiles.get(category, {
         "part_of_speech": "noun",
         "countability": "countable",
         "semantic_category": category,
         "meaning_tr": word_tr,
-        "usage_notes_tr": f"«{word_tr}» kelimesinin doğal kullanımına göre cümle kurulmalı.",
-        "common_verbs": ["use", "have", "need", "want"],
-        "common_collocations": [f"the {target_word}", f"a {target_word}"],
-        "common_patterns": [f"The {target_word} is here."],
+        "usage_notes_tr": (
+            f"«{word_tr}» kelimesi için bağlama uygun doğal fiiller seçilmelidir. "
+            "Her kelimeye aynı kalıp uygulanmaz."
+        ),
+        "common_verbs": [],
+        "common_collocations": [],
+        "common_patterns": [],
         "article_notes_tr": None,
-        "avoid_patterns": ["I love X", "Do you want X"],
-        "avoid_reason_tr": "Her kelimeye aynı kalıp uygulanmaz.",
+        "avoid_patterns": ["I love X", "Do you want X", "Bring the X", "I am using the X", "The X is here"],
+        "avoid_reason_tr": "Mekanik şablonlar (Bring/Use/The X is here) bu kelime için doğal değildir.",
     })
     wt, tw = _norm(word_tr), _en_target_word(target_word)
     if category == "beverage" and (wt in ("soda", "gazoz", "kola") or tw in ("soda", "cola")):
@@ -1253,6 +1320,8 @@ def _thirteen_pattern_examples_en(
         return _drinkware_pattern_examples(W, T, wt, tw)
     if category == "food" or tw in ("corn", "sweetcorn", "maize"):
         return _food_pattern_examples(W, T, wt, tw)
+    if category == "snack" or _is_snack_like(wt, tw):
+        return _snack_pattern_examples(W, T, wt, tw)
     return _safe_object_pattern_examples(W, T, category)
 
 
@@ -1422,6 +1491,41 @@ def _food_pattern_examples(W: str, T: str, wt: str, tw: str) -> list[dict[str, A
             f"If you're hungry, + eat + {food}", f"Koşul: If you're hungry, eat …"),
         _pe(W, f"A: {W.capitalize()} ister misin? B: Evet.", f"A: Would you like some {food}? B: Yes, please.", "dialogue",
             f"Would you like + some {food}", f"Diyalog: Would you like some …?"),
+    ]
+
+
+def _snack_pattern_examples(W: str, T: str, wt: str, tw: str) -> list[dict[str, Any]]:
+    """Sakız, şeker, çikolata vb. — chew/eat/share kalıpları."""
+    is_gum = wt in ("sakız", "sakiz") or "gum" in tw
+    snack = "gum" if is_gum else T
+    piece = "a piece of gum" if is_gum else f"some {snack}"
+    return [
+        _pe(W, f"{W.capitalize()} severim.", f"I like {snack}.", "basic",
+            f"I + like + {snack}", f"Genel tercih: I like … — doğal ifade."),
+        _pe(W, f"Şu an sakız çiğniyorum.", f"I'm chewing gum right now.", "present",
+            f"I'm + chewing + gum", "chew gum — sakız çiğnemek (en doğal kalıp)."),
+        _pe(W, f"Dün marketten sakız aldım.", f"I bought some gum yesterday.", "past",
+            f"I + bought + some gum", "Geçmiş: buy gum — sakız almak."),
+        _pe(W, f"Yarın şekersiz sakız alacağım.", f"I will buy sugar-free gum tomorrow.", "future",
+            f"sugar-free gum", "Gelecek: sugar-free gum — şekersiz sakız."),
+        _pe(W, f"Sakızın var mı?", f"Do you have any gum?", "question",
+            f"Do you have + any gum", "Do you have any gum? — çok yaygın soru."),
+        _pe(W, f"İş yerinde sakız çiğnemem.", f"I don't chew gum at work.", "negative",
+            f"don't chew gum", "Olumsuz: çiğnememek."),
+        _pe(W, f"Sakızını çöpe at lütfen.", f"Throw away your gum, please.", "imperative",
+            f"Throw away + your gum", "throw away gum — sakızı atmak."),
+        _pe(W, f"Bir sakız alabilir miyim?", f"Could I have a piece of gum?", "polite_request",
+            f"a piece of gum", "Could I have a piece of gum? — kibar rica."),
+        _pe(W, f"Sakızı yutmamalısın.", f"You shouldn't swallow chewing gum.", "advice",
+            f"shouldn't swallow", "Yutmama tavsiyesi — yaygın uyarı."),
+        _pe(W, f"Bu sakızı atmalıyım.", f"I need to throw this gum away.", "obligation",
+            f"throw this gum away", "Atma zorunluluğu."),
+        _pe(W, f"Çantamda sakız olabilir.", f"There might be gum in my bag.", "possibility",
+            f"gum in my bag", "Çantada sakız arama."),
+        _pe(W, f"Sınıfta sakız çiğnersen balon yapma.", f"If you chew gum in class, don't blow bubbles.", "conditional",
+            f"blow bubbles", "Sınıfta sakız koşulu."),
+        _pe(W, f"A: Sakızın var mı? B: Maalesef yok.", f"A: Got any gum? B: Sorry, I don't.", "dialogue",
+            f"Got any gum", "Günlük diyalog: Got any gum?"),
     ]
 
 
@@ -1975,6 +2079,12 @@ def _llm_generate_dynamic_lesson(
             examples.append(ex)
     examples = sanitize_word_examples(examples, word_tr, target_word, profile)
     if len(examples) < 8:
+        ideas = _examples_from_profile_content(profile, word_tr, target_word)
+        for ex in ideas:
+            if ex not in examples:
+                examples.append(ex)
+        examples = sanitize_word_examples(examples, word_tr, target_word, profile)
+    if len(examples) < 8:
         return None
     return {"profile": profile, "examples": examples[:13]}
 
@@ -2106,7 +2216,8 @@ def _validate_word_example(
     if _has_conflicting_primary_noun(target, target_word):
         return False
     if tw and tw not in norm_target and f"{tw}s" not in norm_target:
-        return False
+        if not _target_word_in_sentence(norm_target, tw):
+            return False
     return True
 
 

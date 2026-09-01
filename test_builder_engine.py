@@ -35,6 +35,8 @@ def fake_translate(text: str, from_lang: str, to_lang: str) -> str:
         "misir": "sweet corn",
         "bardak": "glass",
         "fatura": "invoice",
+    "sakız": "gum",
+    "sakiz": "gum",
         "araba": "car",
         "mutlu": "happy",
         "çalışmak": "work",
@@ -467,6 +469,27 @@ def test_has_curated_lexicon():
     print("TEST has_curated_lexicon OK")
 
 
+def test_sakiz_natural_lesson():
+    """sakız → gum; mekanik şablon yok; 13 doğal cümle."""
+    result = generate_word_lesson("sakız", "en", fake_translate)
+    assert result["ok"], result
+    assert result.get("target_word") == "gum", result.get("target_word")
+    assert result.get("word_icon") == "🍬"
+    examples = result["examples"]
+    assert len(examples) >= 10, f"Expected 10+ examples, got {len(examples)}"
+    targets = " ".join(safe_str(ex.get("target")).lower() for ex in examples)
+    assert "the gum is here" not in targets
+    assert "bring the gum" not in targets
+    assert "using the gum" not in targets
+    assert any(k in targets for k in ("chew", "gum", "bubble", "piece of gum"))
+    usage = result.get("usage") or {}
+    verbs = {v["en"] for v in (usage.get("common_verbs") or [])}
+    assert "chew" in verbs or "eat" in verbs
+    for ex in examples:
+        assert safe_str(ex.get("tr")).strip(), f"Missing TR: {ex.get('target')}"
+    print("TEST sakız natural lesson OK:", len(examples))
+
+
 def test_fatura_invoice_lesson():
     """fatura → invoice; at emoji sızıntısı yok; doğal fatura cümleleri."""
     result = generate_word_lesson("fatura", "en", fake_translate)
@@ -636,6 +659,7 @@ if __name__ == "__main__":
     test_kitap_no_cross_word_leak()
     test_fatura_invoice_lesson()
     test_fatura_not_horse_icon()
+    test_sakiz_natural_lesson()
     test_has_curated_lexicon()
     test_profile_ideas_fallback_examples()
     test_masa_icon()
