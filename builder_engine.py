@@ -1,7 +1,7 @@
 """Cümle Kur + Kendini Test Et — kelime/cümle üretimi, yapılandırılmış analiz, telaffuz."""
 from __future__ import annotations
 
-APP_VERSION = "2026.09.01-v16"
+APP_VERSION = "2026.09.01-v17"
 
 import difflib
 import json
@@ -120,7 +120,7 @@ def _similarity(a: str, b: str) -> float:
 
 def _is_generic_explanation(text: str) -> bool:
     t = safe_str(text).strip()
-    if len(t) < 60:
+    if len(t) < 20:
         return True
     if GENERIC_BANNED_RE.search(t):
         return True

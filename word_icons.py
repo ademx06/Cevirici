@@ -185,7 +185,7 @@ def _llm_resolve_emoji(word_tr: str, target_word: str) -> str:
             max_tokens=60,
         )
         emoji = safe_str((parsed or {}).get("emoji")).strip()
-        if emoji and emoji != "🏷️":
+        if emoji and emoji not in ("🏷️", "❓", "⁉️", "❔"):
             _ICON_CACHE[key] = emoji
             return emoji
     except Exception:

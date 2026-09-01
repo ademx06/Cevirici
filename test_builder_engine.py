@@ -428,6 +428,37 @@ def test_word_icons_module():
     print("TEST word_icons OK")
 
 
+def test_door_natural_lesson():
+    """kapı/door — mekanik şablon yok; gerçek kullanım kalıpları."""
+    result = generate_word_lesson("kapı", "en", fake_translate)
+    assert result["ok"], result
+    assert result.get("target_word") == "door"
+    examples = result["examples"]
+    assert len(examples) >= 10, f"Expected 10+ natural examples, got {len(examples)}"
+
+    banned = (
+        "bring the door", "using the door", "this is my door",
+        "i am using the door", "check the door regularly",
+    )
+    for ex in examples:
+        t = safe_str(ex.get("target")).lower()
+        for b in banned:
+            assert b not in t, f"Banned mechanical template: {t}"
+        pron = safe_str(ex.get("pronunciation_tr")).lower()
+        assert "window" not in pron, f"Pronunciation leak: {pron}"
+
+    targets = " ".join(safe_str(ex.get("target")).lower() for ex in examples)
+    assert any(k in targets for k in ("knock", "locked", "close the door", "at the door"))
+    print("TEST door natural lesson OK:", len(examples), "examples")
+
+
+def test_masa_icon():
+    result = generate_word_lesson("masa", "en", fake_translate)
+    assert result["ok"], result
+    assert result.get("word_icon") == "🍽️"
+    print("TEST masa icon OK")
+
+
 def test_door_icon():
     result = generate_word_lesson("kapı", "en", fake_translate)
     assert result["ok"], result
@@ -484,6 +515,8 @@ if __name__ == "__main__":
     test_word_icons_module()
     test_bardak_glass_lesson()
     test_word_sequence_isolation()
+    test_door_natural_lesson()
+    test_masa_icon()
     test_door_icon()
     test_grade_word_correct()
     test_grade_honest_pronunciation()
