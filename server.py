@@ -879,6 +879,8 @@ class Handler(SimpleHTTPRequestHandler):
                 "ok": True,
                 "origin": origin,
                 "port": PORT,
+                "app_version": "2026.09.01-v11",
+                "git_commit": (os.environ.get("RENDER_GIT_COMMIT") or os.environ.get("GIT_COMMIT") or "")[:12],
                 "ai_enabled": llm_available(),
                 "ai_provider": info.get("provider"),
                 "ai_provider_label": info.get("label"),

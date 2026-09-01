@@ -28,6 +28,7 @@ from word_teaching_engine import (
     analyze_word_profile,
     build_rule_examples_for_word,
     build_usage_from_profile,
+    detect_category,
     generate_examples_from_profile,
     rule_sentence_teaching,
     build_rich_word_explanation,
@@ -35,6 +36,7 @@ from word_teaching_engine import (
     sanitize_word_examples,
     validate_lesson_quality,
     word_icon_for,
+    _rule_word_profile,
 )
 
 # ── Yasak / şablon açıklamalar ──
@@ -319,6 +321,19 @@ def generate_word_lesson(
         examples = _rule_based_word_lesson(word_tr, target_word, target_lang, translate_fn)
 
     examples = sanitize_word_examples(examples, word_tr, target_word, profile)
+
+    if len(examples) < 3:
+        category = detect_category(word_tr, target_word)
+        if category != "general":
+            profile = _rule_word_profile(word_tr, target_word, target_lang, category)
+        fallback = sanitize_word_examples(
+            build_rule_examples_for_word(word_tr, target_word, profile),
+            word_tr,
+            target_word,
+            profile,
+        )
+        if len(fallback) >= len(examples):
+            examples = fallback
 
     tw_pron = get_word(target_lang, target_word)
     usage = build_usage_from_profile(profile, target_lang)

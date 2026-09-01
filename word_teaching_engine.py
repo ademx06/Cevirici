@@ -527,9 +527,8 @@ def analyze_word_profile(
         if parsed and parsed.get("target_word"):
             known_cat = detect_category(word_tr, target_word)
             if known_cat != "general":
-                parsed["semantic_category"] = known_cat
-            else:
-                parsed["semantic_category"] = parsed.get("semantic_category") or known_cat
+                return _rule_word_profile(word_tr, target_word, target_lang, known_cat)
+            parsed["semantic_category"] = parsed.get("semantic_category") or known_cat
             return parsed
 
     return _rule_word_profile(word_tr, target_word, target_lang, category)
