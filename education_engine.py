@@ -7,12 +7,14 @@ import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from tutor import _extract_turkish_phrase
 
 _ENGINE_DIR = Path(__file__).resolve().parent
 HTTP_UA = "Mozilla/5.0 (compatible; SesliCevirmen/1.0)"
+DEFAULT_GEMINI_MODEL = "gemini-3.6-flash"
 
 
 def _api_headers(extra: dict[str, str] | None = None) -> dict[str, str]:
@@ -3374,22 +3376,35 @@ def _parse_vocab_tts_pairs(vocab_tr: str) -> list[dict[str, str]]:
 def _gemini_api_request(body: dict[str, Any], max_tokens: int) -> str | None:
     """Gemini generateContent — AIza ve yeni AQ. anahtar formatlarını destekler."""
     key = os.environ.get("GEMINI_API_KEY", "").strip()
-    model = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
     if not key:
         return None
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+    configured = os.environ.get("GEMINI_MODEL", DEFAULT_GEMINI_MODEL).strip()
+    models: list[str] = []
+    for candidate in (configured, DEFAULT_GEMINI_MODEL, "gemini-2.5-flash", "gemini-2.0-flash"):
+        if candidate and candidate not in models:
+            models.append(candidate)
     headers = _api_headers({
         "Content-Type": "application/json",
         "x-goog-api-key": key,
     })
-    try:
-        req = Request(url, data=json.dumps(body).encode(), headers=headers, method="POST")
-        with urlopen(req, timeout=_llm_request_timeout(max_tokens)) as resp:
-            data = json.loads(resp.read().decode())
-        parts = data["candidates"][0]["content"]["parts"]
-        return "".join(p.get("text", "") for p in parts).strip()
-    except Exception:
-        return None
+    payload = json.dumps(body).encode()
+    for model in models:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+        try:
+            req = Request(url, data=payload, headers=headers, method="POST")
+            with urlopen(req, timeout=_llm_request_timeout(max_tokens)) as resp:
+                data = json.loads(resp.read().decode())
+            parts = data["candidates"][0]["content"]["parts"]
+            return "".join(p.get("text", "") for p in parts).strip()
+        except HTTPError as exc:
+            if exc.code in (404, 400) and model != models[-1]:
+                continue
+            return None
+        except Exception:
+            if model != models[-1]:
+                continue
+            return None
+    return None
 
 
 def ai_provider_info() -> dict[str, str | None]:
@@ -3402,7 +3417,7 @@ def ai_provider_info() -> dict[str, str | None]:
     }
     models = {
         "groq": os.environ.get("GROQ_MODEL", "qwen/qwen3.8-27b"),
-        "gemini": os.environ.get("GEMINI_MODEL", "gemini-2.0-flash"),
+        "gemini": os.environ.get("GEMINI_MODEL", DEFAULT_GEMINI_MODEL),
         "openai": os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
     }
     label = labels.get(primary or "", None)
@@ -3540,6 +3555,29 @@ def _llm_chat_json_raw(
     return None
 
 
+def _parse_json_object(raw: str) -> dict[str, Any] | None:
+    """JSON parse — kesilmiş yanıtları kısmen kurtarmayı dener."""
+    text = safe_str(raw).strip()
+    if not text:
+        return None
+    try:
+        parsed = json.loads(text)
+        return parsed if isinstance(parsed, dict) else None
+    except json.JSONDecodeError:
+        pass
+    # Kesilmiş JSON: son tam } veya ] ile kapatmayı dene
+    for end in range(len(text), max(0, len(text) - 8000), -1):
+        chunk = text[:end].rstrip().rstrip(",")
+        for suffix in ("", "}", "]}", "]}]", "}", "]}]}", "}"):
+            try:
+                parsed = json.loads(chunk + suffix)
+                if isinstance(parsed, dict):
+                    return parsed
+            except json.JSONDecodeError:
+                continue
+    return None
+
+
 def _llm_json(system: str, user: str, max_tokens: int = 380) -> dict[str, Any] | None:
     """Yapılandırılmış JSON yanıt — Groq / Gemini / OpenAI (sırayla dener)."""
     providers = _llm_providers_in_order()
@@ -3552,11 +3590,7 @@ def _llm_json(system: str, user: str, max_tokens: int = 380) -> dict[str, Any] |
             break
     if not raw:
         return None
-    try:
-        parsed = json.loads(raw)
-        return parsed if isinstance(parsed, dict) else None
-    except Exception:
-        return None
+    return _parse_json_object(raw)
 
 
 def _format_history_for_ai(history: list[dict], limit: int = 8) -> str:

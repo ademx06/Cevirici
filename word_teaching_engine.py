@@ -20,7 +20,24 @@ from word_lexicon import build_lexicon_examples, get_word_usage_phrases, get_wor
 ENGLISH_VARIANT = "en-US"
 
 # AI birincil kelime dersi — ChatGPT gibi: önce AI, başarısızsa retry; şablon yedek YOK
-AI_LESSON_MAX_ATTEMPTS = 8
+DEFAULT_GEMINI_MODEL = "gemini-3.6-flash"
+WORD_LESSON_MAX_TOKENS = 8192
+AI_LESSON_MAX_ATTEMPTS = 5
+
+WORD_LESSON_SPLIT_PROMPT_A = """{base_prompt}
+
+[EK GÖREV — BÖLÜM A]
+Yalnızca ilk 7 örnek cümleyi üret (sentence_type sırasıyla):
+basic, present, past, future, question, negative, imperative
+Profil alanlarını da doldur. JSON'da examples dizisi TAM 7 öğe olsun."""
+
+WORD_LESSON_SPLIT_PROMPT_B = """{base_prompt}
+
+[EK GÖREV — BÖLÜM B]
+Kelime: {word_tr} / {target_word}
+Profil zaten hazır — yalnızca son 6 örnek cümleyi üret (sentence_type sırasıyla):
+polite_request, advice, obligation, possibility, conditional, dialogue
+JSON: {{"examples": [ ...6 öğe... ]}}"""
 
 
 def templates_allowed() -> bool:
@@ -455,7 +472,7 @@ Bu kelimeyle insanlar günlük hayatta ne yapar? Hangi fiiller doğal? (kapı→
 - article_notes_items: a/an/the kullanımı (en az 2)
 
 [ÖĞRETİCİ AÇIKLAMA — HER CÜMLE İÇİN ZORUNLU]
-how_it_is_formed_tr en az 280 karakter; ChatGPT gibi adım adım öğret:
+how_it_is_formed_tr en az 140 karakter; ChatGPT gibi adım adım öğret:
 1️⃣ Genel anlam — Bu cümle günlük hayatta ne anlatır?
 2️⃣ Ana yapı — İngilizce iskelet + «Türkçe karşılık»
 3️⃣ Özne — Kim/ne yapıyor? (I, she, the dog…)
@@ -4239,7 +4256,11 @@ def _llm_generate_dynamic_lesson(
         )
     elif attempt > 0:
         user_msg = "Return JSON only. Tam 13 örnek, 5+ fiil, 4+ collocation zorunlu."
-    parsed = _llm_json(system, user_msg, max_tokens=5000)
+    parsed = _llm_json(system, user_msg, max_tokens=WORD_LESSON_MAX_TOKENS)
+    if not parsed or not isinstance(parsed.get("examples"), list):
+        parsed = _llm_generate_dynamic_lesson_split(
+            word_tr, target_word, target_lang, system, attempt=attempt, prior_issues=prior_issues,
+        )
     if not parsed or not isinstance(parsed.get("examples"), list):
         return None
     profile: dict[str, Any] = {
@@ -4274,6 +4295,55 @@ def _llm_generate_dynamic_lesson(
     if len(examples) < 8:
         return None
     return {"profile": profile, "examples": examples[:13]}
+
+
+def _llm_generate_dynamic_lesson_split(
+    word_tr: str,
+    target_word: str,
+    target_lang: str,
+    base_system: str,
+    *,
+    attempt: int = 0,
+    prior_issues: list[str] | None = None,
+) -> dict[str, Any] | None:
+    """İki aşamalı AI çağrısı — token kesilmesini önler (7+6 örnek)."""
+    if not llm_available() or target_lang != "en":
+        return None
+    lang_name = LANG_NAMES.get(target_lang, target_lang)
+    user_a = "Return JSON only."
+    if prior_issues:
+        user_a = (
+            "Önceki deneme BAŞARISIZ. Sorunları düzelt:\n"
+            + "\n".join(f"- {issue}" for issue in prior_issues)
+            + "\n\nReturn JSON only."
+        )
+    prompt_a = WORD_LESSON_SPLIT_PROMPT_A.format(base_prompt=base_system)
+    part1 = _llm_json(prompt_a, user_a, max_tokens=5500)
+    if not part1 or not isinstance(part1, dict):
+        return None
+    ex1 = part1.get("examples") if isinstance(part1.get("examples"), list) else []
+    if len(ex1) < 4:
+        return None
+
+    user_b = "Return JSON with examples array only (exactly 6 items)."
+    if prior_issues:
+        user_b = (
+            "Önceki deneme eksikti. Son 6 örneği üret:\n"
+            + "\n".join(f"- {issue}" for issue in prior_issues[:3])
+            + "\n\nReturn JSON only."
+        )
+    prompt_b = WORD_LESSON_SPLIT_PROMPT_B.format(
+        base_prompt=base_system,
+        word_tr=word_tr[:80],
+        target_word=target_word[:80],
+    )
+    part2 = _llm_json(prompt_b, user_b, max_tokens=4500)
+    merged = dict(part1)
+    if part2 and isinstance(part2.get("examples"), list):
+        merged["examples"] = list(ex1) + list(part2["examples"])
+    else:
+        merged["examples"] = list(ex1)
+    return merged if isinstance(merged.get("examples"), list) and merged["examples"] else None
 
 
 def _llm_generate_examples_from_profile(
@@ -4526,12 +4596,9 @@ def _profile_needs_upgrade(profile: dict[str, Any], word_tr: str, target_word: s
 
 
 def teaching_explanation_is_rich(how: str) -> bool:
-    """Öğretici açıklama yeterince derin mi? (adımlı, dil bilgisi rolleri)."""
+    """Öğretici açıklama yeterince derin mi?"""
     text = safe_str(how).strip()
-    if len(text) < 180 or "1️⃣" not in text or "2️⃣" not in text:
-        return False
-    grammar_markers = ("özne", "fiil", "yüklem", "nesne", "zarf", "sıfat", "edat", "bağlaç", "subject", "verb", "object")
-    return any(m in text.lower() for m in grammar_markers)
+    return len(text) >= 140 and "1️⃣" in text and "2️⃣" in text
 
 
 def upgrade_word_lesson_teaching(
@@ -4626,7 +4693,7 @@ def collect_lesson_quality_issues(
             break
         if not teaching_explanation_is_rich(safe_str(ex.get("how_it_is_formed_tr"))):
             issues.append(
-                "how_it_is_formed_tr en az 120 karakter ve 1️⃣ 2️⃣ adımları içermeli; "
+                "how_it_is_formed_tr en az 140 karakter ve 1️⃣ 2️⃣ adımları içermeli; "
                 "her cümle için derin öğretici açıklama yaz."
             )
             break

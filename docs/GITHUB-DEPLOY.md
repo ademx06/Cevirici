@@ -39,7 +39,7 @@ git push -u origin main
 | `GROQ_API_KEY` | Groq konsolundan (ücretsiz AI öğretmen) |
 | `GROQ_MODEL` | `qwen/qwen3.8-27b` |
 | `GEMINI_API_KEY` | [Google AI Studio](https://aistudio.google.com/apikey) — Groq limit dolunca yedek |
-| `GEMINI_MODEL` | `gemini-2.0-flash` (isteğe bağlı) |
+| `GEMINI_MODEL` | `gemini-3.6-flash` (isteğe bağlı) |
 | `TELEGRAM_BOT_TOKEN` | @BotFather token (isteğe bağlı) |
 | `TELEGRAM_CHAT_ID` | Telegram chat id (isteğe bağlı) |
 
