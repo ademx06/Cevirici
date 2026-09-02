@@ -21,8 +21,23 @@ ENGLISH_VARIANT = "en-US"
 
 # AI birincil kelime dersi — ChatGPT gibi: önce AI, başarısızsa retry; şablon yedek YOK
 DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
-WORD_LESSON_MAX_TOKENS = 4500
+WORD_LESSON_MAX_TOKENS = 3200
+WORD_LESSON_FAST_MAX_TOKENS = 3200
 AI_LESSON_MAX_ATTEMPTS = 1
+
+WORD_LESSON_FAST_PROMPT = """Sen profesyonel ESL öğretmenisin — Cümle Kur kartı hazırla.
+Türkçe: «{word_tr}» → İngilizce: «{target_word}» | Tür: {pos_label} | {lang_name}
+
+{pos_hint}
+
+13 örnek cümle (basic, present, past, future, question, negative, imperative, polite_request, advice, obligation, possibility, conditional, dialogue).
+- Hedef kelime her İngilizce cümlede doğal geçsin
+- tr: tam doğal Türkçe cümle (iyelik: arabam, cüzdanım)
+- how_it_is_formed_tr: min 50 karakter (1️⃣ anlam 2️⃣ yapı)
+- word_breakdown: token, role_tr, meaning_tr
+
+JSON döndür:
+{{"meaning_tr":"","part_of_speech":"","countability":"","semantic_category":"","usage_notes_tr":"","common_verbs":[],"common_collocations":[],"article_notes_items":[],"avoid_reason_tr":"","examples":[{{"tr":"","target":"","sentence_type":"","structure_tr":"","how_it_is_formed_tr":"","word_breakdown":[]}}]}}"""
 
 WORD_LESSON_SPLIT_PROMPT_A = """{split_base}
 
@@ -1489,7 +1504,7 @@ def ensure_turkish_translations(
             or _is_mechanical_turkish(safe_str(ex.get("tr")), word_tr)
         )
     ]
-    if need_backfill and llm_available():
+    if need_backfill and llm_available() and os.getenv("WORD_LESSON_FAST", "1") != "1":
         mapping = _llm_backfill_turkish(need_backfill, word_tr, target_word)
         for ex in need_backfill:
             en = safe_str(ex.get("target")).strip()
@@ -1601,6 +1616,20 @@ def analyze_word_profile(
         if curated:
             return {"target_word": target_word, **curated}
 
+    return _rule_word_profile(word_tr, target_word, target_lang, category)
+
+
+def fast_analyze_word_profile(
+    word_tr: str,
+    target_word: str,
+    target_lang: str,
+) -> dict[str, Any]:
+    """Hızlı profil — ek LLM çağrısı yok (ders tek çağrıda gelir)."""
+    category = detect_category(word_tr, target_word)
+    if has_curated_lexicon(word_tr, target_word):
+        curated = get_word_usage_profile(word_tr, target_word)
+        if curated:
+            return {"target_word": target_word, **curated}
     return _rule_word_profile(word_tr, target_word, target_lang, category)
 
 
@@ -4283,42 +4312,27 @@ def _llm_generate_dynamic_lesson(
     attempt: int = 0,
     prior_issues: list[str] | None = None,
 ) -> dict[str, Any] | None:
-    """AI ile tam kelime dersi üret — birincil yol (tüm kelimeler)."""
+    """Tek hızlı AI çağrısı — manuel Gemini/Groq gibi."""
     if not llm_available() or target_lang != "en":
         return None
     lang_name = LANG_NAMES.get(target_lang, target_lang)
-    system = WORD_LESSON_DIRECT_PROMPT.format(
+    pos = detect_part_of_speech(word_tr, target_word)
+    pos_label = POS_LABELS_TR.get(pos, pos)
+    system = WORD_LESSON_FAST_PROMPT.format(
         word_tr=word_tr[:80],
         target_word=target_word[:80],
         lang_name=lang_name,
-        pos_rules=get_pos_teaching_rules_for_prompt(word_tr, target_word),
+        pos_label=pos_label,
+        pos_hint=get_pos_teaching_rules_for_prompt(word_tr, target_word)[:480],
     )
     user_msg = "Return JSON only."
     if prior_issues:
         user_msg = (
-            "Önceki deneme BAŞARISIZ. Aşağıdaki sorunları düzelt ve TAM 13 örnek üret:\n"
-            + "\n".join(f"- {issue}" for issue in prior_issues)
+            "Önceki deneme BAŞARISIZ. Düzelt ve 13 örnek üret:\n"
+            + "\n".join(f"- {issue}" for issue in prior_issues[:5])
             + "\n\nReturn JSON only."
         )
-    elif attempt > 0:
-        user_msg = "Return JSON only. Tam 13 örnek, 5+ fiil, 4+ collocation zorunlu."
-    parsed: dict[str, Any] | None = None
-    is_verb_lesson = _prefer_parallel_split_lesson(word_tr, target_word)
-    if is_verb_lesson:
-        verb_system = WORD_LESSON_VERB_COMPACT_PROMPT.format(
-            word_tr=word_tr[:80],
-            target_word=target_word[:80],
-            lang_name=lang_name,
-            pos_rules=get_pos_teaching_rules_for_prompt(word_tr, target_word),
-        )
-        parsed = _llm_json_word_lesson(verb_system, user_msg, max_tokens=4200)
-    else:
-        parsed = _llm_json_word_lesson(system, user_msg, max_tokens=WORD_LESSON_MAX_TOKENS)
-        ex_count = len(parsed.get("examples") or []) if isinstance(parsed, dict) else 0
-        if not parsed or ex_count < 8:
-            parsed = _llm_generate_dynamic_lesson_split(
-                word_tr, target_word, target_lang, system, attempt=attempt, prior_issues=prior_issues,
-            )
+    parsed = _llm_json_word_lesson(system, user_msg, max_tokens=WORD_LESSON_FAST_MAX_TOKENS)
     if not parsed or not isinstance(parsed.get("examples"), list):
         return None
     profile: dict[str, Any] = {

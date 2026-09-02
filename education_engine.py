@@ -3491,11 +3491,17 @@ def _llm_request_timeout(max_tokens: int) -> int:
     return min(90, max(18, 12 + max_tokens // 120))
 
 
-def _groq_chat(messages: list[dict], max_tokens: int = 520, json_mode: bool = False) -> str | None:
+def _groq_chat(
+    messages: list[dict],
+    max_tokens: int = 520,
+    json_mode: bool = False,
+    *,
+    timeout_sec: int | None = None,
+) -> str | None:
     body: dict[str, Any] = {
         "model": os.environ.get("GROQ_MODEL", "qwen/qwen3.8-27b"),
         "messages": messages,
-        "temperature": 0.72,
+        "temperature": 0.55,
         "max_tokens": max_tokens,
     }
     if json_mode:
@@ -3507,7 +3513,7 @@ def _groq_chat(messages: list[dict], max_tokens: int = 520, json_mode: bool = Fa
             headers=_api_headers({"Authorization": f"Bearer {os.environ.get('GROQ_API_KEY', '').strip()}"}),
             method="POST",
         )
-        with urlopen(req, timeout=_llm_request_timeout(max_tokens)) as resp:
+        with urlopen(req, timeout=timeout_sec or _llm_request_timeout(max_tokens)) as resp:
             data = json.loads(resp.read().decode())
         return data["choices"][0]["message"]["content"].strip()
     except Exception:
@@ -3545,17 +3551,17 @@ def _llm_chat_json_raw(
     """Tek sağlayıcıdan ham JSON metin al."""
     messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
     if provider == "groq":
-        return _groq_chat(messages, max_tokens=max_tokens, json_mode=True)
+        timeout = min(35, _llm_request_timeout(max_tokens)) if max_tokens >= 2500 else _llm_request_timeout(max_tokens)
+        return _groq_chat(messages, max_tokens=max_tokens, json_mode=True, timeout_sec=timeout)
     if provider == "gemini":
-        word_lesson = max_tokens >= 3000
-        verb_lesson = max_tokens >= 4000
-        timeout = 90 if verb_lesson else (55 if word_lesson else None)
+        word_lesson = max_tokens >= 2500
+        timeout = 40 if word_lesson else None
         return _gemini_api_request({
             "systemInstruction": {"parts": [{"text": system}]},
             "contents": [{"role": "user", "parts": [{"text": user}]}],
             "generationConfig": {
                 "responseMimeType": "application/json",
-                "temperature": 0.72,
+                "temperature": 0.55,
                 "maxOutputTokens": max_tokens,
             },
         }, max_tokens, timeout_sec=timeout)
@@ -3610,18 +3616,22 @@ def _llm_json(
     return None
 
 
-def _llm_json_word_lesson(system: str, user: str, max_tokens: int = 4500) -> dict[str, Any] | None:
-    """Kelime dersi — yalnızca Gemini (hızlı); anahtar yoksa Groq."""
-    gemini_key = os.environ.get("GEMINI_API_KEY", "").strip()
-    if gemini_key:
-        raw = _llm_chat_json_raw("gemini", system, user, max_tokens)
-        if raw:
-            parsed = _parse_json_object(raw)
-            if parsed:
-                return parsed
-        return None
-    if os.environ.get("GROQ_API_KEY", "").strip():
-        raw = _llm_chat_json_raw("groq", system, user, max_tokens)
+def _llm_json_word_lesson(system: str, user: str, max_tokens: int = 3200) -> dict[str, Any] | None:
+    """Kelime dersi — tek hızlı çağrı (Groq önce, yedek Gemini)."""
+    prefer = os.environ.get("WORD_LESSON_PROVIDER", "groq").strip().lower()
+    providers: list[str] = []
+    if prefer == "gemini":
+        if os.environ.get("GEMINI_API_KEY", "").strip():
+            providers.append("gemini")
+        if os.environ.get("GROQ_API_KEY", "").strip():
+            providers.append("groq")
+    else:
+        if os.environ.get("GROQ_API_KEY", "").strip():
+            providers.append("groq")
+        if os.environ.get("GEMINI_API_KEY", "").strip():
+            providers.append("gemini")
+    for provider in providers:
+        raw = _llm_chat_json_raw(provider, system, user, max_tokens)
         if raw:
             parsed = _parse_json_object(raw)
             if parsed:

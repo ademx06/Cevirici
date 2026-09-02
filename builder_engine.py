@@ -1,7 +1,7 @@
 """Cümle Kur + Kendini Test Et — kelime/cümle üretimi, yapılandırılmış analiz, telaffuz."""
 from __future__ import annotations
 
-APP_VERSION = "2026.09.02-v50"
+APP_VERSION = "2026.09.02-v51"
 
 import difflib
 import json
@@ -30,6 +30,7 @@ from word_teaching_engine import (
     SENTENCE_TEACHING_V3_PROMPT,
     ai_only_lesson_enabled,
     analyze_word_profile,
+    fast_analyze_word_profile,
     build_rule_examples_for_word,
     build_usage_from_profile,
     collect_lesson_quality_issues,
@@ -346,11 +347,6 @@ def generate_word_lesson(
             target_word = translate_fn(word_tr, "tr", target_lang).strip()
         except Exception:
             target_word = ""
-    if not target_word and translate_fn:
-        try:
-            target_word = translate_fn(word_tr, "tr", target_lang).strip()
-        except Exception:
-            target_word = word_tr
     target_word = safe_str(target_word).strip() or word_tr
     target_word = resolve_target_word(word_tr, target_word, target_lang)
     if target_lang == "en":
@@ -360,7 +356,7 @@ def generate_word_lesson(
         tw_info = get_word("en", target_word)
         register_word("en", target_word, tw_info["pronunciation_tr"], tw_info.get("ipa", ""))
 
-    profile = analyze_word_profile(word_tr, target_word, target_lang, translate_fn)
+    profile = fast_analyze_word_profile(word_tr, target_word, target_lang)
     known_words = {target_word.lower()}
     examples: list[dict[str, Any]] = []
     category = detect_category(word_tr, target_word)
@@ -377,34 +373,25 @@ def generate_word_lesson(
                 enriched = _enrich_example(ex, target_lang, [target_word], known_words)
                 if _validate_example(enriched):
                     examples.append(enriched)
-            examples = sanitize_word_examples(examples, word_tr, target_word, profile, translate_fn)
+            examples = sanitize_word_examples(examples, word_tr, target_word, profile)
 
     if ai_only:
-        profile, examples, category = guarantee_word_lesson(
-            word_tr, target_word, target_lang, profile, examples, translate_fn, ai_only=True,
-        )
-        quality_issues = collect_lesson_quality_issues(examples, word_tr, target_word, profile)
-        if len(examples) < 11 or quality_issues:
-            if len(examples) < 11 or quality_issues:
-                profile, examples, category = _apply_quality_word_lesson_fallbacks(
-                    word_tr, target_word, target_lang, profile, examples, translate_fn, known_words,
-                )
-                quality_issues = collect_lesson_quality_issues(examples, word_tr, target_word, profile)
-            if templates_allowed() and (len(examples) < 11 or quality_issues):
-                profile, examples, category = _apply_quality_word_lesson_fallbacks(
-                    word_tr, target_word, target_lang, profile, examples, translate_fn, known_words,
-                )
-            elif len(examples) < 7:
-                issue_hint = quality_issues[0] if quality_issues else "yetersiz örnek"
-                return {
-                    "ok": False,
-                    "error_tr": (
-                        f"«{word_tr}» için AI dersi şu an tamamlanamadı. "
-                        "Lütfen birkaç saniye sonra tekrar dene."
-                    ),
-                    "ai_retry": True,
-                    "debug_issue": issue_hint[:120],
-                }
+        if len(examples) < 8:
+            profile, examples, category = guarantee_word_lesson(
+                word_tr, target_word, target_lang, profile, examples, translate_fn, ai_only=True,
+            )
+        else:
+            category = profile.get("semantic_category") or detect_category(word_tr, target_word)
+        if len(examples) < 7:
+            return {
+                "ok": False,
+                "error_tr": (
+                    f"«{word_tr}» için AI dersi şu an tamamlanamadı. "
+                    "Lütfen birkaç saniye sonra tekrar dene."
+                ),
+                "ai_retry": True,
+                "debug_issue": (ai_issues[0] if ai_issues else "yetersiz örnek")[:120],
+            }
     else:
         profile, examples, category = _apply_quality_word_lesson_fallbacks(
             word_tr, target_word, target_lang, profile, examples, translate_fn, known_words,
