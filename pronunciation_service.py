@@ -247,9 +247,15 @@ LESSON_VOCAB_CANONICAL: dict[str, str] = {
     "smoked": "smoukt",
     "tobacco": "tı-bekou",
     "lighter": "lay-tır",
+    "regularly": "regyulırli",
+    "optician": "optişın",
+    "lost": "lost",
+    "wear": "ver",
+    "wearing": "ver-ing",
+    "cleaning": "kli-ning",
+    "pair": "per",
     "glasses": "gla-sız",
     "glass": "glaas",
-    "wear": "ver",
     "umbrella": "ambre-lı",
     "wallet": "vol-lit",
     "socks": "soks",
@@ -1067,6 +1073,41 @@ EN_WORD_MEANINGS: dict[str, str] = {
     "trap": "tuzak",
     "locust": "çekirge",
     "moon": "ay",
+    "wear": "takmak / giymek",
+    "wearing": "takıyor / giyiyor",
+    "worn": "takılmış / giyilmiş",
+    "put": "koymak / takmak",
+    "take": "almak / çıkarmak",
+    "off": "çıkarmak / kapalı",
+    "clean": "temizlemek",
+    "cleaning": "temizlemek / temizlik",
+    "lose": "kaybetmek",
+    "lost": "kaybetti / kayıp",
+    "find": "bulmak",
+    "found": "buldu / bulundu",
+    "break": "kırmak",
+    "broke": "kırdı",
+    "broken": "kırık",
+    "wipe": "silmek",
+    "pair": "çift",
+    "regularly": "düzenli olarak",
+    "optician": "gözlükçü",
+    "smoke": "içmek (sigara) / duman",
+    "smoking": "sigara içmek",
+    "smoked": "içti (sigara)",
+    "cigarette": "sigara",
+    "cigarettes": "sigaralar",
+    "light": "yakmak / ışık",
+    "quit": "bırakmak",
+    "every": "her",
+    "day": "gün",
+    "help": "yardım etmek",
+    "please": "lütfen",
+    "outside": "dışarıda",
+    "should": "…-meli / -malı",
+    "need": "ihtiyaç duymak",
+    "buy": "satın almak",
+    "bought": "satın aldı",
     "raw": "saf / işlenmemiş",
     "organic": "organik",
     "jar": "kavanoz",
@@ -1871,7 +1912,31 @@ def strip_teaching_header(text: str) -> str:
 
 
 def word_meaning_tr(word: str) -> str:
-    return EN_WORD_MEANINGS.get(word.lower(), "")
+    low = safe_str(word).strip().lower()
+    if not low:
+        return ""
+    if low in EN_WORD_MEANINGS:
+        return EN_WORD_MEANINGS[low]
+    # Basit çekim düşürme — cleaning→clean, lost→lose, regularly→regular
+    for suf, repl in (
+        ("ying", "y"),
+        ("ing", ""),
+        ("ied", "y"),
+        ("ed", ""),
+        ("ies", "y"),
+        ("es", ""),
+        ("s", ""),
+        ("ly", ""),
+    ):
+        if low.endswith(suf) and len(low) > len(suf) + 2:
+            stem = low[: -len(suf)] + repl
+            if stem in EN_WORD_MEANINGS:
+                return EN_WORD_MEANINGS[stem]
+            if suf == "ed" and (low[:-2] + "e") in EN_WORD_MEANINGS:
+                return EN_WORD_MEANINGS[low[:-2] + "e"]
+            if suf == "ing" and (low[:-3] + "e") in EN_WORD_MEANINGS:
+                return EN_WORD_MEANINGS[low[:-3] + "e"]
+    return ""
 
 
 def word_role_tr(word: str) -> str:

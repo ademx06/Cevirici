@@ -2245,9 +2245,9 @@ def _rule_word_profile(
                 "prescription glasses", "take off your glasses", "clean your glasses",
             ],
             "common_patterns": [
-                "I wear glasses every day.",
-                "I lost my glasses.",
-                "Can you help me find my glasses?",
+                {"en": "I wear glasses every day.", "tr": "Her gün gözlük takarım."},
+                {"en": "I lost my glasses.", "tr": "Gözlüğümü kaybettim."},
+                {"en": "Can you help me find my glasses?", "tr": "Gözlüğümü bulmama yardım eder misin?"},
             ],
             "article_notes_items": [
                 {"en": "my glasses", "tr": "gözlüğüm"},
@@ -2276,9 +2276,9 @@ def _rule_word_profile(
                 "cigarette smoke", "roll a cigarette",
             ],
             "common_patterns": [
-                "Do you smoke?",
-                "I need to quit smoking.",
-                "He lit a cigarette outside.",
+                {"en": "Do you smoke?", "tr": "Sigara içer misin?"},
+                {"en": "I need to quit smoking.", "tr": "Sigarayı bırakmam lazım."},
+                {"en": "He lit a cigarette outside.", "tr": "Dışarıda bir sigara yaktı."},
             ],
             "article_notes_items": [
                 {"en": "a cigarette", "tr": "bir sigara"},
@@ -4316,18 +4316,23 @@ def _fill_word_breakdown(ex: dict[str, Any], lang: str = "en") -> dict[str, Any]
             continue
         low = tok.lower()
         info = get_word(lang, tok)
+        pron = safe_str(w.get("pronunciation_tr") or info.get("pronunciation_tr"))
+        ipa = safe_str(w.get("ipa") or info.get("ipa", ""))
         wb.append({
             "token": tok,
-            "pronunciation_tr": safe_str(w.get("pronunciation_tr") or info.get("pronunciation_tr")),
-            "ipa": safe_str(w.get("ipa") or info.get("ipa", "")),
+            "pronunciation_tr": pron,
+            "ipa": ipa,
             "meaning_tr": word_meaning_tr(low),
             "role_tr": word_role_tr(low),
         })
     ex["word_breakdown"] = wb
-    if not ex.get("pronunciation_tr"):
-        ex["pronunciation_tr"] = bundle.get("pronunciation_tr", "")
-    if not ex.get("ipa"):
-        ex["ipa"] = bundle.get("ipa", "")
+    # Telaffuz her örnekte dolu olsun — Dinle ile uyumlu
+    if bundle.get("pronunciation_tr"):
+        ex["pronunciation_tr"] = bundle["pronunciation_tr"]
+    if bundle.get("ipa"):
+        ex["ipa"] = bundle["ipa"]
+    if bundle.get("word_pronunciations"):
+        ex["word_pronunciations"] = bundle["word_pronunciations"]
     return ex
 
 
@@ -5517,6 +5522,13 @@ def build_usage_from_profile(
             article_items.append(_enrich_usage_entry(item["en"], item["tr"], target_lang))
 
     patterns_enriched: list[dict[str, str]] = []
+    pattern_tr_map: dict[str, str] = {}
+    if word_tr and target_word and target_lang == "en":
+        for ex in _thirteen_pattern_examples_en(word_tr, target_word, category):
+            tkey = _norm(safe_str(ex.get("target")))
+            tr_val = safe_str(ex.get("tr")).strip()
+            if tkey and tr_val:
+                pattern_tr_map[tkey] = tr_val
     for p in (profile.get("common_patterns") or patterns)[:4]:
         if isinstance(p, dict):
             en = safe_str(p.get("en") or p.get("target")).strip()
@@ -5527,6 +5539,8 @@ def build_usage_from_profile(
         if en:
             if not _is_full_sentence(en, min_words=2):
                 continue
+            if not tr:
+                tr = pattern_tr_map.get(_norm(en), "") or _phrase_meaning_tr(en)
             patterns_enriched.append(_enrich_usage_entry(en, tr, target_lang))
 
     alt_terms: list[dict[str, str]] = []
