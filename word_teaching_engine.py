@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import os
 import re
-from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable
 
 from education_engine import LANG_NAMES, _llm_json, _llm_json_word_lesson, llm_available, safe_str
@@ -25,20 +24,31 @@ DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
 WORD_LESSON_MAX_TOKENS = 4500
 AI_LESSON_MAX_ATTEMPTS = 1
 
-WORD_LESSON_SPLIT_PROMPT_A = """{base_prompt}
+WORD_LESSON_SPLIT_PROMPT_A = """{split_base}
 
-[EK — BÖLÜM A, HIZLI]
-Yalnızca ilk 7 örnek (basic, present, past, future, question, negative, imperative).
-how_it_is_formed_tr kısa (min 50 karakter, 1️⃣2️⃣ yeterli).
-JSON'da examples dizisi TAM 7 öğe."""
+[BÖLÜM A]
+İlk 7 örnek: basic, present, past, future, question, negative, imperative.
+examples dizisi TAM 7 öğe."""
 
-WORD_LESSON_SPLIT_PROMPT_B = """{base_prompt}
+WORD_LESSON_SPLIT_PROMPT_B = """{split_base}
 
-[EK — BÖLÜM B, HIZLI]
-Kelime: {word_tr} / {target_word}
-Yalnızca son 6 örnek (polite_request, advice, obligation, possibility, conditional, dialogue).
-how_it_is_formed_tr kısa (min 50 karakter).
-JSON: {{"examples": [ ...6 öğe... ]}}"""
+[BÖLÜM B]
+Son 6 örnek: polite_request, advice, obligation, possibility, conditional, dialogue.
+JSON: {{"examples": [ ...6 öğe... ]}} (yalnızca examples yeterli)."""
+
+WORD_LESSON_SPLIT_BASE = """Sen ESL öğretmenisin.
+Türkçe kelime: "{word_tr}" → İngilizce: "{target_word}" ({lang_name})
+
+{pos_rules}
+
+Zorunlu:
+- Hedef kelime her İngilizce cümlede geçmeli
+- tr alanı tam doğal Türkçe cümle (yalnızca kelime YASAK)
+- how_it_is_formed_tr min 50 karakter (1️⃣ anlam 2️⃣ yapı yeterli)
+- word_breakdown: token, role_tr, meaning_tr
+
+JSON: meaning_tr, usage_notes_tr, part_of_speech, countability, semantic_category,
+common_verbs (5+), common_collocations (4+), article_notes_items, avoid_reason_tr, examples"""
 
 
 def templates_allowed() -> bool:
