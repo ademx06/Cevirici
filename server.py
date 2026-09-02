@@ -16,7 +16,7 @@ from tutor import get_lesson, tutor_reply
 from education_engine import (
     process_turn, greeting, session_report, daily_lesson, default_profile,
     finalize_session, weekly_progress, merge_profile, llm_available, ai_provider_info,
-    pronounce_text, safe_str,
+    pronounce_text, safe_str, llm_translate,
 )
 from builder_engine import (
     generate_word_lesson,
@@ -26,7 +26,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.09.02-v54"
+APP_VERSION = "2026.09.02-v55"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -152,7 +152,7 @@ def mymemory_translate(text: str, from_lang: str, to_lang: str) -> str:
         "https://api.mymemory.translated.net/get?"
         f"q={quote(text)}&langpair={quote(from_lang)}|{quote(to_lang)}"
     )
-    with urlopen(url, timeout=15) as resp:
+    with urlopen(url, timeout=12) as resp:
         data = json.loads(resp.read().decode())
     translated = data.get("responseData", {}).get("translatedText", "").strip()
     if not translated:
@@ -160,13 +160,79 @@ def mymemory_translate(text: str, from_lang: str, to_lang: str) -> str:
     return translated
 
 
-def translate_text(text: str, from_lang: str, to_lang: str) -> str:
+_TRANSLATE_CACHE: dict[tuple[str, str, str], str] = {}
+_WORD_LESSON_CACHE: dict[tuple[str, str], tuple[float, dict]] = {}
+_CACHE_TTL_SEC = 3600
+
+
+def _cache_get(cache: dict, key: tuple, ttl: float = _CACHE_TTL_SEC):
+    hit = cache.get(key)
+    if not hit:
+        return None
+    ts, val = hit
+    if time.monotonic() - ts > ttl:
+        cache.pop(key, None)
+        return None
+    return val
+
+
+def _cache_set(cache: dict, key: tuple, val, max_size: int = 400) -> None:
+    if len(cache) >= max_size:
+        cache.clear()
+    cache[key] = (time.monotonic(), val)
+
+
+def smart_translate_text(text: str, from_lang: str, to_lang: str) -> str:
+    """Hızlı + doğru çeviri — önbellek, LLM (diğer diller), Google yedek."""
     if from_lang == to_lang:
         return text
-    translated = google_translate(text, from_lang, to_lang)
-    if translated:
-        return translated
-    return mymemory_translate(text, from_lang, to_lang)
+    src = text.strip()
+    if not src:
+        return ""
+    key = (from_lang, to_lang, src.lower())
+    cached = _cache_get(_TRANSLATE_CACHE, key)
+    if cached:
+        return cached
+
+    primary_langs = {"tr", "en"}
+    use_llm_first = llm_available() and (
+        from_lang not in primary_langs or to_lang not in primary_langs
+    )
+    result: str | None = None
+
+    if use_llm_first:
+        try:
+            result = llm_translate(src, from_lang, to_lang)
+        except Exception:
+            result = None
+
+    if not result and not use_llm_first:
+        result = google_translate(src, from_lang, to_lang)
+
+    if not result:
+        try:
+            result = google_translate(src, from_lang, to_lang)
+        except Exception:
+            result = None
+
+    if not result:
+        result = mymemory_translate(src, from_lang, to_lang)
+
+    if not result and llm_available() and not use_llm_first:
+        try:
+            result = llm_translate(src, from_lang, to_lang)
+        except Exception:
+            result = None
+
+    if not result:
+        raise ValueError("translation failed")
+
+    _cache_set(_TRANSLATE_CACHE, key, result)
+    return result
+
+
+def translate_text(text: str, from_lang: str, to_lang: str) -> str:
+    return smart_translate_text(text, from_lang, to_lang)
 
 
 _whisper_model = None
@@ -1116,12 +1182,21 @@ class Handler(SimpleHTTPRequestHandler):
         payload = self._read_json_body()
         word_tr = (payload.get("word") or "").strip()
         lang = (payload.get("lang") or "en").strip()
+        cache_key = (word_tr.lower(), lang)
+        cached = _cache_get(_WORD_LESSON_CACHE, cache_key)
+        if cached:
+            cached = dict(cached)
+            cached["cached"] = True
+            self._send_json(cached)
+            return
         t0 = time.monotonic()
         try:
             result = generate_word_lesson(word_tr, lang, translate_fn=translate_text)
             elapsed = round(time.monotonic() - t0, 2)
             if isinstance(result, dict):
                 result["generation_sec"] = elapsed
+                if result.get("ok"):
+                    _cache_set(_WORD_LESSON_CACHE, cache_key, dict(result))
             print(f"[word-lesson] {word_tr!r} → {elapsed}s ok={result.get('ok') if isinstance(result, dict) else '?'}")
             self._send_json(result)
         except Exception as e:

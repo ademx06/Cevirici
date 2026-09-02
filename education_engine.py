@@ -3639,6 +3639,25 @@ def _llm_json_word_lesson(system: str, user: str, max_tokens: int = 3200) -> dic
     return None
 
 
+def llm_translate(text: str, from_lang: str, to_lang: str) -> str | None:
+    """Doğal çeviri — Groq/Gemini (diğer dillerde Google'dan daha isabetli)."""
+    src = safe_str(text).strip()
+    if not src or not llm_available():
+        return None
+    from_name = LANG_NAMES.get(from_lang, from_lang)
+    to_name = LANG_NAMES.get(to_lang, to_lang)
+    system = (
+        f"You are a professional translator. Translate from {from_name} to {to_name}.\n"
+        "Natural, conversational phrasing. Preserve meaning and tone.\n"
+        'Return ONLY JSON: {"text": "translation"}'
+    )
+    parsed = _llm_json(system, src[:800], max_tokens=min(480, 60 + len(src) // 2))
+    if not parsed:
+        return None
+    out = safe_str(parsed.get("text") or parsed.get("translation") or parsed.get("translated")).strip()
+    return out or None
+
+
 def _recent_teacher_questions(history: list[dict], profile: dict, limit: int = 5) -> str:
     """Öğretmenin tekrar sormaması gereken son sorular."""
     seen: list[str] = []

@@ -22,7 +22,7 @@ ENGLISH_VARIANT = "en-US"
 # AI birincil kelime dersi — ChatGPT gibi: önce AI, başarısızsa retry; şablon yedek YOK
 DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
 WORD_LESSON_MAX_TOKENS = 3200
-WORD_LESSON_FAST_MAX_TOKENS = 3200
+WORD_LESSON_FAST_MAX_TOKENS = 2800
 AI_LESSON_MAX_ATTEMPTS = 1
 
 WORD_LESSON_FAST_PROMPT = """Sen profesyonel ESL öğretmenisin — Cümle Kur kartı hazırla.
@@ -31,7 +31,8 @@ Türkçe: «{word_tr}» → İngilizce: «{target_word}» | Tür: {pos_label} | 
 {pos_hint}
 
 13 örnek cümle (basic, present, past, future, question, negative, imperative, polite_request, advice, obligation, possibility, conditional, dialogue).
-- Hedef kelime her İngilizce cümlede doğal geçsin
+- target: TAM İngilizce cümle (en az 3 kelime) — YASAK: yalnızca «{target_word}» veya tek kelime
+- Hedef kelime her cümlede doğal geçsin
 - tr: tam doğal Türkçe cümle (iyelik: arabam, cüzdanım)
 - how_it_is_formed_tr: min 50 karakter (1️⃣ anlam 2️⃣ yapı)
 - word_breakdown: yalnızca 3-5 önemli token (token, role_tr, meaning_tr)
@@ -1299,6 +1300,23 @@ def _english_leaked_turkish(target: str, word_tr: str, target_word: str) -> bool
         return False
     tokens = set(re.findall(r"[a-zçğıöşüâîû]+", _norm(target)))
     return wt in tokens
+
+
+def _is_full_sentence(text: str, *, min_words: int = 3) -> bool:
+    """Tam cümle mi — tek kelime kartları reddedilir."""
+    t = safe_str(text).strip()
+    if not t:
+        return False
+    words = re.findall(r"[\w']+", t)
+    if len(words) >= min_words:
+        return True
+    if len(words) >= 2 and t.rstrip().endswith(("?", "!")):
+        return True
+    return False
+
+
+def _is_full_english_example(target: str) -> bool:
+    return _is_full_sentence(target, min_words=3)
 
 
 def _tr_contains_word(text: str, word_tr: str) -> bool:
@@ -4258,7 +4276,7 @@ def _normalize_llm_example(
         return None
     target = safe_str(raw.get("target")).strip()
     tr = safe_str(raw.get("tr")).strip()
-    if not target:
+    if not target or not _is_full_english_example(target):
         return None
     tw = _en_target_word(target_word)
     if tw and not _target_word_in_sentence(target, target_word, word_tr):
@@ -4601,6 +4619,8 @@ def _validate_word_example(
     if target:
         ex["target"] = target
     if not target:
+        return False
+    if not _is_full_english_example(target):
         return False
     if _is_absurd_example(target, word_tr, target_word):
         return False
@@ -5081,7 +5101,7 @@ def build_usage_from_profile(
     elif coll:
         for c in coll[:6]:
             en = safe_str(c).strip()
-            if not en:
+            if not en or not _is_full_sentence(en, min_words=2):
                 continue
             tr = phrase_lookup.get(en.lower(), "") or _phrase_meaning_tr(en)
             phrase_src.append({"en": en, "tr": tr})
@@ -5120,6 +5140,8 @@ def build_usage_from_profile(
             en = safe_str(p).strip()
             tr = ""
         if en:
+            if not _is_full_sentence(en, min_words=2):
+                continue
             patterns_enriched.append(_enrich_usage_entry(en, tr, target_lang))
 
     alt_terms: list[dict[str, str]] = []
