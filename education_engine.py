@@ -3556,7 +3556,7 @@ def _llm_chat_json_raw(
                 "temperature": 0.72,
                 "maxOutputTokens": max_tokens,
             },
-        }, max_tokens, timeout_sec=75 if word_lesson else None)
+        }, max_tokens, timeout_sec=55 if word_lesson else None)
     if provider == "openai":
         return _openai_chat(messages, json_mode=True, max_tokens=max_tokens)
     return None
