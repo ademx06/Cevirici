@@ -227,8 +227,10 @@ VERBS_TR: dict[str, str] = {
     "taste": "tatmak / tadına bakmak", "dilute": "sulandırmak",
     "stir": "karıştırmak", "mix": "karıştırmak", "sweeten": "tatlandırmak",
     "harvest": "hasat etmek / toplamak",
-    "smoke": "içmek (sigara)", "light": "yakmak (sigara)", "quit": "bırakmak",
-    "put out": "söndürmek", "take off": "çıkarmak",
+    "smoke": "içmek / tüttürmek (sigara)", "light": "yakmak (sigara)", "quit": "bırakmak (sigara)",
+    "put out": "söndürmek", "stub out": "söndürmek (küllüğe bastırarak)",
+    "roll": "sarmak (sigara)", "flick": "silkelemek (kül)",
+    "take off": "çıkarmak",
     "prescribe": "reçete etmek",
 }
 
@@ -256,6 +258,9 @@ PHRASES_TR: dict[str, str] = {
     "a pack of cigarettes": "bir paket sigara",
     "quit smoking": "sigarayı bırakmak",
     "cigarette smoke": "sigara dumanı",
+    "put out a cigarette": "sigarayı söndürmek",
+    "stub out a cigarette": "sigarayı söndürmek",
+    "roll a cigarette": "sigara sarmak",
 }
 
 GRAMMAR_BADGES: dict[str, str] = {
@@ -374,6 +379,8 @@ CATEGORY_PHRASES: dict[str, list[dict[str, str]]] = {
         {"en": "quit smoking", "tr": "sigarayı bırakmak"},
         {"en": "cigarette smoke", "tr": "sigara dumanı"},
         {"en": "put out a cigarette", "tr": "sigarayı söndürmek"},
+        {"en": "stub out a cigarette", "tr": "sigarayı söndürmek"},
+        {"en": "roll a cigarette", "tr": "sigara sarmak"},
     ],
     "clothing": [
         {"en": "wear socks", "tr": "çorap giymek"},
@@ -763,12 +770,64 @@ def get_pos_teaching_rules_for_prompt(word_tr: str, target_word: str) -> str:
     """AI prompt'una eklenecek kelime türüne özel zorunlu kurallar."""
     pos = detect_part_of_speech(word_tr, target_word)
     tw = _en_target_word(target_word)
+    category = detect_category(word_tr, target_word)
+    category_blocks: dict[str, str] = {
+        "tobacco": (
+            f"[SİGARA/TÜTÜN — {word_tr} → {tw}]\n"
+            "- Yaygın fiiller (collocations): smoke, light, put out, stub out, quit, roll, flick\n"
+            "- smoke a cigarette, light a cigarette, quit smoking, put out a cigarette\n"
+            f"❌ YASAK: eat/drink/like {tw}; buy/carry/find/use genel nesne şablonu\n"
+        ),
+        "eyewear": (
+            f"[GÖZLÜK — {word_tr} → {tw}]\n"
+            "- wear, put on, take off, clean, lose; glasses çoğul isim\n"
+            f"❌ YASAK: a glasses, eat/drink {tw}\n"
+        ),
+        "footwear": (
+            f"[AYAKKABI — {word_tr} → {tw}]\n"
+            "- wear, buy, tie, try on, take off; a pair of shoes\n"
+        ),
+        "clothing": (
+            f"[GİYİM — {word_tr} → {tw}]\n"
+            "- wear, put on, take off, wash, buy, fold, iron\n"
+        ),
+        "beverage": (
+            f"[İÇECEK — {word_tr} → {tw}]\n"
+            "- drink, have, order, make, serve, pour\n"
+            f"❌ YASAK: eat {tw}, I love {tw} (yiyecek kalıbı)\n"
+        ),
+        "snack": (
+            f"[ATIŞTIRMALIK — {word_tr} → {tw}]\n"
+            "- chew, eat, buy, share, offer (sakız: chew gum, blow a bubble)\n"
+        ),
+        "document": (
+            f"[BELGE/FATURA — {word_tr} → {tw}]\n"
+            "- pay, send, receive, check, sign, issue, review\n"
+        ),
+        "plumbing": (
+            f"[TESİSAT — {word_tr} → {tw}]\n"
+            "- turn on/off, fix, repair, replace, install, leak\n"
+        ),
+        "vehicle": (
+            f"[ARAÇ — {word_tr} → {tw}]\n"
+            "- drive, park, buy, fix, wash, rent, sell\n"
+        ),
+        "furniture": (
+            f"[MOBİLYA — {word_tr} → {tw}]\n"
+            "- sit at, put on, clean, move, set, wipe\n"
+        ),
+        "drinkware": (
+            f"[BARDAK/KADEH — {word_tr} → {tw}]\n"
+            "- fill, break, wash, raise, pour, hold\n"
+        ),
+    }
+    cat_hint = category_blocks.get(category, "")
     rules: dict[str, str] = {
         "noun": (
             f"[İSİM KURALLARI — {word_tr}]\n"
-            "- Nesne/yer/kavram: buy, find, carry, use, need gibi DOĞAL fiiller\n"
+            "- Kelimeye özgü DOĞAL fiiller kullan (sigara→smoke/light, gözlük→wear, kapı→knock/open)\n"
             "- a/an/the veya my/your ile kullanım; sayılabilirlik açıkla\n"
-            f"❌ YASAK: I am using the {tw}, Bring the {tw}, I bought a new {tw} (yiyecek/sıfat değilse)\n"
+            f"❌ YASAK: I am using the {tw}, Bring the {tw} (jenerik nesne şablonu)\n"
             "- Türkçede iyelik: arabam, cüzdanım, kitabım"
         ),
         "verb": (
@@ -820,9 +879,10 @@ def get_pos_teaching_rules_for_prompt(word_tr: str, target_word: str) -> str:
         ),
     }
     base = rules.get(pos, rules["noun"])
+    prefix = f"{cat_hint}\n" if cat_hint else ""
     return (
         f"\n[KELİME TÜRÜ: {POS_LABELS_TR.get(pos, pos)} ({pos})]\n"
-        f"{base}\n"
+        f"{prefix}{base}\n"
         "- Her örnekte how_it_is_formed_tr: 1️⃣ genel anlam 2️⃣ ana yapı 3️⃣+ dil bilgisi adımları (≥200 karakter)\n"
     )
 
@@ -2043,14 +2103,16 @@ def _rule_word_profile(
             "semantic_category": "tobacco",
             "meaning_tr": word_tr,
             "usage_notes_tr": (
-                f"«{word_tr}» için doğal fiil smoke (içmek) kullanılır. "
-                "light a cigarette, quit smoking, a pack of cigarettes yaygındır. "
-                "❌ eat cigarette — sigara yenmez."
+                f"«{word_tr}» sigara/tütün kelimesidir; en doğal eylem smoke (içmek/tüttürmek) kullanılır. "
+                "light a cigarette (yakmak), put out / stub out (söndürmek), quit smoking (bırakmak), "
+                "roll a cigarette (sarmak) günlük hayatta en sık duyulan kalıplardır. "
+                "❌ eat/drink/like cigarette — yiyecek veya genel nesne kalıbı değildir."
             ),
-            "common_verbs": ["smoke", "light", "quit", "buy", "offer", "put out", "share"],
+            "common_verbs": ["smoke", "light", "put out", "stub out", "quit", "roll", "flick"],
             "common_collocations": [
-                "smoke a cigarette", "light a cigarette", "a pack of cigarettes",
-                "quit smoking", "cigarette smoke", "put out a cigarette",
+                "smoke a cigarette", "light a cigarette", "put out a cigarette",
+                "stub out a cigarette", "quit smoking", "a pack of cigarettes",
+                "cigarette smoke", "roll a cigarette",
             ],
             "common_patterns": [
                 "Do you smoke?",
@@ -4692,13 +4754,84 @@ def validate_lesson_quality(
 
 GENERIC_OBJECT_VERBS = frozenset({"use", "need", "find", "buy", "see", "have", "carry", "pick up", "put down", "look for"})
 
+GENERIC_USAGE_MARKERS = (
+    "günlük hayatta kullanılan bir nesnedir",
+    "fiziksel bir nesne",
+    "buy, find, use, carry, need",
+    "buy', 'carry', 'find', 'use', 'need'",
+    "buy, carry, find, use, need",
+)
+
+CATEGORY_USAGE_KEYS = (
+    "part_of_speech", "countability", "semantic_category",
+    "usage_notes_tr", "common_verbs", "common_collocations", "common_patterns",
+    "article_notes_items", "article_notes_tr", "avoid_patterns", "avoid_reason_tr",
+)
+
+
+def _usage_notes_are_generic(notes: str) -> bool:
+    n = safe_str(notes).lower()
+    return any(m in n for m in GENERIC_USAGE_MARKERS)
+
+
+def enforce_category_usage_profile(
+    profile: dict[str, Any],
+    word_tr: str,
+    target_word: str,
+    target_lang: str,
+) -> dict[str, Any]:
+    """Bilinen kategorilerde AI jenerik fiil listesi üretse bile kural profilini uygula."""
+    category = detect_category(word_tr, target_word)
+    if category == "general":
+        category = _lesson_category(word_tr, target_word, profile)
+    use_rule = (
+        category in QUALITY_RULE_CATEGORIES
+        or has_curated_lexicon(word_tr, target_word)
+        or _is_tobacco_like(word_tr, target_word)
+        or _is_eyewear_like(word_tr, target_word)
+        or _is_wallet_like(word_tr, target_word)
+        or _is_umbrella_like(word_tr, target_word)
+        or _is_market_like(word_tr, target_word)
+    )
+    if not use_rule or target_lang != "en":
+        return profile
+
+    rule = _rule_word_profile(word_tr, target_word, target_lang, category)
+    if _is_wallet_like(word_tr, target_word):
+        rule["common_verbs"] = ["lose", "find", "check", "carry", "buy", "forget"]
+    elif _is_umbrella_like(word_tr, target_word):
+        rule["common_verbs"] = ["open", "close", "carry", "bring", "forget", "buy"]
+    elif _is_market_like(word_tr, target_word):
+        rule["common_verbs"] = ["go", "buy", "shop", "visit", "check", "need"]
+
+    force_rule = (
+        category in QUALITY_RULE_CATEGORIES
+        or has_curated_lexicon(word_tr, target_word)
+        or _profile_needs_upgrade(profile, word_tr, target_word)
+        or _usage_notes_are_generic(profile.get("usage_notes_tr", ""))
+        or not _has_rich_ai_profile(profile)
+    )
+    if not force_rule:
+        return profile
+
+    out = dict(profile)
+    for key in CATEGORY_USAGE_KEYS:
+        if rule.get(key):
+            out[key] = rule[key]
+    return out
+
 
 def _has_rich_ai_profile(profile: dict[str, Any]) -> bool:
     """AI profili zengin mi? (jenerik nesne şablonu değil)"""
     notes = safe_str(profile.get("usage_notes_tr"))
+    if _usage_notes_are_generic(notes):
+        return False
     if "günlük hayatta kullanılan bir nesnedir" in notes:
         return False
     if len(notes) > 100:
+        verbs = {safe_str(v).strip().lower() for v in (profile.get("common_verbs") or []) if safe_str(v).strip()}
+        if verbs and verbs <= GENERIC_OBJECT_VERBS:
+            return False
         return True
     verbs = {safe_str(v).strip().lower() for v in (profile.get("common_verbs") or []) if safe_str(v).strip()}
     if verbs and not verbs <= GENERIC_OBJECT_VERBS:
@@ -4855,6 +4988,7 @@ def try_ai_word_lesson(
             prior_issues = ["Geçerli JSON ve en az 6 örnek döndürülemedi."]
             continue
         cand_profile = {**profile, **(dynamic.get("profile") or {})}
+        cand_profile = enforce_category_usage_profile(cand_profile, word_tr, target_word, target_lang)
         cand_examples = list(dynamic.get("examples") or [])
         if len(cand_examples) > len(best_examples):
             best_profile = cand_profile
@@ -4997,6 +5131,7 @@ def guarantee_word_lesson(
             profile["common_verbs"] = ["go", "buy", "shop", "visit", "check", "need"]
 
     category = profile.get("semantic_category") or category
+    profile = enforce_category_usage_profile(profile, word_tr, target_word, target_lang)
     return profile, examples[:13], category
 
 

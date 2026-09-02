@@ -865,7 +865,15 @@ def test_sigara_not_food_patterns():
     usage = result.get("usage") or {}
     verb_map = {v["en"]: v["tr"] for v in (usage.get("common_verbs") or [])}
     assert "smoke" in verb_map
+    assert "light" in verb_map or "put out" in verb_map
     assert "kullanmak" not in verb_map.values()
+    generic = {v["en"].lower() for v in (usage.get("common_verbs") or [])} & {
+        "buy", "carry", "find", "use", "need",
+    }
+    assert len(generic) <= 1, f"Too many generic object verbs: {generic}"
+    notes = safe_str(usage.get("usage_notes_tr") or result.get("word_explanation_tr") or "")
+    assert "fiziksel bir nesne" not in notes.lower()
+    assert "smoke" in notes.lower() or "içmek" in notes.lower()
     phrases = usage.get("common_phrases") or []
     assert len(phrases) >= 3, phrases
     for p in phrases:
