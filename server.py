@@ -27,7 +27,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.09.02-v57"
+APP_VERSION = "2026.09.02-v58"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -252,7 +252,12 @@ TRANSLATE_WHISPER_PROMPT_GENERIC = (
 
 TRANSLATE_WHISPER_PROMPTS: dict[str, str] = {
     "tr": "Doğal Türkçe konuşma. Tam cümleleri aynen yaz.",
-    "en": "Natural spoken English conversation. Transcribe exactly what was said.",
+    "en": (
+        "Natural spoken English. Transcribe exactly what was said. "
+        "Common words: one two three four five six seven eight nine ten, "
+        "bad good red bed bet head bread, yes no hello please thanks sorry, "
+        "what where when why how who."
+    ),
     "de": "Natürliches gesprochenes Deutsch. Wörtlich transkribieren.",
     "fr": "Conversation française naturelle. Transcrire exactement ce qui est dit.",
     "es": "Conversación en español natural. Transcribir exactamente lo dicho.",
@@ -296,21 +301,26 @@ def get_whisper():
     return _whisper_model
 
 
-def prepare_wav(data: bytes) -> str:
+def prepare_wav(data: bytes, *, fast: bool = False) -> str:
     with tempfile.NamedTemporaryFile(suffix=".audio", delete=False) as tmp:
         tmp.write(data)
         inp = tmp.name
     wav = inp + ".wav"
-    for af in (
-        "highpass=f=80,lowpass=f=7500,apad=pad_dur=1.2,dynaudnorm,volume=3.5",
-        "highpass=f=80,lowpass=f=7500,apad=pad_dur=1.2,volume=3.0",
-        "volume=2.5",
-        None,
-    ):
+    if fast:
+        filters = ("volume=2.2", None)
+    else:
+        filters = (
+            "highpass=f=80,lowpass=f=7500,apad=pad_dur=1.2,dynaudnorm,volume=3.5",
+            "highpass=f=80,lowpass=f=7500,apad=pad_dur=1.2,volume=3.0",
+            "volume=2.5",
+            None,
+        )
+    for af in filters:
         cmd = ["ffmpeg", "-y", "-i", inp, "-ar", "16000", "-ac", "1", wav]
         if af:
             cmd[4:4] = ["-af", af]
-        result = subprocess.run(cmd, capture_output=True, timeout=20)
+        timeout = 10 if fast else 20
+        result = subprocess.run(cmd, capture_output=True, timeout=timeout)
         if result.returncode == 0 and os.path.exists(wav) and os.path.getsize(wav) > 100:
             os.unlink(inp)
             return wav
@@ -519,10 +529,12 @@ def looks_like_lang(text: str, lang: str) -> bool:
             r"where|when|who|why|the|this|that|is|are|was|were|your|holiday|i'm|im|"
             r"i|a|an|book|read|went|work|tired|today|yesterday|park|home|ate|had|"
             r"played|watched|walked|studied|spoke|said|like|want|need|have|did|don't|"
-            r"run|ran|running|very|so|just|only|also|then|well|now)\b",
+            r"run|ran|running|very|so|just|only|also|then|well|now|"
+            r"two|to|too|one|three|four|five|bad|bed|bet|red|head|bread|hello|hi|bye|"
+            r"sorry|please|thanks|okay|ok|great|nice|love|help|stop|wait|come|go)\b",
             t,
             re.I,
-        ))
+        )) or (len(t.split()) <= 3 and is_ascii_latin(t) and not _stt_has_turkish_markers(t))
     if lang == "ka":
         return bool(re.search(r"[\u10A0-\u10FF]", t))
     if lang == "ru":
@@ -625,10 +637,84 @@ def stt_for_translate(wav: str, lang: str) -> tuple[str, str, float] | None:
     return None
 
 
+def is_ascii_latin(text: str) -> bool:
+    t = text.strip()
+    if not t:
+        return False
+    return bool(re.match(r"^[a-zA-Z0-9',.\-!?]+(?:\s+[a-zA-Z0-9',.\-!?]+)*$", t))
+
+
+def is_likely_english(text: str, my: str = "tr", other: str = "en") -> bool:
+    """Tek/ kısa İngilizce sözcükler — looks_like_lang kaçırmasın."""
+    t = text.strip()
+    if not t:
+        return False
+    if re.search(r"[ğüşıöçĞÜŞİÖÇ]", t):
+        return False
+    if _stt_has_turkish_markers(t):
+        return False
+    if looks_like_lang(t, "en"):
+        return True
+    if other != "en" and my != "en":
+        return False
+    if is_ascii_latin(t):
+        return True
+    return False
+
+
+def is_likely_turkish(text: str) -> bool:
+    t = text.strip()
+    if not t:
+        return False
+    if re.search(r"[ğüşıöçĞÜŞİÖÇ]", t):
+        return True
+    return looks_like_lang(t, "tr") or _stt_has_turkish_markers(t)
+
+
+def detect_speech_lang(
+    text: str,
+    my: str,
+    other: str,
+    stt_lang: str,
+    last_from: str | None = None,
+) -> str:
+    """Konuşulan metinden kaynak dili belirle — tek kelimeler dahil."""
+    t = text.strip()
+    if not t:
+        return stt_lang if stt_lang in (my, other) else my
+
+    my_like = is_likely_turkish(t) if my == "tr" else looks_like_lang(t, my)
+    other_like = is_likely_english(t, my, other) if other == "en" else looks_like_lang(t, other)
+
+    if other_like and not my_like:
+        return other
+    if my_like and not other_like:
+        return my
+
+    if {my, other} == {"tr", "en"}:
+        if is_likely_english(t, my, other) and not is_likely_turkish(t):
+            return "en"
+        if is_likely_turkish(t) and not is_likely_english(t, my, other):
+            return "tr"
+        if is_ascii_latin(t) and not is_likely_turkish(t):
+            return "en"
+
+    if last_from in (my, other):
+        alt = other if last_from == my else my
+        if last_from == my and is_likely_english(t, my, other):
+            return other
+        if last_from == other and is_likely_turkish(t):
+            return my
+        if is_ascii_latin(t) and not is_likely_turkish(t) and other == "en":
+            return other
+
+    return resolve_lang_from_text(t, my, other, stt_lang)
+
+
 def resolve_lang_from_text(text: str, my: str, other: str, stt_lang: str) -> str:
     t = text.strip()
-    my_like = looks_like_lang(t, my)
-    other_like = looks_like_lang(t, other)
+    my_like = looks_like_lang(t, my) or (my == "tr" and is_likely_turkish(t))
+    other_like = looks_like_lang(t, other) or (other == "en" and is_likely_english(t, my, other))
 
     if other_like and not my_like:
         return other
@@ -636,9 +722,11 @@ def resolve_lang_from_text(text: str, my: str, other: str, stt_lang: str) -> str
         return my
 
     if other == "en" and my == "tr":
+        if is_likely_english(t, my, other) and not is_likely_turkish(t):
+            return "en"
         en_hits = len(re.findall(
             r"\b(how|was|your|holiday|fine|thank|thanks|you|are|hello|what|where|when|"
-            r"who|why|good|morning|please|yes|no|i'm|im)\b",
+            r"who|why|good|morning|please|yes|no|i'm|im|two|bad|bed|red|one|three)\b",
             t,
             re.I,
         ))
@@ -653,6 +741,8 @@ def resolve_lang_from_text(text: str, my: str, other: str, stt_lang: str) -> str
             return "en"
         if tr_hits >= 1 and en_hits == 0:
             return "tr"
+        if is_ascii_latin(t) and not is_likely_turkish(t):
+            return "en"
 
     if other == "ka" and re.search(r"[\u10A0-\u10FF]", t):
         return "ka"
@@ -871,58 +961,75 @@ def transcribe_education(
 
 
 def transcribe_dual(data: bytes, my: str, other: str, last_from: str | None = None) -> tuple[str, str]:
-    wav = prepare_wav(data)
+    wav = prepare_wav(data, fast=True)
     try:
         if not audio_has_speech(wav):
             raise ValueError("no speech detected")
 
-        candidates: list[tuple[str, str, float]] = []
+        candidates: list[tuple[str, str, float, str]] = []
+        predicted = None
+        if last_from in (my, other):
+            predicted = other if last_from == my else my
+
+        def add(r: tuple[str, str, float] | None, source: str) -> None:
+            if r and r[0].strip() and not is_hallucination(r[0]):
+                candidates.append((r[0].strip(), r[1], r[2], source))
+
+        if predicted:
+            add(stt_for_translate(wav, predicted), f"pred_{predicted}")
+
         tasks = {
             "auto": lambda: groq_stt_auto(wav),
-            f"my_{my}": lambda: stt_for_translate(wav, my),
-            f"other_{other}": lambda: stt_for_translate(wav, other),
+            f"lang_{my}": lambda: stt_for_translate(wav, my),
+            f"lang_{other}": lambda: stt_for_translate(wav, other),
         }
+        if predicted:
+            tasks.pop(f"lang_{predicted}", None)
+
         with ThreadPoolExecutor(max_workers=3) as pool:
             futures = {pool.submit(fn): key for key, fn in tasks.items()}
             for fut in as_completed(futures):
                 try:
-                    r = fut.result()
-                    if r and r[0].strip():
-                        candidates.append(r)
+                    add(fut.result(), futures[fut])
                 except Exception:
                     continue
 
         if not candidates:
             for lang in (my, other):
                 r = stt_for_lang(wav, lang, allow_whisper=not DISABLE_WHISPER)
-                if r:
-                    candidates.append(r)
+                add(r, f"fallback_{lang}")
 
         if not candidates:
             raise ValueError("speech not recognized")
 
-        def rank(item: tuple[str, str, float]) -> float:
-            text, lang, score = item
-            alt = other if lang == my else my
-            resolved = resolve_lang_from_text(text, my, other, lang)
+        def rank(item: tuple[str, str, float, str]) -> float:
+            text, stt_lang, score, _source = item
+            from_lang = detect_speech_lang(text, my, other, stt_lang, last_from)
+            alt = other if from_lang == my else my
             s = score
-            if looks_like_lang(text, resolved):
-                s += 28
-            if resolved == my and looks_like_lang(text, my):
-                s += 12
-            if resolved == other and looks_like_lang(text, other):
-                s += 12
-            if looks_like_lang(text, alt) and not looks_like_lang(text, resolved):
-                s -= 40
-            if last_from == resolved and looks_like_lang(text, resolved):
-                s += 6
-            elif last_from == alt and looks_like_lang(text, alt):
-                s -= 10
+            if from_lang == stt_lang:
+                s += 18
+            if from_lang == other and is_likely_english(text, my, other):
+                s += 35
+            if from_lang == my and is_likely_turkish(text):
+                s += 35
+            if looks_like_lang(text, from_lang) or (
+                from_lang == "en" and is_likely_english(text, my, other)
+            ):
+                s += 22
+            if from_lang == alt and is_likely_english(text, my, other) and other == "en":
+                s -= 50
+            if from_lang == alt and is_likely_turkish(text) and my == "tr":
+                s -= 50
+            if last_from == from_lang:
+                s += 8
+            elif last_from == alt:
+                s -= 6
             return s
 
         best = max(candidates, key=rank)
         text = best[0]
-        from_lang = resolve_lang_from_text(text, my, other, best[1])
+        from_lang = detect_speech_lang(text, my, other, best[1], last_from)
         return text, from_lang
     finally:
         if os.path.exists(wav):

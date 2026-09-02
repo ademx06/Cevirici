@@ -16,8 +16,8 @@ audio.setAttribute('playsinline', 'true');
 audio.setAttribute('webkit-playsinline', 'true');
 document.body.appendChild(audio);
 
-const TAIL_MS = 280;
-const MIN_HOLD_MS = 350;
+const TAIL_MS = 100;
+const MIN_HOLD_MS = 280;
 
 const S = {
   my: 'tr', other: 'en', msgs: [],
@@ -164,6 +164,28 @@ async function playB64(b64) {
   }
 }
 
+async function fetchListen(blob, my, other, last) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 30000);
+  try {
+    const r = await fetch(`/api/listen?${new URLSearchParams({ my, other, last: last || '' })}`, {
+      method: 'POST',
+      body: blob,
+      headers: { 'Content-Type': blob.type || 'audio/mp4' },
+      signal: ctrl.signal,
+    });
+    const raw = await r.text();
+    let d = {};
+    try { d = raw ? JSON.parse(raw) : {}; } catch {
+      throw new Error(r.ok ? 'Sunucu yanıtı okunamadı' : `Sunucu hatası (${r.status})`);
+    }
+    if (!r.ok) throw new Error(d.error || 'Ses anlaşılamadı — tekrar deneyin');
+    return d;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function fetchProcess(blob, my, other, last) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 45000);
@@ -206,23 +228,36 @@ async function fetchPronunciation(text, lang) {
 }
 
 async function processAudio(blob) {
-  const d = await fetchProcess(blob, S.my, S.other, S.lastFrom);
-  S.lastFrom = d.from;
+  const listen = await fetchListen(blob, S.my, S.other, S.lastFrom);
+  S.lastFrom = listen.from;
+  const toLang = listen.to;
   const msg = {
-    orig: d.original, trans: d.translated, from: d.from, to: d.to, audio: null, phonetic: '',
+    orig: listen.original,
+    trans: '…',
+    from: listen.from,
+    to: toLang,
+    audio: null,
+    phonetic: '',
   };
   S.msgs.unshift(msg);
   render();
   clearInterim();
+  setStatus('Çevriliyor...', true);
+
+  const translated = await fetchTranslateText(listen.original, listen.from, toLang);
+  if (S.msgs[0]?.orig === listen.original) {
+    S.msgs[0].trans = translated;
+    render();
+  }
   setStatus('Çeviri hazır', false);
-  void fetchTranslateTts(d.translated, d.to, 0);
-  void fetchPronunciation(d.translated, d.to).then((ph) => {
-    if (S.msgs[0]?.orig === d.original && ph) {
+  void fetchTranslateTts(translated, toLang, 0);
+  void fetchPronunciation(translated, toLang).then((ph) => {
+    if (S.msgs[0]?.orig === listen.original && ph) {
       S.msgs[0].phonetic = ph;
       render();
     }
   });
-  return d;
+  return { original: listen.original, translated, from: listen.from, to: toLang };
 }
 
 async function fetchTranslateTts(text, lang, msgIndex) {
