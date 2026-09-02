@@ -3394,6 +3394,8 @@ def _gemini_api_request(
     })
     payload = json.dumps(body).encode()
     gemini_timeout = timeout_sec if timeout_sec is not None else _llm_request_timeout(max_tokens)
+    if timeout_sec is not None and timeout_sec >= 50:
+        models = models[:1]
     for model in models:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
         try:
@@ -3407,8 +3409,6 @@ def _gemini_api_request(
                 continue
             return None
         except Exception:
-            if model != models[-1]:
-                continue
             return None
     return None
 
