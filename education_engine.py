@@ -3616,7 +3616,7 @@ def _llm_json(
     return None
 
 
-def _llm_json_word_lesson(system: str, user: str, max_tokens: int = 3200) -> dict[str, Any] | None:
+def _llm_json_word_lesson(system: str, user: str, max_tokens: int = 2800) -> dict[str, Any] | None:
     """Kelime dersi — tek hızlı çağrı (Gemini birincil, Groq yedek)."""
     prefer = os.environ.get("WORD_LESSON_PROVIDER", "gemini").strip().lower()
     providers: list[str] = []
