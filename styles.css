@@ -2525,6 +2525,38 @@ body {
   padding: 10px;
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.04);
+  max-width: 100%;
+  overflow-x: hidden;
+  box-sizing: border-box;
+}
+
+.mod-patterns-usage {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.mod-pron-inline,
+.mod-phrase-item .mod-pron-row,
+.mod-phrase-item .mod-pron-label {
+  display: block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: normal;
+  line-height: 1.35;
+}
+
+.mod-pron-inline {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: #A78BFA;
+  font-style: italic;
+}
+
+.mod-phrase-item .mod-pron-label {
+  font-size: 13px;
+  color: #A78BFA;
+  font-style: italic;
 }
 
 .mod-saved-item {
@@ -2747,6 +2779,9 @@ body {
   border-radius: 12px;
   padding: 10px 12px;
   margin: 8px 0;
+  max-width: 100%;
+  overflow-x: hidden;
+  box-sizing: border-box;
 }
 
 .mod-pron-row {
@@ -2754,12 +2789,17 @@ body {
   gap: 8px;
   align-items: baseline;
   flex-wrap: wrap;
+  max-width: 100%;
 }
 
 .mod-pron-label {
   font-size: 12px;
   color: #64748B;
-  flex-shrink: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: normal;
 }
 
 .mod-pron-value {
@@ -3111,7 +3151,12 @@ body {
     min-width: 44px;
     min-height: 44px;
   }
-  .mod-card .mod-pron-block { display: none; }
-  .mod-card-compact .mod-pron-block { display: none; }
+  /* Mobil: detaylı blok yerine her kartta tek satır okunuş (taşmasız) */
+  .mod-card:not(.mod-card-compact) .mod-pron-block { display: none; }
+}
+
+@media (min-width: 521px) {
+  /* Masaüstü: tam blok varken üstteki kısa satırı gizle (çift görünmesin) */
+  .mod-card:not(.mod-card-compact) > .mod-pron-inline { display: none; }
 }
 

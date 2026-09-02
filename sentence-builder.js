@@ -311,7 +311,8 @@
   function renderUsageLineItem(item, lang, opts = {}) {
     if (!item?.en) return '';
     const listen = opts.listen !== false;
-    const pronLine = formatPronLine(item.pronunciation_tr, item.ipa);
+    const pronLine = formatPronLine(item.pronunciation_tr, item.ipa)
+      || (item.pronunciation_tr ? `🗣️ ${esc(item.pronunciation_tr)}` : '');
     return `
       <div class="mod-phrase-item">
         <div class="mod-card-line"><span class="mod-flag">🇺🇸</span>${esc(item.en)}</div>
@@ -462,9 +463,10 @@
     const cardId = `ex-${idx}`;
     const typeLabel = ex.scenario_badge || ex.sentence_type_label || ex.sentence_type || '';
     const typeBadge = typeLabel ? `<span class="mod-badge">${esc(typeLabel)}</span>` : '';
+    const pronLine = formatPronLine(ex.pronunciation_tr, ex.ipa)
+      || (ex.pronunciation_tr ? `🗣️ ${esc(ex.pronunciation_tr)}` : '');
     const useCompact = compact || (isMobileView() && idx > 0);
     if (useCompact) {
-      const pronLine = formatPronLine(ex.pronunciation_tr, ex.ipa);
       return `
       <article class="mod-card mod-card-compact" data-idx="${idx}">
         ${typeBadge}
@@ -479,6 +481,7 @@
         ${typeBadge}
         <div class="mod-card-line mod-card-tr"><span class="mod-flag">🇹🇷</span>${esc(ex.tr)}</div>
         <div class="mod-card-line mod-card-target"><span class="mod-flag">🌍</span>${esc(ex.target)}</div>
+        ${pronLine ? `<p class="mod-pron-inline">${pronLine}</p>` : ''}
         ${renderCardActions(ex, lang, idx)}
         ${renderPronunciationBlock(ex, lang, cardId)}
       </article>`;
