@@ -1,5 +1,5 @@
 /**
- * Sunucu bağlantısı — Render uyku modu ve geçici 502 için uyandırma + yeniden deneme.
+ * Sunucu bağlantısı — hızlı kontrol, kısa uyandırma, gerektiğinde tek retry.
  */
 (function (global) {
   'use strict';
@@ -7,61 +7,70 @@
   const RETRYABLE = new Set([0, 502, 503, 504]);
 
   function sleep(ms) {
-    return new Promise((r) => setTimeout(r, ms));
+    return new Promise(function (r) { setTimeout(r, ms); });
   }
 
   async function fetchWithTimeout(url, options, timeoutMs) {
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    const timer = setTimeout(function () { ctrl.abort(); }, timeoutMs);
     try {
-      return await fetch(url, { ...options, signal: ctrl.signal, cache: 'no-store' });
+      return await fetch(url, Object.assign({}, options, { signal: ctrl.signal, cache: 'no-store' }));
     } finally {
       clearTimeout(timer);
     }
   }
 
-  async function wakeServer(maxWaitMs = 45000) {
+  async function quickStatusCheck(timeoutMs) {
+    timeoutMs = timeoutMs || 3500;
+    try {
+      const r = await fetchWithTimeout('/api/status', { method: 'GET' }, timeoutMs);
+      if (!r.ok) return false;
+      const d = await r.json();
+      return !!(d && d.ok);
+    } catch {
+      return false;
+    }
+  }
+
+  async function wakeServer(maxWaitMs) {
+    maxWaitMs = maxWaitMs || 15000;
+    if (await quickStatusCheck(3500)) return true;
     const start = Date.now();
     let delay = 1200;
     while (Date.now() - start < maxWaitMs) {
-      try {
-        const r = await fetchWithTimeout('/api/status', { method: 'GET' }, 8000);
-        if (r.ok) {
-          const d = await r.json();
-          if (d && d.ok) return true;
-        }
-      } catch {
-        /* sunucu uyanıyor */
-      }
+      if (await quickStatusCheck(5000)) return true;
       await sleep(delay);
-      delay = Math.min(delay * 1.4, 5000);
+      delay = Math.min(Math.round(delay * 1.25), 3500);
     }
     return false;
   }
 
-  async function fetchJson(url, options = {}, cfg = {}) {
-    const {
-      retries = 3,
-      timeoutMs = 90000,
-      wakeFirst = true,
-      onRetry = null,
-    } = cfg;
+  async function fetchJson(url, options, cfg) {
+    options = options || {};
+    cfg = cfg || {};
+    const retries = cfg.retries != null ? cfg.retries : 2;
+    const timeoutMs = cfg.timeoutMs != null ? cfg.timeoutMs : 90000;
+    const wakeFirst = cfg.wakeFirst !== false;
+    const onRetry = cfg.onRetry || null;
 
     if (wakeFirst) {
-      await wakeServer(45000);
+      const awake = await wakeServer(15000);
+      if (!awake) throw new Error('Sunucu uyanamadı');
     }
 
     let lastErr = null;
     for (let attempt = 0; attempt < retries; attempt++) {
       if (attempt > 0) {
         if (typeof onRetry === 'function') onRetry(attempt, retries);
-        await wakeServer(30000);
-        await sleep(800 * attempt);
+        await sleep(1200 * attempt);
       }
       try {
         const r = await fetchWithTimeout(url, options, timeoutMs);
         if (RETRYABLE.has(r.status)) {
-          lastErr = new Error(`HTTP ${r.status}`);
+          lastErr = new Error('HTTP ' + r.status);
+          if (attempt === 0 && r.status === 502) {
+            await wakeServer(12000);
+          }
           continue;
         }
         const text = await r.text();
@@ -74,7 +83,7 @@
             continue;
           }
         }
-        return { ok: r.ok, status: r.status, data };
+        return { ok: r.ok, status: r.status, data: data };
       } catch (err) {
         lastErr = err;
       }
@@ -86,12 +95,16 @@
     if (err && err.name === 'AbortError') {
       return 'İstek zaman aşımına uğradı — tekrar dene.';
     }
-    return 'Bağlantı hatası — sunucu uyuyor olabilir, birkaç saniye sonra tekrar dene.';
+    if (err && err.message === 'Sunucu uyanamadı') {
+      return 'Sunucu uyuyor — birkaç saniye bekleyip tekrar dene.';
+    }
+    return 'Bağlantı hatası — tekrar dene.';
   }
 
   global.ApiClient = {
-    wakeServer,
-    fetchJson,
-    connectionErrorMessage,
+    quickStatusCheck: quickStatusCheck,
+    wakeServer: wakeServer,
+    fetchJson: fetchJson,
+    connectionErrorMessage: connectionErrorMessage,
   };
 })(typeof window !== 'undefined' ? window : globalThis);

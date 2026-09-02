@@ -3380,15 +3380,7 @@ def _gemini_api_request(body: dict[str, Any], max_tokens: int) -> str | None:
         return None
     configured = os.environ.get("GEMINI_MODEL", DEFAULT_GEMINI_MODEL).strip()
     models: list[str] = []
-    for candidate in (
-        configured,
-        "gemini-3.5-flash-lite",
-        "gemini-3.6-flash",
-        DEFAULT_GEMINI_MODEL,
-        "gemini-3.5-flash",
-        "gemini-2.5-flash",
-        "gemini-2.0-flash",
-    ):
+    for candidate in (configured, "gemini-3.5-flash-lite"):
         if candidate and candidate not in models:
             models.append(candidate)
     headers = _api_headers({
@@ -3396,11 +3388,12 @@ def _gemini_api_request(body: dict[str, Any], max_tokens: int) -> str | None:
         "x-goog-api-key": key,
     })
     payload = json.dumps(body).encode()
+    gemini_timeout = min(35, _llm_request_timeout(max_tokens))
     for model in models:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
         try:
             req = Request(url, data=payload, headers=headers, method="POST")
-            with urlopen(req, timeout=_llm_request_timeout(max_tokens)) as resp:
+            with urlopen(req, timeout=gemini_timeout) as resp:
                 data = json.loads(resp.read().decode())
             parts = data["candidates"][0]["content"]["parts"]
             return "".join(p.get("text", "") for p in parts).strip()

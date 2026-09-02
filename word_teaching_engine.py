@@ -4256,9 +4256,13 @@ def _llm_generate_dynamic_lesson(
         )
     elif attempt > 0:
         user_msg = "Return JSON only. Tam 13 örnek, 5+ fiil, 4+ collocation zorunlu."
-    parsed = _llm_generate_dynamic_lesson_split(
-        word_tr, target_word, target_lang, system, attempt=attempt, prior_issues=prior_issues,
-    )
+    # 1) Groq tek çağrı — hızlı yol
+    parsed = _llm_json(system, user_msg, max_tokens=WORD_LESSON_MAX_TOKENS)
+    if not parsed or not isinstance(parsed.get("examples"), list) or len(parsed.get("examples") or []) < 8:
+        # 2) Bölünmüş çağrı — Groq birincil, Gemini yalnızca Groq başarısızsa
+        parsed = _llm_generate_dynamic_lesson_split(
+            word_tr, target_word, target_lang, system, attempt=attempt, prior_issues=prior_issues,
+        )
     if not parsed or not isinstance(parsed.get("examples"), list):
         return None
     profile: dict[str, Any] = {
@@ -4316,7 +4320,7 @@ def _llm_generate_dynamic_lesson_split(
             + "\n\nReturn JSON only."
         )
     prompt_a = WORD_LESSON_SPLIT_PROMPT_A.format(base_prompt=base_system)
-    part1 = _llm_json(prompt_a, user_a, max_tokens=4000, prefer="gemini")
+    part1 = _llm_json(prompt_a, user_a, max_tokens=4000)
     if not part1 or not isinstance(part1, dict):
         return None
     ex1 = part1.get("examples") if isinstance(part1.get("examples"), list) else []
@@ -4338,7 +4342,7 @@ def _llm_generate_dynamic_lesson_split(
             word_tr=word_tr[:80],
             target_word=target_word[:80],
         )
-        part2 = _llm_json(prompt_b, user_b, max_tokens=3000, prefer="gemini")
+        part2 = _llm_json(prompt_b, user_b, max_tokens=3000)
         if part2 and isinstance(part2.get("examples"), list):
             merged["examples"] = list(ex1) + list(part2["examples"])
     return merged if merged.get("examples") else None

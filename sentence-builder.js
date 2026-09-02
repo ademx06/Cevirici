@@ -605,16 +605,16 @@
     const reqId = ++wordRequestSeq;
     currentWordLesson = null;
     busy = true;
-    showLoading('Sunucu uyanıyor… (ilk istek 10–40 sn sürebilir)');
+    showLoading('AI ders hazırlıyor…');
     try {
       const { ok, data } = await ApiClient.fetchJson('/api/builder/word', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ word, lang: LS.getLang() }),
       }, {
-        timeoutMs: 120000,
-        retries: 3,
-        onRetry: (n, max) => showLoading(`Bağlantı yeniden deneniyor (${n}/${max})…`),
+        timeoutMs: 90000,
+        retries: 2,
+        onRetry: (n, max) => showLoading(`Tekrar deneniyor (${n}/${max})…`),
       });
       if (reqId !== wordRequestSeq) return;
       if (!ok || !data.ok) {
@@ -647,16 +647,16 @@
     const reqId = ++sentenceRequestSeq;
     currentSentence = null;
     busy = true;
-    showLoading('Sunucu uyanıyor… cümle analiz ediliyor');
+    showLoading('Cümle analiz ediliyor…');
     try {
       const { ok, data } = await ApiClient.fetchJson('/api/builder/sentence', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sentence, lang: LS.getLang() }),
       }, {
-        timeoutMs: 90000,
-        retries: 3,
-        onRetry: (n, max) => showLoading(`Bağlantı yeniden deneniyor (${n}/${max})…`),
+        timeoutMs: 60000,
+        retries: 2,
+        onRetry: (n, max) => showLoading(`Tekrar deneniyor (${n}/${max})…`),
       });
       if (reqId !== sentenceRequestSeq) return;
       if (!ok || !data.ok) {

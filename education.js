@@ -290,8 +290,7 @@ function hideErr() {
 
 async function fetchAiStatus() {
   try {
-    await ApiClient.wakeServer(20000);
-    const { data: d } = await ApiClient.fetchJson('/api/status', {}, { wakeFirst: false, retries: 2, timeoutMs: 10000 });
+    const { data: d } = await ApiClient.fetchJson('/api/status', {}, { wakeFirst: false, retries: 1, timeoutMs: 8000 });
     const banner = $('aiBanner');
     if (!banner) return;
     if (d.ai_enabled) {
@@ -978,7 +977,7 @@ async function processEducationChat(text) {
         user_lang: detectInputLang(text),
       }),
     },
-    { timeoutMs: CHAT_FETCH_MS, retries: 2 },
+    { timeoutMs: CHAT_FETCH_MS, retries: 2, wakeFirst: true },
   );
   if (!ok) throw new Error(d.error || 'Bağlantı sorunu. Tekrar dene.');
   return d;
@@ -1016,7 +1015,7 @@ async function fetchListenEducation(blob) {
   const last = (S.lastUserLang === 'tr' || S.lastUserLang === S.learnLang)
     ? S.lastUserLang
     : 'tr';
-  await ApiClient.wakeServer(30000);
+  await ApiClient.wakeServer(12000);
   const url = `/api/listen?${new URLSearchParams({
     my: 'tr',
     other: S.learnLang,
@@ -1058,7 +1057,7 @@ async function processEducationVoice(blob) {
         user_lang: userLang,
       }),
     },
-    { timeoutMs: CHAT_FETCH_MS, retries: 2 },
+    { timeoutMs: CHAT_FETCH_MS, retries: 2, wakeFirst: true },
   );
   if (!ok) throw new Error(d.error || 'Bağlantı sorunu. Tekrar dene.');
   d.user_text = original;
