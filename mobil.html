@@ -70,7 +70,7 @@
     <p class="mobil-footer-note">iPhone sunucuyu çalıştıramaz — sadece tarayıcıdan bağlanırsın.</p>
   </div>
 
-  <script src="api-client.js?v=3"></script>
+  <script src="api-client.js?v=5"></script>
   <script src="keepalive.js?v=2"></script>
   <script>
     (function () {
@@ -91,29 +91,37 @@
         statusCard.classList.toggle('mobil-status-fail', !ok);
       }
 
+      var connectionAttempts = 0;
+      var MAX_CONNECTION_ATTEMPTS = 4;
+
       function checkConnection() {
-        setStatus(false, 'Sunucuya bağlanılıyor…');
-        ApiClient.wakeServer(90000, function (sec) {
+        connectionAttempts += 1;
+        if (connectionAttempts > MAX_CONNECTION_ATTEMPTS) {
+          setStatus(false, 'Sunucuya ulaşılamıyor — sayfayı yenile veya biraz bekle');
+          return;
+        }
+        setStatus(false, connectionAttempts > 1
+          ? 'Bağlanılıyor… (' + connectionAttempts + '/' + MAX_CONNECTION_ATTEMPTS + ')'
+          : 'Sunucuya bağlanılıyor…');
+        ApiClient.wakeServer(35000, function (sec) {
           setStatus(false, 'Sunucu uyanıyor… (' + sec + ' sn)');
         }).then(function (ok) {
           if (!ok) {
-            setStatus(false, 'Sunucu uyuyor — otomatik tekrar deneniyor…');
-            setTimeout(checkConnection, 5000);
+            setTimeout(checkConnection, 4000);
             return;
           }
-          return ApiClient.fetchJson('/api/status', {}, { wakeFirst: false, retries: 2, timeoutMs: 12000 });
+          return ApiClient.fetchJson('/api/status', {}, { wakeFirst: false, retries: 1, timeoutMs: 12000 });
         }).then(function (res) {
           if (!res) return;
           var d = res.data || {};
           if (d.ok) {
+            connectionAttempts = 0;
             setStatus(true, 'Sunucu çalışıyor · bağlantı tamam');
           } else {
-            setStatus(false, 'Sunucu yanıt vermiyor — tekrar deneniyor…');
-            setTimeout(checkConnection, 5000);
+            setTimeout(checkConnection, 4000);
           }
         }).catch(function () {
-          setStatus(false, 'Bağlanılıyor… otomatik tekrar denenecek');
-          setTimeout(checkConnection, 5000);
+          setTimeout(checkConnection, 4000);
         });
       }
       checkConnection();

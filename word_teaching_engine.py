@@ -21,7 +21,7 @@ ENGLISH_VARIANT = "en-US"
 
 # AI birincil kelime dersi — ChatGPT gibi: önce AI, başarısızsa retry; şablon yedek YOK
 DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
-WORD_LESSON_MAX_TOKENS = 5500
+WORD_LESSON_MAX_TOKENS = 4500
 AI_LESSON_MAX_ATTEMPTS = 1
 
 WORD_LESSON_SPLIT_PROMPT_A = """{base_prompt}
@@ -614,6 +614,9 @@ KNOWN_TR_TO_EN: dict[str, str] = {
     "kahve": "coffee", "masa": "table", "musluk": "faucet", "pencere": "window",
     "kapı": "door", "kapi": "door", "kitap": "book", "gazoz": "soda", "kola": "cola",
     "araba": "car", "mutlu": "happy", "çalışmak": "work", "calismak": "work",
+    "gitmek": "go", "gelmek": "come", "yapmak": "make", "almak": "take",
+    "vermek": "give", "görmek": "see", "gozmek": "see", "bilmek": "know",
+    "söylemek": "say", "soylemek": "say", "istemek": "want", "olmak": "be",
     "ayakkabı": "shoe", "ayakkabi": "shoe", "sandalye": "chair", "telefon": "phone",
     "ev": "home", "pazar": "market", "market": "market", "su": "water", "çay": "tea",
     "bardak": "glass", "fincan": "cup", "tabak": "plate", "kase": "bowl", "çatal": "fork",
@@ -853,6 +856,11 @@ EN_TARGET_ALIASES: dict[str, str] = {
 def _normalize_en_target(word_tr: str, target_word: str) -> str:
     """API çevirisini Amerikan İngilizcesi kanonik formuna getir."""
     tw = safe_str(target_word).strip().lower()
+    # Infinitive çeviriler: "to go" → "go" (Google çeviri fiillerde)
+    if tw.startswith("to ") and len(tw) > 3:
+        rest = tw[3:].strip()
+        if rest and " " not in rest:
+            tw = rest
     tw = EN_TARGET_ALIASES.get(tw, tw)
     tw = re.sub(r"\s+", " ", tw)
     if tw in EN_TARGET_ALIASES:
@@ -899,10 +907,12 @@ def resolve_target_word(word_tr: str, target_word: str, target_lang: str) -> str
         known = KNOWN_TR_TO_EN.get(wt) or KNOWN_TR_TO_EN.get(word_tr.lower())
         if known:
             return known.lower()
+        tw = _normalize_en_target(word_tr, target_word)
+        if tw and tw != wt and _norm(tw) != wt:
+            return tw
         llm_en = _llm_resolve_english_word(word_tr)
         if llm_en:
             return llm_en.lower()
-        tw = _normalize_en_target(word_tr, target_word)
         if not tw or tw == wt or tw == word_tr.lower():
             return (known or tw or word_tr).lower()
         return tw
@@ -4256,14 +4266,14 @@ def _llm_generate_dynamic_lesson(
         )
     elif attempt > 0:
         user_msg = "Return JSON only. Tam 13 örnek, 5+ fiil, 4+ collocation zorunlu."
-    # 1) Gemini bölünmüş çağrı (7+6) — küçük istekler daha hızlı
-    parsed = _llm_generate_dynamic_lesson_split(
-        word_tr, target_word, target_lang, system, attempt=attempt, prior_issues=prior_issues,
-    )
+    # 1) Tek Gemini çağrısı — doğrudan Gemini gibi hızlı
+    parsed = _llm_json_word_lesson(system, user_msg, max_tokens=WORD_LESSON_MAX_TOKENS)
     ex_count = len(parsed.get("examples") or []) if isinstance(parsed, dict) else 0
-    # 2) Yetersizse tek tam çağrı
+    # 2) Kesilmiş veya yetersizse bölünmüş çağrı (7+6)
     if not parsed or ex_count < 8:
-        parsed = _llm_json_word_lesson(system, user_msg, max_tokens=WORD_LESSON_MAX_TOKENS)
+        parsed = _llm_generate_dynamic_lesson_split(
+            word_tr, target_word, target_lang, system, attempt=attempt, prior_issues=prior_issues,
+        )
     if not parsed or not isinstance(parsed.get("examples"), list):
         return None
     profile: dict[str, Any] = {

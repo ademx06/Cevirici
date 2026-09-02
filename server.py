@@ -10,6 +10,7 @@ import os
 import re
 import subprocess
 import tempfile
+import time
 
 from tutor import get_lesson, tutor_reply
 from education_engine import (
@@ -25,7 +26,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.09.02-v43"
+APP_VERSION = "2026.09.02-v44"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -1115,10 +1116,17 @@ class Handler(SimpleHTTPRequestHandler):
         payload = self._read_json_body()
         word_tr = (payload.get("word") or "").strip()
         lang = (payload.get("lang") or "en").strip()
+        t0 = time.monotonic()
         try:
             result = generate_word_lesson(word_tr, lang, translate_fn=translate_text)
+            elapsed = round(time.monotonic() - t0, 2)
+            if isinstance(result, dict):
+                result["generation_sec"] = elapsed
+            print(f"[word-lesson] {word_tr!r} → {elapsed}s ok={result.get('ok') if isinstance(result, dict) else '?'}")
             self._send_json(result)
         except Exception as e:
+            elapsed = round(time.monotonic() - t0, 2)
+            print(f"[word-lesson] {word_tr!r} → {elapsed}s ERROR: {e}")
             self.send_json_error(422, self.api_error_message(e))
 
     def handle_builder_sentence(self):

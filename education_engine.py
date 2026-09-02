@@ -3373,7 +3373,12 @@ def _parse_vocab_tts_pairs(vocab_tr: str) -> list[dict[str, str]]:
     return pairs[:10]
 
 
-def _gemini_api_request(body: dict[str, Any], max_tokens: int) -> str | None:
+def _gemini_api_request(
+    body: dict[str, Any],
+    max_tokens: int,
+    *,
+    timeout_sec: int | None = None,
+) -> str | None:
     """Gemini generateContent — AIza ve yeni AQ. anahtar formatlarını destekler."""
     key = os.environ.get("GEMINI_API_KEY", "").strip()
     if not key:
@@ -3388,7 +3393,7 @@ def _gemini_api_request(body: dict[str, Any], max_tokens: int) -> str | None:
         "x-goog-api-key": key,
     })
     payload = json.dumps(body).encode()
-    gemini_timeout = min(55, max(22, 12 + max_tokens // 90))
+    gemini_timeout = timeout_sec if timeout_sec is not None else _llm_request_timeout(max_tokens)
     for model in models:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
         try:
@@ -3542,6 +3547,7 @@ def _llm_chat_json_raw(
     if provider == "groq":
         return _groq_chat(messages, max_tokens=max_tokens, json_mode=True)
     if provider == "gemini":
+        word_lesson = max_tokens >= 3000
         return _gemini_api_request({
             "systemInstruction": {"parts": [{"text": system}]},
             "contents": [{"role": "user", "parts": [{"text": user}]}],
@@ -3550,7 +3556,7 @@ def _llm_chat_json_raw(
                 "temperature": 0.72,
                 "maxOutputTokens": max_tokens,
             },
-        }, max_tokens)
+        }, max_tokens, timeout_sec=75 if word_lesson else None)
     if provider == "openai":
         return _openai_chat(messages, json_mode=True, max_tokens=max_tokens)
     return None
@@ -3602,14 +3608,16 @@ def _llm_json(
     return None
 
 
-def _llm_json_word_lesson(system: str, user: str, max_tokens: int = 5500) -> dict[str, Any] | None:
-    """Kelime dersi — Gemini birincil; başarısızsa tek Groq denemesi."""
-    if os.environ.get("GEMINI_API_KEY", "").strip():
+def _llm_json_word_lesson(system: str, user: str, max_tokens: int = 4500) -> dict[str, Any] | None:
+    """Kelime dersi — yalnızca Gemini (hızlı); anahtar yoksa Groq."""
+    gemini_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if gemini_key:
         raw = _llm_chat_json_raw("gemini", system, user, max_tokens)
         if raw:
             parsed = _parse_json_object(raw)
             if parsed:
                 return parsed
+        return None
     if os.environ.get("GROQ_API_KEY", "").strip():
         raw = _llm_chat_json_raw("groq", system, user, max_tokens)
         if raw:
@@ -3617,16 +3625,6 @@ def _llm_json_word_lesson(system: str, user: str, max_tokens: int = 5500) -> dic
             if parsed:
                 return parsed
     return None
-    lines: list[str] = []
-    for h in history[-limit:]:
-        if not isinstance(h, dict):
-            continue
-        text = (h.get("text") or "").strip()
-        if not text:
-            continue
-        role = "Teacher" if h.get("role") == "teacher" else "Student"
-        lines.append(f"{role}: {text[:400]}")
-    return "\n".join(lines) if lines else "(start of conversation)"
 
 
 def _recent_teacher_questions(history: list[dict], profile: dict, limit: int = 5) -> str:

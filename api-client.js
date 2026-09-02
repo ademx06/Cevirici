@@ -95,25 +95,38 @@
     throw lastErr || new Error('Bağlantı hatası');
   }
 
-  /** Kelime dersi — tek deneme, uzun timeout, gereksiz retry yok */
+  /** Kelime dersi — tek deneme, uzun timeout, otomatik retry yok */
   async function fetchWordLesson(url, body, callbacks) {
     callbacks = callbacks || {};
-    const awake = await wakeServer(30000, callbacks.onWake);
-    if (!awake) throw new Error('Sunucu uyanamadı');
-    const r = await fetchWithTimeout(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    }, 130000);
-    if (RETRYABLE.has(r.status)) {
-      throw new Error('HTTP ' + r.status);
+    if (!(await quickPing(4000))) {
+      const awake = await wakeServer(25000, callbacks.onWake);
+      if (!awake) throw new Error('Sunucu uyanamadı');
     }
-    const text = await r.text();
-    let data = {};
-    if (text.trim()) {
-      data = JSON.parse(text);
+    const started = Date.now();
+    let progressTimer = null;
+    if (typeof callbacks.onProgress === 'function') {
+      progressTimer = setInterval(function () {
+        callbacks.onProgress(Math.round((Date.now() - started) / 1000));
+      }, 5000);
     }
-    return { ok: r.ok, status: r.status, data: data };
+    try {
+      const r = await fetchWithTimeout(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }, 150000);
+      if (RETRYABLE.has(r.status)) {
+        throw new Error('HTTP ' + r.status);
+      }
+      const text = await r.text();
+      let data = {};
+      if (text.trim()) {
+        data = JSON.parse(text);
+      }
+      return { ok: r.ok, status: r.status, data: data };
+    } finally {
+      if (progressTimer) clearInterval(progressTimer);
+    }
   }
 
   function connectionErrorMessage(err) {

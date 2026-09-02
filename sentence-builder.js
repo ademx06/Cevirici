@@ -612,6 +612,7 @@
         lang: LS.getLang(),
       }, {
         onWake: (sec) => showLoading(`Sunucu uyanıyor… (${sec} sn)`),
+        onProgress: (sec) => showLoading(`AI ders hazırlıyor… (${sec} sn)`),
       });
       if (reqId !== wordRequestSeq) return;
       if (!ok || !data.ok) {
