@@ -3548,6 +3548,8 @@ def _llm_chat_json_raw(
         return _groq_chat(messages, max_tokens=max_tokens, json_mode=True)
     if provider == "gemini":
         word_lesson = max_tokens >= 3000
+        verb_lesson = max_tokens >= 4000
+        timeout = 90 if verb_lesson else (55 if word_lesson else None)
         return _gemini_api_request({
             "systemInstruction": {"parts": [{"text": system}]},
             "contents": [{"role": "user", "parts": [{"text": user}]}],
@@ -3556,7 +3558,7 @@ def _llm_chat_json_raw(
                 "temperature": 0.72,
                 "maxOutputTokens": max_tokens,
             },
-        }, max_tokens, timeout_sec=55 if word_lesson else None)
+        }, max_tokens, timeout_sec=timeout)
     if provider == "openai":
         return _openai_chat(messages, json_mode=True, max_tokens=max_tokens)
     return None

@@ -4303,23 +4303,22 @@ def _llm_generate_dynamic_lesson(
     elif attempt > 0:
         user_msg = "Return JSON only. Tam 13 örnek, 5+ fiil, 4+ collocation zorunlu."
     parsed: dict[str, Any] | None = None
-    if _prefer_parallel_split_lesson(word_tr, target_word):
+    is_verb_lesson = _prefer_parallel_split_lesson(word_tr, target_word)
+    if is_verb_lesson:
         verb_system = WORD_LESSON_VERB_COMPACT_PROMPT.format(
             word_tr=word_tr[:80],
             target_word=target_word[:80],
             lang_name=lang_name,
             pos_rules=get_pos_teaching_rules_for_prompt(word_tr, target_word),
         )
-        parsed = _llm_json_word_lesson(verb_system, user_msg, max_tokens=4000)
+        parsed = _llm_json_word_lesson(verb_system, user_msg, max_tokens=4200)
     else:
         parsed = _llm_json_word_lesson(system, user_msg, max_tokens=WORD_LESSON_MAX_TOKENS)
         ex_count = len(parsed.get("examples") or []) if isinstance(parsed, dict) else 0
         if not parsed or ex_count < 8:
-            parsed = None
-    if not parsed or len(parsed.get("examples") or []) < 8:
-        parsed = _llm_generate_dynamic_lesson_split(
-            word_tr, target_word, target_lang, system, attempt=attempt, prior_issues=prior_issues,
-        )
+            parsed = _llm_generate_dynamic_lesson_split(
+                word_tr, target_word, target_lang, system, attempt=attempt, prior_issues=prior_issues,
+            )
     if not parsed or not isinstance(parsed.get("examples"), list):
         return None
     profile: dict[str, Any] = {
@@ -4720,7 +4719,11 @@ def collect_lesson_quality_issues(
     """AI dersinin ChatGPT kalitesinde olup olmadığını kontrol et; retry için sorun listesi."""
     issues: list[str] = []
     if len(examples) < 11:
-        issues.append(f"En az 11 örnek gerekli; şu an {len(examples)} örnek var.")
+        pos = safe_str(profile.get("part_of_speech")).lower()
+        wt = _norm(word_tr)
+        min_examples = 8 if (pos == "verb" or wt.endswith("mek") or wt.endswith("mak")) else 11
+        if len(examples) < min_examples:
+            issues.append(f"En az {min_examples} örnek gerekli; şu an {len(examples)} örnek var.")
     verbs = [v for v in (profile.get("common_verbs") or []) if safe_str(v).strip()]
     if len(verbs) < 3:
         issues.append(f"common_verbs en az 3 fiil içermeli; şu an {len(verbs)}.")
