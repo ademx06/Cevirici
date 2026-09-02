@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import os
 import re
-from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable
 
 from education_engine import LANG_NAMES, _llm_json, _llm_json_word_lesson, llm_available, safe_str
@@ -50,6 +49,23 @@ Zorunlu:
 
 JSON: meaning_tr, usage_notes_tr, part_of_speech, countability, semantic_category,
 common_verbs (5+), common_collocations (4+), article_notes_items, avoid_reason_tr, examples"""
+
+WORD_LESSON_VERB_COMPACT_PROMPT = """Sen ESL öğretmenisin — fiil dersi.
+Türkçe: "{word_tr}" → İngilizce fiil: "{target_word}" ({lang_name})
+
+{pos_rules}
+
+Zorunlu:
+- Tam 13 örnek; türler: basic, present, past, future, question, negative, imperative,
+  polite_request, advice, obligation, possibility, conditional, dialogue
+- Fiil çekimleri doğal (go/went/going, don't go, Do you go…)
+- Hedef fiil her cümlede geçmeli (to go değil, çekimli hali: go, went, going…)
+- tr: tam Türkçe cümle; how_it_is_formed_tr min 50 karakter (1️⃣2️⃣ yeterli)
+- common_verbs: bu fiille kullanılan yardımcı kalıplar (5+)
+- common_collocations (4+)
+
+JSON: meaning_tr, usage_notes_tr, part_of_speech, countability, semantic_category,
+common_verbs, common_collocations, article_notes_items, avoid_reason_tr, examples"""
 
 
 def templates_allowed() -> bool:
@@ -4287,7 +4303,15 @@ def _llm_generate_dynamic_lesson(
     elif attempt > 0:
         user_msg = "Return JSON only. Tam 13 örnek, 5+ fiil, 4+ collocation zorunlu."
     parsed: dict[str, Any] | None = None
-    if not _prefer_parallel_split_lesson(word_tr, target_word):
+    if _prefer_parallel_split_lesson(word_tr, target_word):
+        verb_system = WORD_LESSON_VERB_COMPACT_PROMPT.format(
+            word_tr=word_tr[:80],
+            target_word=target_word[:80],
+            lang_name=lang_name,
+            pos_rules=get_pos_teaching_rules_for_prompt(word_tr, target_word),
+        )
+        parsed = _llm_json_word_lesson(verb_system, user_msg, max_tokens=4000)
+    else:
         parsed = _llm_json_word_lesson(system, user_msg, max_tokens=WORD_LESSON_MAX_TOKENS)
         ex_count = len(parsed.get("examples") or []) if isinstance(parsed, dict) else 0
         if not parsed or ex_count < 8:
@@ -4359,7 +4383,13 @@ def _llm_generate_dynamic_lesson_split(
             + "\n\nReturn JSON only."
         )
     prompt_a = WORD_LESSON_SPLIT_PROMPT_A.format(split_base=split_base)
-    prompt_b = WORD_LESSON_SPLIT_PROMPT_B.format(split_base=split_base)
+    part1 = _llm_json_word_lesson(prompt_a, user_a, max_tokens=2800)
+    if not part1 or not isinstance(part1, dict):
+        return None
+    ex1 = part1.get("examples") if isinstance(part1.get("examples"), list) else []
+    if len(ex1) < 4:
+        return None
+
     user_b = "Return JSON with examples array only (exactly 6 items)."
     if prior_issues:
         user_b = (
@@ -4367,21 +4397,8 @@ def _llm_generate_dynamic_lesson_split(
             + "\n".join(f"- {issue}" for issue in prior_issues[:3])
             + "\n\nReturn JSON only."
         )
-
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        fut_a = pool.submit(_llm_json_word_lesson, prompt_a, user_a, 2800)
-        fut_b = pool.submit(_llm_json_word_lesson, prompt_b, user_b, 2200)
-        part1 = fut_a.result()
-        part2 = fut_b.result()
-
-    if not part1 or not isinstance(part1, dict):
-        if part2 and isinstance(part2.get("examples"), list) and len(part2["examples"]) >= 4:
-            return {"examples": list(part2["examples"]), **{k: v for k, v in part2.items() if k != "examples"}}
-        return None
-
-    ex1 = part1.get("examples") if isinstance(part1.get("examples"), list) else []
-    if len(ex1) < 4 and not (part2 and isinstance(part2.get("examples"), list)):
-        return None
+    prompt_b = WORD_LESSON_SPLIT_PROMPT_B.format(split_base=split_base)
+    part2 = _llm_json_word_lesson(prompt_b, user_b, max_tokens=2200)
 
     merged = dict(part1)
     merged["examples"] = list(ex1)
