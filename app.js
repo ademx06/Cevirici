@@ -228,13 +228,14 @@ async function fetchPronunciation(text, lang) {
 }
 
 async function processAudio(blob) {
-  const listen = await fetchListen(blob, S.my, S.other, S.lastFrom);
-  S.lastFrom = listen.from;
-  const toLang = listen.to;
+  /* Tek istek: STT + çeviri birlikte — ikinci tur beklemeyi kaldırır */
+  const data = await fetchProcess(blob, S.my, S.other, S.lastFrom);
+  S.lastFrom = data.from;
+  const toLang = data.to;
   const msg = {
-    orig: listen.original,
-    trans: '…',
-    from: listen.from,
+    orig: data.original,
+    trans: data.translated,
+    from: data.from,
     to: toLang,
     audio: null,
     phonetic: '',
@@ -242,22 +243,15 @@ async function processAudio(blob) {
   S.msgs.unshift(msg);
   render();
   clearInterim();
-  setStatus('Çevriliyor...', true);
-
-  const translated = await fetchTranslateText(listen.original, listen.from, toLang);
-  if (S.msgs[0]?.orig === listen.original) {
-    S.msgs[0].trans = translated;
-    render();
-  }
   setStatus('Çeviri hazır', false);
-  void fetchTranslateTts(translated, toLang, 0);
-  void fetchPronunciation(translated, toLang).then((ph) => {
-    if (S.msgs[0]?.orig === listen.original && ph) {
+  void fetchTranslateTts(data.translated, toLang, 0);
+  void fetchPronunciation(data.translated, toLang).then((ph) => {
+    if (S.msgs[0]?.orig === data.original && ph) {
       S.msgs[0].phonetic = ph;
       render();
     }
   });
-  return { original: listen.original, translated, from: listen.from, to: toLang };
+  return { original: data.original, translated: data.translated, from: data.from, to: toLang };
 }
 
 async function fetchTranslateTts(text, lang, msgIndex) {

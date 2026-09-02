@@ -27,7 +27,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.09.02-v67"
+APP_VERSION = "2026.09.02-v68"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -136,7 +136,7 @@ def google_translate(text: str, from_lang: str, to_lang: str) -> str | None:
     )
     try:
         req = Request(url, headers={"User-Agent": UA})
-        with urlopen(req, timeout=15) as resp:
+        with urlopen(req, timeout=8) as resp:
             page = resp.read().decode("utf-8", errors="ignore")
         match = re.search(r'class="result-container">([^<]+)', page)
         if not match:
@@ -963,9 +963,7 @@ def transcribe_education(
 def transcribe_dual(data: bytes, my: str, other: str, last_from: str | None = None) -> tuple[str, str]:
     wav = prepare_wav(data, fast=True)
     try:
-        if not audio_has_speech(wav):
-            raise ValueError("no speech detected")
-
+        # Sessizlik kontrolünü atla — boş STT zaten hata verir; ekstra ffmpeg ~0.5-1s kazandırır
         candidates: list[tuple[str, str, float, str]] = []
         predicted = None
         if last_from in (my, other):
@@ -977,6 +975,20 @@ def transcribe_dual(data: bytes, my: str, other: str, last_from: str | None = No
 
         if predicted:
             add(stt_for_translate(wav, predicted), f"pred_{predicted}")
+            # Sıra tahmini doğruysa ek STT çağrılarını atla (büyük hız kazancı)
+            if candidates:
+                text, stt_lang, _score, _src = candidates[0]
+                guessed = detect_speech_lang(text, my, other, stt_lang, last_from)
+                strong = (
+                    guessed == predicted
+                    and (
+                        (predicted == "en" and is_likely_english(text, my, other))
+                        or (predicted == "tr" and is_likely_turkish(text))
+                        or looks_like_lang(text, predicted)
+                    )
+                )
+                if strong:
+                    return text, guessed
 
         tasks = {
             "auto": lambda: groq_stt_auto(wav),
