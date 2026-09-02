@@ -232,6 +232,157 @@ VERBS_TR: dict[str, str] = {
     "roll": "sarmak (sigara)", "flick": "silkelemek (kül)",
     "take off": "çıkarmak",
     "prescribe": "reçete etmek",
+    "wipe": "silmek", "adjust": "ayarlamak",
+}
+
+# Kategori + fiil → Türkçe anlam (bağlama özel; giymek/takmak ayrımı vb.)
+CATEGORY_VERB_MEANINGS: dict[str, dict[str, str]] = {
+    "eyewear": {
+        "wear": "takmak",
+        "put on": "takmak",
+        "take off": "çıkarmak",
+        "clean": "temizlemek",
+        "wipe": "silmek",
+        "lose": "kaybetmek",
+        "find": "bulmak",
+        "break": "kırmak",
+        "adjust": "ayarlamak",
+        "prescribe": "reçete etmek",
+    },
+    "footwear": {
+        "wear": "giymek",
+        "put on": "giymek",
+        "take off": "çıkarmak",
+        "tie": "bağlamak (bağcık)",
+        "try on": "denemek",
+        "buy": "satın almak",
+        "lose": "kaybetmek",
+        "clean": "temizlemek",
+    },
+    "clothing": {
+        "wear": "giymek",
+        "put on": "giymek",
+        "take off": "çıkarmak",
+        "wash": "yıkamak",
+        "fold": "katlamak",
+        "iron": "ütülemek",
+        "pack": "hazırlamak",
+        "buy": "satın almak",
+    },
+    "tobacco": {
+        "smoke": "içmek / tüttürmek",
+        "light": "yakmak",
+        "put out": "söndürmek",
+        "stub out": "söndürmek",
+        "quit": "bırakmak",
+        "roll": "sarmak",
+        "flick": "silkelemek (kül)",
+        "offer": "teklif etmek",
+    },
+    "beverage": {
+        "drink": "içmek",
+        "have": "içmek / almak",
+        "make": "yapmak",
+        "order": "sipariş etmek",
+        "get": "almak",
+        "serve": "servis etmek",
+        "pour": "dökmek",
+        "sip": "yudumlamak",
+    },
+    "snack": {
+        "chew": "çiğnemek",
+        "eat": "yemek",
+        "buy": "satın almak",
+        "share": "paylaşmak",
+        "offer": "teklif etmek",
+        "swallow": "yutmak",
+        "spit out": "tükürmek",
+    },
+    "food": {
+        "eat": "yemek",
+        "cook": "pişirmek",
+        "boil": "kaynatmak",
+        "grill": "ızgara yapmak",
+        "grow": "yetiştirmek",
+        "buy": "satın almak",
+        "serve": "servis etmek",
+        "taste": "tatmak / tadına bakmak",
+        "spread": "sürmek / yaymak",
+        "drizzle": "gezdirmek / damlatmak",
+        "collect": "toplamak",
+        "dilute": "sulandırmak",
+    },
+    "furniture": {
+        "sit at": "…-de oturmak",
+        "set": "kurmak / hazırlamak",
+        "clear": "toplamak",
+        "wipe": "silmek",
+        "clean": "temizlemek",
+        "move": "taşımak",
+        "put on": "üzerine koymak",
+    },
+    "plumbing": {
+        "turn on": "açmak",
+        "turn off": "kapatmak",
+        "fix": "tamir etmek",
+        "repair": "tamir etmek",
+        "replace": "değiştirmek",
+        "install": "takmak / kurmak",
+        "leak": "sızıntı yapmak",
+    },
+    "vehicle": {
+        "drive": "sürmek",
+        "park": "park etmek",
+        "buy": "satın almak",
+        "fix": "tamir etmek",
+        "wash": "yıkamak",
+        "rent": "kiralamak",
+        "sell": "satmak",
+    },
+    "document": {
+        "pay": "ödemek",
+        "send": "göndermek",
+        "receive": "almak",
+        "check": "kontrol etmek",
+        "sign": "imzalamak",
+        "issue": "düzenlemek",
+        "review": "incelemek",
+        "attach": "eklemek",
+    },
+    "drinkware": {
+        "fill": "doldurmak",
+        "break": "kırmak",
+        "wash": "yıkamak",
+        "raise": "kaldırmak",
+        "hold": "tutmak",
+        "pour": "dökmek",
+    },
+    "abstract": {
+        "enjoy": "keyif almak",
+        "love": "sevmek",
+        "hate": "nefret etmek",
+        "need": "ihtiyaç duymak",
+        "want": "istemek",
+        "find": "bulmak",
+        "seek": "aramak",
+    },
+}
+
+PHRASAL_VERB_PRON: dict[str, dict[str, str]] = {
+    "put on": {"pronunciation_tr": "put on", "ipa": "/pʊt ɒn/"},
+    "take off": {"pronunciation_tr": "teyk of", "ipa": "/teɪk ɔːf/"},
+    "turn on": {"pronunciation_tr": "törn on", "ipa": "/tɜːrn ɒn/"},
+    "turn off": {"pronunciation_tr": "törn of", "ipa": "/tɜːrn ɔːf/"},
+    "try on": {"pronunciation_tr": "tray on", "ipa": "/traɪ ɒn/"},
+    "put out": {"pronunciation_tr": "put aut", "ipa": "/pʊt aʊt/"},
+    "stub out": {"pronunciation_tr": "stab aut", "ipa": "/stʌb aʊt/"},
+    "sit at": {"pronunciation_tr": "sit et", "ipa": "/sɪt æt/"},
+    "knock on": {"pronunciation_tr": "nak on", "ipa": "/nɒk ɒn/"},
+    "go to": {"pronunciation_tr": "gou tu", "ipa": "/ɡoʊ tu/"},
+    "pick up": {"pronunciation_tr": "pik ap", "ipa": "/pɪk ʌp/"},
+    "look for": {"pronunciation_tr": "luk for", "ipa": "/lʊk fɔːr/"},
+    "spit out": {"pronunciation_tr": "spit aut", "ipa": "/spɪt aʊt/"},
+    "be at": {"pronunciation_tr": "bi et", "ipa": "/bi æt/"},
 }
 
 PHRASES_TR: dict[str, str] = {
@@ -2075,10 +2226,11 @@ def _rule_word_profile(
             "meaning_tr": word_tr,
             "usage_notes_tr": (
                 f"«{word_tr}» İngilizcede glasses (çoğul) olarak kullanılır. "
-                "wear, put on, take off, clean, lose gibi fiillerle doğal cümleler kurulur. "
+                "Türkçede gözlük takılır — wear/put on → takmak (giymek değil). "
+                "take off, clean, lose, find gibi fiillerle doğal cümleler kurulur. "
                 "❌ a glasses yok — ✅ a pair of glasses."
             ),
-            "common_verbs": ["wear", "put on", "take off", "clean", "lose", "need", "buy", "break"],
+            "common_verbs": ["wear", "put on", "take off", "clean", "lose", "find", "break", "wipe"],
             "common_collocations": [
                 "wear glasses", "a pair of glasses", "reading glasses",
                 "prescription glasses", "take off your glasses", "clean your glasses",
@@ -5135,15 +5287,27 @@ def guarantee_word_lesson(
     return profile, examples[:13], category
 
 
-def _verb_meaning_tr(verb_key: str) -> str:
+def _verb_meaning_tr(
+    verb_key: str,
+    category: str = "",
+    word_tr: str = "",
+    target_word: str = "",
+) -> str:
     key = safe_str(verb_key).strip().lower()
     if not key:
         return ""
+    cat = safe_str(category).strip().lower()
+    if cat in CATEGORY_VERB_MEANINGS:
+        cat_map = CATEGORY_VERB_MEANINGS[cat]
+        if key in cat_map:
+            return cat_map[key]
     if key in VERBS_TR:
         return VERBS_TR[key]
     parts = key.split()
     if len(parts) > 1:
         phrase = " ".join(parts)
+        if cat in CATEGORY_VERB_MEANINGS and phrase in CATEGORY_VERB_MEANINGS[cat]:
+            return CATEGORY_VERB_MEANINGS[cat][phrase]
         if phrase in VERBS_TR:
             return VERBS_TR[phrase]
         if f"{parts[0]} {parts[1]}" in VERBS_TR:
@@ -5152,6 +5316,60 @@ def _verb_meaning_tr(verb_key: str) -> str:
     if tr:
         return tr
     return word_meaning_tr(parts[-1] if parts else key)
+
+
+def _natural_verbs_for_category(category: str, verbs: list) -> list[str]:
+    """Kategori doğal fiil listesini önceliklendir; jenerik nesne fiillerini ayıkla."""
+    cat = safe_str(category).strip().lower()
+    raw = [safe_str(v).strip().lower() for v in verbs if safe_str(v).strip()]
+    if cat not in CATEGORY_VERB_MEANINGS:
+        return raw[:8]
+
+    natural_order = list(CATEGORY_VERB_MEANINGS[cat].keys())
+    natural_set = set(natural_order)
+    all_generic = bool(raw) and all(v in GENERIC_OBJECT_VERBS for v in raw)
+
+    if raw and not all_generic:
+        picked: list[str] = []
+        seen: set[str] = set()
+        for v in raw:
+            if v in GENERIC_OBJECT_VERBS and v not in natural_set:
+                continue
+            if v not in seen:
+                picked.append(v)
+                seen.add(v)
+        if len(picked) >= 4:
+            return picked[:8]
+
+    picked = []
+    seen: set[str] = set()
+    for v in raw:
+        if v in natural_set and v not in seen:
+            picked.append(v)
+            seen.add(v)
+    for key in natural_order:
+        if key not in seen:
+            picked.append(key)
+            seen.add(key)
+        if len(picked) >= 8:
+            break
+    return picked[:8]
+
+
+def _enrich_verb_usage_entry(en: str, tr: str, target_lang: str) -> dict[str, str]:
+    en = safe_str(en).strip()
+    tr = safe_str(tr).strip()
+    pron, ipa = "", ""
+    if en and target_lang == "en":
+        low = en.lower()
+        if low in PHRASAL_VERB_PRON:
+            pron = PHRASAL_VERB_PRON[low].get("pronunciation_tr", "")
+            ipa = PHRASAL_VERB_PRON[low].get("ipa", "")
+        else:
+            info = get_word(target_lang, en)
+            pron = info.get("pronunciation_tr", "")
+            ipa = info.get("ipa", "")
+    return {"en": en, "tr": tr, "pronunciation_tr": pron, "ipa": ipa}
 
 
 def _phrase_meaning_tr(phrase: str) -> str:
@@ -5203,20 +5421,20 @@ def build_usage_from_profile(
         "uncountable": "sayılamaz",
         "both": "bağlama göre sayılabilir/sayılamaz",
     }.get(count, count or "—")
-    verbs = profile.get("common_verbs") or []
     coll = profile.get("common_collocations") or []
     patterns = profile.get("common_patterns") or []
     category = profile.get("semantic_category") or "general"
 
+    verbs = _natural_verbs_for_category(category, profile.get("common_verbs") or [])
     verbs_enriched = []
     for v in verbs[:8]:
         key = safe_str(v).strip()
         if not key:
             continue
-        tr_mean = _verb_meaning_tr(key)
+        tr_mean = _verb_meaning_tr(key, category, word_tr, target_word)
         if not tr_mean:
             continue
-        entry = _enrich_usage_entry(key, tr_mean, target_lang)
+        entry = _enrich_verb_usage_entry(key, tr_mean, target_lang)
         verbs_enriched.append(entry)
 
     phrase_lookup: dict[str, str] = {}

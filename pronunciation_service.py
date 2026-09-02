@@ -249,6 +249,7 @@ LESSON_VOCAB_CANONICAL: dict[str, str] = {
     "lighter": "lay-tır",
     "glasses": "gla-sız",
     "glass": "glaas",
+    "wear": "ver",
     "umbrella": "ambre-lı",
     "wallet": "vol-lit",
     "socks": "soks",

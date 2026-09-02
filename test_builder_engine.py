@@ -903,9 +903,10 @@ def test_gozluk_eyewear_lesson():
     for b in banned:
         assert b not in targets, f"Banned: {b}"
     usage = result.get("usage") or {}
-    verbs = {v["en"] for v in (usage.get("common_verbs") or [])}
-    assert "wear" in verbs
-    assert "use" not in verbs or len(verbs) > 1
+    verb_map = {v["en"].lower(): v["tr"] for v in (usage.get("common_verbs") or [])}
+    assert verb_map.get("wear") == "takmak", verb_map
+    assert "need" not in verb_map and "buy" not in verb_map, verb_map
+    assert "use" not in verb_map
     phrases = usage.get("common_phrases") or []
     assert len(phrases) >= 3
     for p in phrases:
