@@ -3388,7 +3388,7 @@ def _gemini_api_request(body: dict[str, Any], max_tokens: int) -> str | None:
         "x-goog-api-key": key,
     })
     payload = json.dumps(body).encode()
-    gemini_timeout = min(35, _llm_request_timeout(max_tokens))
+    gemini_timeout = min(55, max(22, 12 + max_tokens // 90))
     for model in models:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
         try:
@@ -3602,7 +3602,21 @@ def _llm_json(
     return None
 
 
-def _format_history_for_ai(history: list[dict], limit: int = 8) -> str:
+def _llm_json_word_lesson(system: str, user: str, max_tokens: int = 5500) -> dict[str, Any] | None:
+    """Kelime dersi — Gemini birincil; başarısızsa tek Groq denemesi."""
+    if os.environ.get("GEMINI_API_KEY", "").strip():
+        raw = _llm_chat_json_raw("gemini", system, user, max_tokens)
+        if raw:
+            parsed = _parse_json_object(raw)
+            if parsed:
+                return parsed
+    if os.environ.get("GROQ_API_KEY", "").strip():
+        raw = _llm_chat_json_raw("groq", system, user, max_tokens)
+        if raw:
+            parsed = _parse_json_object(raw)
+            if parsed:
+                return parsed
+    return None
     lines: list[str] = []
     for h in history[-limit:]:
         if not isinstance(h, dict):

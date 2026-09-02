@@ -607,15 +607,11 @@
     busy = true;
     showLoading('AI ders hazırlıyor…');
     try {
-      const { ok, data } = await ApiClient.fetchJson('/api/builder/word', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ word, lang: LS.getLang() }),
+      const { ok, data } = await ApiClient.fetchWordLesson('/api/builder/word', {
+        word,
+        lang: LS.getLang(),
       }, {
-        timeoutMs: 90000,
-        retries: 3,
-        onWakeProgress: (sec) => showLoading(`Sunucu uyanıyor… (${sec} sn)`),
-        onRetry: (n, max) => showLoading(`Tekrar deneniyor (${n}/${max})…`),
+        onWake: (sec) => showLoading(`Sunucu uyanıyor… (${sec} sn)`),
       });
       if (reqId !== wordRequestSeq) return;
       if (!ok || !data.ok) {

@@ -5,7 +5,7 @@ import os
 import re
 from typing import Any, Callable
 
-from education_engine import LANG_NAMES, _llm_json, llm_available, safe_str
+from education_engine import LANG_NAMES, _llm_json, _llm_json_word_lesson, llm_available, safe_str
 from pronunciation_service import (
     build_pronunciation_bundle,
     get_word,
@@ -21,22 +21,22 @@ ENGLISH_VARIANT = "en-US"
 
 # AI birincil kelime dersi — ChatGPT gibi: önce AI, başarısızsa retry; şablon yedek YOK
 DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
-WORD_LESSON_MAX_TOKENS = 8192
+WORD_LESSON_MAX_TOKENS = 5500
 AI_LESSON_MAX_ATTEMPTS = 1
 
 WORD_LESSON_SPLIT_PROMPT_A = """{base_prompt}
 
-[EK GÖREV — BÖLÜM A]
-Yalnızca ilk 7 örnek cümleyi üret (sentence_type sırasıyla):
-basic, present, past, future, question, negative, imperative
-Profil alanlarını da doldur. JSON'da examples dizisi TAM 7 öğe olsun."""
+[EK — BÖLÜM A, HIZLI]
+Yalnızca ilk 7 örnek (basic, present, past, future, question, negative, imperative).
+how_it_is_formed_tr kısa (min 50 karakter, 1️⃣2️⃣ yeterli).
+JSON'da examples dizisi TAM 7 öğe."""
 
 WORD_LESSON_SPLIT_PROMPT_B = """{base_prompt}
 
-[EK GÖREV — BÖLÜM B]
+[EK — BÖLÜM B, HIZLI]
 Kelime: {word_tr} / {target_word}
-Profil zaten hazır — yalnızca son 6 örnek cümleyi üret (sentence_type sırasıyla):
-polite_request, advice, obligation, possibility, conditional, dialogue
+Yalnızca son 6 örnek (polite_request, advice, obligation, possibility, conditional, dialogue).
+how_it_is_formed_tr kısa (min 50 karakter).
 JSON: {{"examples": [ ...6 öğe... ]}}"""
 
 
@@ -4256,13 +4256,14 @@ def _llm_generate_dynamic_lesson(
         )
     elif attempt > 0:
         user_msg = "Return JSON only. Tam 13 örnek, 5+ fiil, 4+ collocation zorunlu."
-    # 1) Groq tek çağrı — hızlı yol
-    parsed = _llm_json(system, user_msg, max_tokens=WORD_LESSON_MAX_TOKENS)
-    if not parsed or not isinstance(parsed.get("examples"), list) or len(parsed.get("examples") or []) < 8:
-        # 2) Bölünmüş çağrı — Groq birincil, Gemini yalnızca Groq başarısızsa
-        parsed = _llm_generate_dynamic_lesson_split(
-            word_tr, target_word, target_lang, system, attempt=attempt, prior_issues=prior_issues,
-        )
+    # 1) Gemini bölünmüş çağrı (7+6) — küçük istekler daha hızlı
+    parsed = _llm_generate_dynamic_lesson_split(
+        word_tr, target_word, target_lang, system, attempt=attempt, prior_issues=prior_issues,
+    )
+    ex_count = len(parsed.get("examples") or []) if isinstance(parsed, dict) else 0
+    # 2) Yetersizse tek tam çağrı
+    if not parsed or ex_count < 8:
+        parsed = _llm_json_word_lesson(system, user_msg, max_tokens=WORD_LESSON_MAX_TOKENS)
     if not parsed or not isinstance(parsed.get("examples"), list):
         return None
     profile: dict[str, Any] = {
@@ -4320,7 +4321,7 @@ def _llm_generate_dynamic_lesson_split(
             + "\n\nReturn JSON only."
         )
     prompt_a = WORD_LESSON_SPLIT_PROMPT_A.format(base_prompt=base_system)
-    part1 = _llm_json(prompt_a, user_a, max_tokens=4000)
+    part1 = _llm_json_word_lesson(prompt_a, user_a, max_tokens=3800)
     if not part1 or not isinstance(part1, dict):
         return None
     ex1 = part1.get("examples") if isinstance(part1.get("examples"), list) else []
@@ -4342,7 +4343,7 @@ def _llm_generate_dynamic_lesson_split(
             word_tr=word_tr[:80],
             target_word=target_word[:80],
         )
-        part2 = _llm_json(prompt_b, user_b, max_tokens=3000)
+        part2 = _llm_json_word_lesson(prompt_b, user_b, max_tokens=2800)
         if part2 and isinstance(part2.get("examples"), list):
             merged["examples"] = list(ex1) + list(part2["examples"])
     return merged if merged.get("examples") else None
@@ -4363,7 +4364,7 @@ def _llm_generate_examples_from_profile(
         lang_name=lang_name,
         profile_json=json.dumps(profile, ensure_ascii=False)[:2500],
     )
-    parsed = _llm_json(system, "Return JSON with examples array only.", max_tokens=3200)
+    parsed = _llm_json_word_lesson(system, "Return JSON with examples array only.", max_tokens=3200)
     if not parsed or not isinstance(parsed.get("examples"), list):
         return []
     out: list[dict[str, Any]] = []
