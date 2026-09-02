@@ -605,16 +605,19 @@
     const reqId = ++wordRequestSeq;
     currentWordLesson = null;
     busy = true;
-    showLoading('AI öğretmen ders hazırlıyor… (10–30 sn)');
+    showLoading('Sunucu uyanıyor… (ilk istek 10–40 sn sürebilir)');
     try {
-      const r = await fetch('/api/builder/word', {
+      const { ok, data } = await ApiClient.fetchJson('/api/builder/word', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ word, lang: LS.getLang() }),
+      }, {
+        timeoutMs: 120000,
+        retries: 3,
+        onRetry: (n, max) => showLoading(`Bağlantı yeniden deneniyor (${n}/${max})…`),
       });
-      const data = await r.json();
       if (reqId !== wordRequestSeq) return;
-      if (!r.ok || !data.ok) {
+      if (!ok || !data.ok) {
         const retry = data.ai_retry
           ? `<button type="button" class="mod-retry-btn" id="retryWordBtn">🔄 Tekrar dene</button>`
           : '';
@@ -625,9 +628,10 @@
       }
       setUi('Hazır — dinle ve kaydet', false);
       renderWordLesson(data, word);
-    } catch {
-      $('wordResult').innerHTML = '';
-      setUi('Bağlantı hatası — tekrar dene', false);
+    } catch (err) {
+      $('wordResult').innerHTML = `<div class="mod-error-card"><p>${esc(ApiClient.connectionErrorMessage(err))}</p><button type="button" class="mod-retry-btn" id="retryWordBtn">🔄 Tekrar dene</button></div>`;
+      $('retryWordBtn')?.addEventListener('click', buildWord);
+      setUi(ApiClient.connectionErrorMessage(err), false);
     } finally {
       busy = false;
     }
@@ -643,25 +647,28 @@
     const reqId = ++sentenceRequestSeq;
     currentSentence = null;
     busy = true;
-    showLoading('Cümle analiz ediliyor…');
+    showLoading('Sunucu uyanıyor… cümle analiz ediliyor');
     try {
-      const r = await fetch('/api/builder/sentence', {
+      const { ok, data } = await ApiClient.fetchJson('/api/builder/sentence', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sentence, lang: LS.getLang() }),
+      }, {
+        timeoutMs: 90000,
+        retries: 3,
+        onRetry: (n, max) => showLoading(`Bağlantı yeniden deneniyor (${n}/${max})…`),
       });
-      const data = await r.json();
       if (reqId !== sentenceRequestSeq) return;
-      if (!r.ok || !data.ok) {
+      if (!ok || !data.ok) {
         $('sentenceResult').innerHTML = '';
         setUi(data.error_tr || 'Bir hata oluştu', false);
         return;
       }
       setUi('Hazır — dinle ve kaydet', false);
       renderSentenceResult(data);
-    } catch {
+    } catch (err) {
       $('sentenceResult').innerHTML = '';
-      setUi('Bağlantı hatası — tekrar dene', false);
+      setUi(ApiClient.connectionErrorMessage(err), false);
     } finally {
       busy = false;
     }

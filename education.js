@@ -290,8 +290,8 @@ function hideErr() {
 
 async function fetchAiStatus() {
   try {
-    const r = await fetch('/api/status');
-    const d = await r.json().catch(() => ({}));
+    await ApiClient.wakeServer(20000);
+    const { data: d } = await ApiClient.fetchJson('/api/status', {}, { wakeFirst: false, retries: 2, timeoutMs: 10000 });
     const banner = $('aiBanner');
     if (!banner) return;
     if (d.ai_enabled) {
@@ -964,10 +964,9 @@ function detectInputLang(text) {
 }
 
 async function processEducationChat(text) {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), CHAT_FETCH_MS);
-  try {
-    const r = await fetch(`/api/education/chat?${new URLSearchParams({ lang: S.learnLang })}`, {
+  const { ok, data: d } = await ApiClient.fetchJson(
+    `/api/education/chat?${new URLSearchParams({ lang: S.learnLang })}`,
+    {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -978,14 +977,11 @@ async function processEducationChat(text) {
         speak_slow: S.speakSlow,
         user_lang: detectInputLang(text),
       }),
-      signal: ctrl.signal,
-    });
-    const d = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(d.error || 'Bağlantı sorunu. Tekrar dene.');
-    return d;
-  } finally {
-    clearTimeout(timer);
-  }
+    },
+    { timeoutMs: CHAT_FETCH_MS, retries: 2 },
+  );
+  if (!ok) throw new Error(d.error || 'Bağlantı sorunu. Tekrar dene.');
+  return d;
 }
 
 async function sendTextMessage() {
@@ -1020,29 +1016,19 @@ async function fetchListenEducation(blob) {
   const last = (S.lastUserLang === 'tr' || S.lastUserLang === S.learnLang)
     ? S.lastUserLang
     : 'tr';
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), VOICE_FETCH_MS);
-  try {
-    const r = await fetch(`/api/listen?${new URLSearchParams({
-      my: 'tr',
-      other: S.learnLang,
-      last,
-    })}`, {
-      method: 'POST',
-      body: blob,
-      headers: { 'Content-Type': blob.type || 'audio/mp4' },
-      signal: ctrl.signal,
-    });
-    const raw = await r.text();
-    let d = {};
-    try { d = raw ? JSON.parse(raw) : {}; } catch {
-      throw new Error(r.ok ? 'Sunucu yanıtı okunamadı' : `Sunucu hatası (${r.status})`);
-    }
-    if (!r.ok) throw new Error(d.error || 'Konuşma anlaşılamadı — tekrar dene');
-    return { ...d, _last: last };
-  } finally {
-    clearTimeout(timer);
-  }
+  await ApiClient.wakeServer(30000);
+  const url = `/api/listen?${new URLSearchParams({
+    my: 'tr',
+    other: S.learnLang,
+    last,
+  })}`;
+  const { ok, data: d } = await ApiClient.fetchJson(url, {
+    method: 'POST',
+    body: blob,
+    headers: { 'Content-Type': blob.type || 'audio/mp4' },
+  }, { timeoutMs: VOICE_FETCH_MS, retries: 2, wakeFirst: false });
+  if (!ok) throw new Error(d.error || 'Konuşma anlaşılamadı — tekrar dene');
+  return { ...d, _last: last };
 }
 
 async function processEducationVoice(blob) {
@@ -1058,11 +1044,9 @@ async function processEducationVoice(blob) {
   showTyping();
   setUiState('PROCESSING');
 
-  const chatCtrl = new AbortController();
-  const chatTimer = setTimeout(() => chatCtrl.abort(), CHAT_FETCH_MS);
-  let d;
-  try {
-    const chatRes = await fetch(`/api/education/chat?${new URLSearchParams({ lang: S.learnLang })}`, {
+  const { ok, data: d } = await ApiClient.fetchJson(
+    `/api/education/chat?${new URLSearchParams({ lang: S.learnLang })}`,
+    {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1073,13 +1057,10 @@ async function processEducationVoice(blob) {
         speak_slow: S.speakSlow,
         user_lang: userLang,
       }),
-      signal: chatCtrl.signal,
-    });
-    d = await chatRes.json().catch(() => ({}));
-    if (!chatRes.ok) throw new Error(d.error || 'Bağlantı sorunu. Tekrar dene.');
-  } finally {
-    clearTimeout(chatTimer);
-  }
+    },
+    { timeoutMs: CHAT_FETCH_MS, retries: 2 },
+  );
+  if (!ok) throw new Error(d.error || 'Bağlantı sorunu. Tekrar dene.');
   d.user_text = original;
   d.user_lang = userLang;
   d._userShown = true;

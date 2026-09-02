@@ -10,7 +10,7 @@
   <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%23060B18' width='100' height='100' rx='20'/><text x='50' y='62' font-size='48' text-anchor='middle' fill='%2338BDF8'>🌍</text></svg>">
   <link rel="manifest" href="manifest.json">
   <title>iPhone — Adres & Yardım</title>
-  <meta name="app-version" content="2026.09.01-v39">
+  <meta name="app-version" content="2026.09.02-v40">
   <link rel="stylesheet" href="styles.css?v=62">
 </head>
 <body>
@@ -89,9 +89,10 @@
         statusCard.classList.toggle('mobil-status-fail', !ok);
       }
 
-      fetch('/api/status')
-        .then(function (r) { return r.json(); })
-        .then(function (d) {
+      ApiClient.wakeServer(30000).then(function (awake) {
+        return ApiClient.fetchJson('/api/status', {}, { wakeFirst: false, retries: 2, timeoutMs: 10000 });
+      }).then(function (res) {
+          var d = res.data || {};
           if (d.ok) {
             setStatus(true, 'Sunucu çalışıyor · bağlantı tamam');
           } else {
@@ -99,7 +100,7 @@
           }
         })
         .catch(function () {
-          setStatus(false, 'Sunucuya ulaşılamıyor — adres eski olabilir');
+          setStatus(false, 'Sunucuya ulaşılamıyor — birkaç saniye sonra yenile');
         });
 
       copyBtn.addEventListener('click', function () {
@@ -141,6 +142,7 @@
     <span id="appVersionText">Yükleniyor…</span>
     <button type="button" id="appUpdateBtn" class="app-update-btn hidden">Programı Güncelle</button>
   </div>
+  <script src="api-client.js?v=1"></script>
   <script src="app-version.js?v=1"></script>
   <script>document.addEventListener('DOMContentLoaded', () => AppVersion.init());</script>
 </body>

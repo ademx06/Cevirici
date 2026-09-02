@@ -25,7 +25,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.09.01-v39.7"
+APP_VERSION = "2026.09.02-v40"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -1421,7 +1421,7 @@ if __name__ == "__main__":
     import threading
 
     from public_url import persist_public_url, resolve_public_url
-    from telegram_bot import start_telegram_bot, send_telegram, _link_message, _load_env as _tg_env
+    from telegram_bot import start_telegram_bot, maybe_notify_startup, _load_env as _tg_env
 
     print(f"Serving {ROOT} on port {PORT}")
 
@@ -1440,9 +1440,9 @@ if __name__ == "__main__":
         print(f"Genel adres: {url}")
     bot = start_telegram_bot()
     if bot:
-        print("Telegram bot aktif — /link ile adres alınır")
+        print("Telegram bot aktif — /link ile adres alınır (otomatik bildirim kapalı)")
         chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
         if chat_id and url:
-            send_telegram(chat_id, _link_message(url))
+            maybe_notify_startup(chat_id, url)
     print("Hazır.")
     HTTPServer(("0.0.0.0", PORT), Handler).serve_forever()

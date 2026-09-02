@@ -3,3 +3,5 @@
 __pycache__/
 node_modules/
 PUBLIC_URL.txt
+TELEGRAM_OFFSET.txt
+TELEGRAM_LAST_NOTIFY.json

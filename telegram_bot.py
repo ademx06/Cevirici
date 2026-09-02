@@ -13,6 +13,8 @@ from public_url import persist_public_url, resolve_public_url
 
 ROOT = Path(__file__).resolve().parent
 ENV_FILE = ROOT / ".env"
+OFFSET_FILE = ROOT / "TELEGRAM_OFFSET.txt"
+LAST_NOTIFY_FILE = ROOT / "TELEGRAM_LAST_NOTIFY.json"
 
 LINK_CMDS = frozenset({"/start", "/link", "/adres", "start", "link", "adres", "başlat"})
 
@@ -42,8 +44,8 @@ def _link_message(url: str) -> str:
         )
     return (
         f"📱 Güncel link:\n\n{url}\n\n"
-        f"🎓 Eğitim:\n{url}/education.html?v=39\n\n"
-        f"🌍 Çeviri:\n{url}/translate.html?v=53\n\n"
+        f"🎓 Eğitim:\n{url}/education.html\n\n"
+        f"🌍 Çeviri:\n{url}/translate.html\n\n"
         "💡 Link değişince buraya /link yaz — yeni adresi gönderirim."
     )
 
@@ -67,6 +69,56 @@ def send_telegram(chat_id: str | int, text: str, token: str | None = None) -> bo
         return False
 
 
+def _startup_notify_enabled() -> bool:
+    return os.environ.get("TELEGRAM_NOTIFY_ON_START", "0").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _read_last_notify() -> dict:
+    if not LAST_NOTIFY_FILE.is_file():
+        return {}
+    try:
+        data = json.loads(LAST_NOTIFY_FILE.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _write_last_notify(url: str) -> None:
+    LAST_NOTIFY_FILE.write_text(
+        json.dumps({"url": url, "ts": int(time.time())}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+
+def maybe_notify_startup(chat_id: str | int, url: str) -> bool:
+    """Başlangıçta otomatik link — varsayılan KAPALI; yalnızca /link ile istenir."""
+    if not chat_id or not url:
+        return False
+    if not _startup_notify_enabled():
+        return False
+    last = _read_last_notify()
+    if last.get("url") == url:
+        return False
+    if send_telegram(chat_id, _link_message(url)):
+        _write_last_notify(url)
+        return True
+    return False
+
+
+def _load_offset() -> int:
+    if not OFFSET_FILE.is_file():
+        return 0
+    try:
+        return max(0, int(OFFSET_FILE.read_text(encoding="utf-8").strip()))
+    except ValueError:
+        return 0
+
+
+def _save_offset(offset: int) -> None:
+    if offset > 0:
+        OFFSET_FILE.write_text(str(offset), encoding="utf-8")
+
+
 def _handle_message(chat_id: int, text: str) -> None:
     cmd = (text or "").strip().lower().split()[0] if text else ""
     if cmd in LINK_CMDS or (text or "").strip().lower() in LINK_CMDS:
@@ -87,7 +139,7 @@ def poll_forever(interval: float = 2.0) -> None:
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
     if not token:
         return
-    offset = 0
+    offset = _load_offset()
     while True:
         try:
             req = Request(
@@ -104,6 +156,8 @@ def poll_forever(interval: float = 2.0) -> None:
                 text = msg.get("text") or ""
                 if chat_id and text:
                     _handle_message(chat_id, text)
+            if offset > 0:
+                _save_offset(offset)
         except Exception:
             time.sleep(interval)
         else:
@@ -124,6 +178,6 @@ if __name__ == "__main__":
     chat = os.environ.get("TELEGRAM_CHAT_ID", "")
     url = _find_tunnel_url()
     if chat:
-        send_telegram(chat, _link_message(url))
+        maybe_notify_startup(chat, url)
     print("Telegram bot dinliyor… /link için")
     poll_forever()

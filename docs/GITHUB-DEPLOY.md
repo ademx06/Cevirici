@@ -68,7 +68,9 @@ https://sesli-cevirmen.onrender.com
 
 Render’da `TELEGRAM_BOT_TOKEN` ve `TELEGRAM_CHAT_ID` tanımlıysa bot açılır.
 
-Telegram’da bota **`/link`** yazın → sabit Render adresini gönderir.
+**Otomatik link bildirimi varsayılan olarak kapalıdır** (`TELEGRAM_NOTIFY_ON_START=0`). Sunucu her yeniden başladığında Telegram’a link gitmez.
+
+Telegram’da bota **`/link`** yazın → güncel Render adresini gönderir.
 
 ---
 
