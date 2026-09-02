@@ -3267,7 +3267,7 @@ def _footwear_pattern_examples(W: str, T: str) -> list[dict[str, Any]]:
 
 
 def _accusative_possessive_tr(word_tr: str) -> str:
-    """İyelik + belirtme: araba → arabamı, bisiklet → bisikletimi."""
+    """İyelik + belirtme (1. tekil): araba → arabamı, bisiklet → bisikletimi."""
     low = word_tr.strip().lower()
     known = {
         "araba": "arabamı", "otomobil": "otomobilimi", "bisiklet": "bisikletimi",
@@ -3279,52 +3279,145 @@ def _accusative_possessive_tr(word_tr: str) -> str:
     return f"{p}ı"
 
 
+def _your_possessive_tr(word_tr: str) -> str:
+    """2. tekil iyelik: araba → araban."""
+    low = word_tr.strip().lower()
+    known = {
+        "araba": "araban", "otomobil": "otomobilin", "bisiklet": "bisikletin",
+        "cüzdan": "cüzdanın", "cuzdan": "cüzdanın", "şemsiye": "şemsiyen", "semsiye": "şemsiyen",
+    }
+    if low in known:
+        return known[low]
+    p = _possessive_tr(word_tr)
+    if p.endswith("ım"):
+        return p[:-2] + "ın"
+    if p.endswith("im"):
+        return p[:-2] + "in"
+    if p.endswith("um"):
+        return p[:-2] + "un"
+    if p.endswith("üm"):
+        return p[:-2] + "ün"
+    if p.endswith("m"):
+        return p[:-1] + "n"
+    return f"senin {low}"
+
+
+def _your_accusative_tr(word_tr: str) -> str:
+    """2. tekil iyelik + belirtme: araba → arabanı."""
+    low = word_tr.strip().lower()
+    known = {
+        "araba": "arabanı", "otomobil": "otomobilini", "bisiklet": "bisikletini",
+        "cüzdan": "cüzdanını", "cuzdan": "cüzdanını", "şemsiye": "şemsiyeni", "semsiye": "şemsiyeni",
+    }
+    if low in known:
+        return known[low]
+    yp = _your_possessive_tr(word_tr)
+    if yp.endswith(("a", "ı", "o", "u")):
+        return yp + "nı" if not yp.endswith("n") else yp + "ı"
+    if yp.endswith(("e", "i", "ö", "ü")):
+        return yp + "ni" if not yp.endswith("n") else yp + "i"
+    return yp + "ı"
+
+
 def _vehicle_pattern_examples(W: str, T: str) -> list[dict[str, Any]]:
-    """Taşıt — doğal Türkçe, iyelik ekleri."""
+    """Taşıt — doğal günlük Türkçe/İngilizce; iyelik ve belirtme halleri doğru."""
     tw = _en_target_word(T)
     my = f"my {tw}"
+    your = f"your {tw}"
     poss = _possessive_tr(W)
     acc = _accusative_possessive_tr(W)
+    your_p = _your_possessive_tr(W)
+    your_acc = _your_accusative_tr(W)
     w = W.lower()
-    drive_tr = "Her sabah arabamla işe gidiyorum." if w in ("araba", "otomobil") else f"Her gün {poss.lower()} kullanıyorum."
-    drive_en = "I drive to work every morning." if w in ("araba", "otomobil") else f"I ride {my} every day."
+    is_car = w in ("araba", "otomobil") or tw == "car"
+
+    if is_car:
+        return [
+            _pe(W, "Arabam garajda.", "My car is in the garage.", "basic",
+                "My car is in the garage",
+                "Temel: my car → arabam. Konum: in the garage → garajda.",
+                scenario_badge="🌅 RUTİN"),
+            _pe(W, "Her sabah arabamla işe gidiyorum.", "I drive to work every morning.", "present",
+                "I drive to work every morning",
+                "Günlük kullanım: drive to work → arabayla işe gitmek.",
+                scenario_badge="🔄 ŞU AN"),
+            _pe(W, "Geçen yıl yeni bir araba aldım.", "I bought a new car last year.", "past",
+                "I bought a new car last year",
+                "Geçmiş: bought → aldım.",
+                scenario_badge="🕐 GEÇMİŞ"),
+            _pe(W, "Yarın arabamı yıkatacağım.", "I'm going to wash my car tomorrow.", "future",
+                "I'm going to wash my car tomorrow",
+                "Gelecek plan: going to wash → yıkayacağım/yıkatacağım.",
+                scenario_badge="🔮 GELECEK"),
+            _pe(W, "Arabanı nereye park ettin?", "Where did you park your car?", "question",
+                "Where did you park your car?",
+                "Soru: Where did you park…? → Nereye park ettin?\n"
+                "your car → arabanı (belirtme hali).",
+                scenario_badge="❓ SORU"),
+            _pe(W, "Bugün arabamı kullanmıyorum.", "I'm not taking my car today.", "negative",
+                "I'm not taking my car today",
+                "Olumsuz: not taking my car → arabamı kullanmıyorum.",
+                scenario_badge="⛔ OLUMSUZ"),
+            _pe(W, "Arabayı buraya park et, lütfen.", "Park the car here, please.", "imperative",
+                "Park the car here, please",
+                "Emir: Park the car → Arabayı park et.",
+                scenario_badge="👉 EMİR"),
+            _pe(W, "Arabanı biraz ileri çekebilir misin?", "Could you move your car forward a little?", "polite_request",
+                "Could you move your car forward a little?",
+                "Rica: Could you move your car…? → Arabanı biraz ileri çekebilir misin?",
+                scenario_badge="🗣️ RİCA"),
+            _pe(W, "Uzun yola çıkmadan önce arabanı kontrol etmelisin.",
+                "You should check your car before a long trip.", "advice",
+                "You should check your car before a long trip",
+                "Tavsiye: should check your car → arabanı kontrol etmelisin.",
+                scenario_badge="🤝 TEKLİF"),
+            _pe(W, "Arabamı tamir ettirmem gerekiyor.", "I need to get my car fixed.", "obligation",
+                "I need to get my car fixed",
+                "Zorunluluk: get my car fixed → arabamı tamir ettirmek.",
+                scenario_badge="📋 ZORUNLULUK"),
+            _pe(W, "Arabam dışarıda olabilir.", "My car might be outside.", "possibility",
+                "My car might be outside",
+                "Olasılık: might be → olabilir.",
+                scenario_badge="🎲 İHTİMAL"),
+            _pe(W, "Trafik varsa arabayla gelmem.", "If there's traffic, I won't take the car.", "conditional",
+                "If there's traffic, I won't take the car",
+                "Koşul: If there's traffic… → Trafik varsa…",
+                scenario_badge="🔀 KOŞUL"),
+            _pe(W, "A: Araban var mı? B: Evet, ama bugün bozuk.",
+                "A: Do you have a car? B: Yes, but it's broken today.", "dialogue",
+                "Do you have a car?",
+                "Diyalog: Do you have a car? → Araban var mı?",
+                scenario_badge="💬 DİYALOG"),
+        ]
+
     return [
         _pe(W, f"{poss.capitalize()} garajda.", f"{my.capitalize()} is in the garage.", "basic",
             f"{my} is in the garage", f"Temel: my {tw} → {poss}.", scenario_badge="🌅 RUTİN"),
-        _pe(W, drive_tr, drive_en, "present",
-            "present use", "Şimdiki zaman: günlük kullanım.", scenario_badge="🔄 ŞU AN"),
+        _pe(W, f"Her gün {poss.lower()} kullanıyorum.", f"I use {my} every day.", "present",
+            f"I use {my} every day", "Şimdiki zaman: günlük kullanım.", scenario_badge="🔄 ŞU AN"),
         _pe(W, f"Geçen yıl yeni bir {w} aldım.", f"I bought a new {tw} last year.", "past",
             f"bought a new {tw}", "Geçmiş: bought → aldım.", scenario_badge="🕐 GEÇMİŞ"),
-        _pe(W, f"Yarın {acc} yıkatacağım.", f"I will wash {my} tomorrow.", "future",
-            f"will wash {my}", "Gelecek: will wash → yıkatacağım/yıkayacağım.", scenario_badge="🔮 GELECEK"),
-        _pe(W, f"{poss.capitalize()} nerede park ettin?" if w in ("araba", "otomobil") else f"{poss.capitalize()} nerede?",
-            f"Where did you park your {tw}?" if w in ("araba", "otomobil") else f"Where is {my}?",
-            "question", "Where did you park" if w in ("araba", "otomobil") else f"Where is {my}",
-            "Soru cümlesi"),
+        _pe(W, f"Yarın {acc} yıkatacağım.", f"I'm going to wash {my} tomorrow.", "future",
+            f"going to wash {my}", "Gelecek plan.", scenario_badge="🔮 GELECEK"),
+        _pe(W, f"{your_acc.capitalize()} nereye koydun?", f"Where did you put {your}?", "question",
+            f"Where did you put {your}", "Soru cümlesi.", scenario_badge="❓ SORU"),
         _pe(W, f"Bugün {acc} kullanmıyorum.", f"I'm not using {my} today.", "negative",
             f"not using {my}", "Olumsuz cümle.", scenario_badge="⛔ OLUMSUZ"),
-        _pe(W, f"{acc.capitalize()} buraya park et!" if w in ("araba", "otomobil") else f"{acc.capitalize()} buraya getir.",
-            f"Park the {tw} here!" if w in ("araba", "otomobil") else f"Bring {my} here!",
-            "imperative", f"Park the {tw}" if w in ("araba", "otomobil") else f"Bring {my}",
-            "Emir kipi"),
-        _pe(W, f"{poss.capitalize()} biraz ileri sürebilir misin?" if w in ("araba", "otomobil") else f"{poss.capitalize()} ödünç alabilir miyim?",
-            f"Could you move your {tw} forward a little?" if w in ("araba", "otomobil") else f"Can I borrow {my}?",
-            "polite_request", "Could you move your car" if w in ("araba", "otomobil") else f"Can I borrow {my}",
-            "Rica cümlesi"),
-        _pe(W, f"Uzun yola çıkmadan önce {poss.lower()} kontrol etmelisin." if w in ("araba", "otomobil") else f"{poss.capitalize()} dikkatli kullanmalısın.",
-            f"You should check your {tw} before a long trip." if w in ("araba", "otomobil") else f"You should take care of {my}.",
-            "advice", "should check your car" if w in ("araba", "otomobil") else f"take care of {my}",
-            "Tavsiye cümlesi"),
+        _pe(W, f"{acc.capitalize()} buraya getir, lütfen.", f"Bring {my} here, please.", "imperative",
+            f"Bring {my} here", "Emir kipi.", scenario_badge="👉 EMİR"),
+        _pe(W, f"{your_acc.capitalize()} ödünç alabilir miyim?", f"Can I borrow {your}?", "polite_request",
+            f"Can I borrow {your}", "Rica cümlesi.", scenario_badge="🗣️ RİCA"),
+        _pe(W, f"{your_acc.capitalize()} dikkatli kullanmalısın.", f"You should take care of {your}.", "advice",
+            f"take care of {your}", "Tavsiye cümlesi.", scenario_badge="🤝 TEKLİF"),
         _pe(W, f"{acc.capitalize()} tamir ettirmem gerekiyor.", f"I need to get {my} fixed.", "obligation",
-            f"need to get {my} fixed", "Zorunluluk: tamir ettirmek."),
+            f"need to get {my} fixed", "Zorunluluk.", scenario_badge="📋 ZORUNLULUK"),
         _pe(W, f"{poss.capitalize()} dışarıda olabilir.", f"{my.capitalize()} might be outside.", "possibility",
-            "might be outside", "Olasılık cümlesi."),
-        _pe(W, f"{acc.capitalize()} bulursam sana haber veririm.", f"If I find {my}, I will call you.", "conditional",
-            f"If I find {my}", "Koşul cümlesi."),
-        _pe(W, f"A: {poss.capitalize()} var mı? B: Evet, ama bugün bozuk." if w in ("araba", "otomobil") else f"A: {poss.capitalize()} nerede? B: Orada.",
-            f"A: Do you have a {tw}? B: Yes, but it's broken today." if w in ("araba", "otomobil") else f"A: Where is {my}? B: Over there.",
-            "dialogue", "Do you have a car" if w in ("araba", "otomobil") else f"Where is {my}",
-            "Günlük diyalog"),
+            "might be outside", "Olasılık cümlesi.", scenario_badge="🎲 İHTİMAL"),
+        _pe(W, f"{acc.capitalize()} bulursam sana haber veririm.", f"If I find {my}, I'll call you.", "conditional",
+            f"If I find {my}", "Koşul cümlesi.", scenario_badge="🔀 KOŞUL"),
+        _pe(W, f"A: {your_p.capitalize()} var mı? B: Evet, ama bugün bozuk.",
+            f"A: Do you have a {tw}? B: Yes, but it's broken today.", "dialogue",
+            f"Do you have a {tw}", "Günlük diyalog.", scenario_badge="💬 DİYALOG"),
     ]
 
 

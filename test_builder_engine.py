@@ -972,10 +972,19 @@ def test_araba_car_natural():
     articles = (r.get("usage") or {}).get("article_notes_items") or []
     assert articles, "article notes missing"
     assert any("arabam" in safe_str(a.get("tr")).lower() for a in articles)
+    bad_tr = (
+        "arabam nerede park",
+        "arabam biraz ileri",
+        "arabam kontrol etmelisin",
+        "a: arabam var mı",
+    )
     for e in r.get("examples") or []:
         tr = safe_str(e.get("tr"))
+        low = tr.lower()
         assert not _is_mechanical_turkish(tr, "araba"), f"mechanical TR: {tr!r}"
         assert len(tr.split()) >= 2
+        for bad in bad_tr:
+            assert bad not in low, f"awkward TR: {tr!r}"
     print("TEST araba car natural OK")
 
 
