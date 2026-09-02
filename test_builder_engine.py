@@ -525,8 +525,7 @@ def test_ai_first_pipeline_without_llm():
 
 
 def test_ai_only_mode_no_template_fallback():
-    """Canlı modda API kapalıyken şablon yerine hata döner."""
-    import education_engine
+    """Canlı modda AI kapalıysa kural yedeği ile ders döner (hata değil)."""
     from unittest.mock import patch
     from word_teaching_engine import ai_only_lesson_enabled
 
@@ -534,12 +533,13 @@ def test_ai_only_mode_no_template_fallback():
     old_groq = os.environ.get("GROQ_API_KEY")
     os.environ["GROQ_API_KEY"] = "gsk_test_key_for_unit_tests"
     try:
-        with patch.object(education_engine, "_llm_json", return_value=None):
+        with patch("word_teaching_engine._llm_json_word_lesson", return_value=None):
             assert ai_only_lesson_enabled("en")
             r = generate_word_lesson("araba", "en", fake_translate)
-            assert not r["ok"], f"Şablon yedek beklenmiyor: {r}"
-            assert r.get("ai_retry"), r
-        print("TEST ai-only no template fallback OK")
+            assert r["ok"], f"Kural yedek bekleniyor: {r}"
+            assert len(r.get("examples") or []) >= 13
+            assert r.get("lesson_source") in ("rules", "hybrid")
+        print("TEST ai-only rule fallback OK")
     finally:
         if old_flag is not None:
             os.environ["WORD_LESSON_ALLOW_TEMPLATES"] = old_flag

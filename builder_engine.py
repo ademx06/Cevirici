@@ -1,7 +1,7 @@
 """Cümle Kur + Kendini Test Et — kelime/cümle üretimi, yapılandırılmış analiz, telaffuz."""
 from __future__ import annotations
 
-APP_VERSION = "2026.09.02-v62"
+APP_VERSION = "2026.09.02-v63"
 
 import difflib
 import json
@@ -37,6 +37,7 @@ from word_teaching_engine import (
     detect_category,
     enforce_category_usage_profile,
     generate_examples_from_profile,
+    is_llm_api_failure,
     rule_sentence_teaching,
     build_rich_word_explanation,
     resolve_target_word,
@@ -363,6 +364,7 @@ def generate_word_lesson(
     category = detect_category(word_tr, target_word)
     ai_only = ai_only_lesson_enabled(target_lang)
     ai_issues: list[str] = []
+    ai_example_count = 0
 
     if llm_available() and target_lang == "en":
         ai_profile, ai_examples, ai_issues = try_ai_word_lesson(
@@ -375,28 +377,37 @@ def generate_word_lesson(
                 if _validate_example(enriched):
                     examples.append(enriched)
             examples = sanitize_word_examples(examples, word_tr, target_word, profile)
+            ai_example_count = len(examples)
 
-    if ai_only:
-        if len(examples) < 6:
-            profile, examples, category = guarantee_word_lesson(
-                word_tr, target_word, target_lang, profile, examples, translate_fn, ai_only=True,
-            )
-        else:
-            category = profile.get("semantic_category") or detect_category(word_tr, target_word)
-        if len(examples) < 7:
-            return {
-                "ok": False,
-                "error_tr": (
-                    f"«{word_tr}» için AI dersi şu an tamamlanamadı. "
-                    "Lütfen birkaç saniye sonra tekrar dene."
-                ),
-                "ai_retry": True,
-                "debug_issue": (ai_issues[0] if ai_issues else "yetersiz örnek")[:120],
-            }
-    else:
+    lesson_source = "ai" if ai_example_count >= 7 else ("hybrid" if ai_example_count >= 4 else "rules")
+
+    if ai_only and len(examples) < 7:
         profile, examples, category = _apply_quality_word_lesson_fallbacks(
             word_tr, target_word, target_lang, profile, examples, translate_fn, known_words,
         )
+        if ai_example_count >= 4:
+            lesson_source = "hybrid"
+        else:
+            lesson_source = "rules"
+    elif not ai_only:
+        profile, examples, category = _apply_quality_word_lesson_fallbacks(
+            word_tr, target_word, target_lang, profile, examples, translate_fn, known_words,
+        )
+        if ai_example_count >= 7:
+            lesson_source = "ai"
+        elif ai_example_count >= 4:
+            lesson_source = "hybrid"
+
+    if len(examples) < 4:
+        return {
+            "ok": False,
+            "error_tr": (
+                f"«{word_tr}» için ders şu an tamamlanamadı. "
+                "Lütfen birkaç saniye sonra tekrar dene."
+            ),
+            "ai_retry": bool(ai_issues and is_llm_api_failure(ai_issues)),
+            "debug_issue": (ai_issues[0] if ai_issues else "yetersiz örnek")[:120],
+        }
 
     examples = upgrade_word_lesson_teaching(examples, word_tr, target_word, profile)
 
@@ -426,6 +437,7 @@ def generate_word_lesson(
         "english_variant": ENGLISH_VARIANT,
         "usage": usage,
         "examples": examples[:13],
+        "lesson_source": lesson_source,
     }
 
 
