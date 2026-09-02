@@ -1,7 +1,7 @@
 """Cümle Kur + Kendini Test Et — kelime/cümle üretimi, yapılandırılmış analiz, telaffuz."""
 from __future__ import annotations
 
-APP_VERSION = "2026.09.02-v51"
+APP_VERSION = "2026.09.02-v52"
 
 import difflib
 import json
@@ -376,7 +376,7 @@ def generate_word_lesson(
             examples = sanitize_word_examples(examples, word_tr, target_word, profile)
 
     if ai_only:
-        if len(examples) < 8:
+        if len(examples) < 6:
             profile, examples, category = guarantee_word_lesson(
                 word_tr, target_word, target_lang, profile, examples, translate_fn, ai_only=True,
             )

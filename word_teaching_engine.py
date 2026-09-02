@@ -34,7 +34,7 @@ Türkçe: «{word_tr}» → İngilizce: «{target_word}» | Tür: {pos_label} | 
 - Hedef kelime her İngilizce cümlede doğal geçsin
 - tr: tam doğal Türkçe cümle (iyelik: arabam, cüzdanım)
 - how_it_is_formed_tr: min 50 karakter (1️⃣ anlam 2️⃣ yapı)
-- word_breakdown: token, role_tr, meaning_tr
+- word_breakdown: yalnızca 3-5 önemli token (token, role_tr, meaning_tr)
 
 JSON döndür:
 {{"meaning_tr":"","part_of_speech":"","countability":"","semantic_category":"","usage_notes_tr":"","common_verbs":[],"common_collocations":[],"article_notes_items":[],"avoid_reason_tr":"","examples":[{{"tr":"","target":"","sentence_type":"","structure_tr":"","how_it_is_formed_tr":"","word_breakdown":[]}}]}}"""
@@ -4358,13 +4358,13 @@ def _llm_generate_dynamic_lesson(
         if ex:
             examples.append(ex)
     examples = sanitize_word_examples(examples, word_tr, target_word, profile)
-    if len(examples) < 8:
+    if len(examples) < 6:
         ideas = _examples_from_profile_content(profile, word_tr, target_word)
         for ex in ideas:
             if ex not in examples:
                 examples.append(ex)
         examples = sanitize_word_examples(examples, word_tr, target_word, profile)
-    if len(examples) < 8:
+    if len(examples) < 6:
         return None
     return {"profile": profile, "examples": examples[:13]}
 

@@ -3551,11 +3551,11 @@ def _llm_chat_json_raw(
     """Tek sağlayıcıdan ham JSON metin al."""
     messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
     if provider == "groq":
-        timeout = min(35, _llm_request_timeout(max_tokens)) if max_tokens >= 2500 else _llm_request_timeout(max_tokens)
+        timeout = min(25, _llm_request_timeout(max_tokens)) if max_tokens >= 2500 else _llm_request_timeout(max_tokens)
         return _groq_chat(messages, max_tokens=max_tokens, json_mode=True, timeout_sec=timeout)
     if provider == "gemini":
         word_lesson = max_tokens >= 2500
-        timeout = 40 if word_lesson else None
+        timeout = 50 if word_lesson else None
         return _gemini_api_request({
             "systemInstruction": {"parts": [{"text": system}]},
             "contents": [{"role": "user", "parts": [{"text": user}]}],
@@ -3617,24 +3617,24 @@ def _llm_json(
 
 
 def _llm_json_word_lesson(system: str, user: str, max_tokens: int = 3200) -> dict[str, Any] | None:
-    """Kelime dersi — tek hızlı çağrı (Groq önce, yedek Gemini)."""
-    prefer = os.environ.get("WORD_LESSON_PROVIDER", "groq").strip().lower()
+    """Kelime dersi — tek hızlı çağrı (Gemini birincil, Groq yedek)."""
+    prefer = os.environ.get("WORD_LESSON_PROVIDER", "gemini").strip().lower()
     providers: list[str] = []
-    if prefer == "gemini":
-        if os.environ.get("GEMINI_API_KEY", "").strip():
-            providers.append("gemini")
+    if prefer == "groq":
         if os.environ.get("GROQ_API_KEY", "").strip():
             providers.append("groq")
+        if os.environ.get("GEMINI_API_KEY", "").strip():
+            providers.append("gemini")
     else:
-        if os.environ.get("GROQ_API_KEY", "").strip():
-            providers.append("groq")
         if os.environ.get("GEMINI_API_KEY", "").strip():
             providers.append("gemini")
+        if os.environ.get("GROQ_API_KEY", "").strip():
+            providers.append("groq")
     for provider in providers:
         raw = _llm_chat_json_raw(provider, system, user, max_tokens)
         if raw:
             parsed = _parse_json_object(raw)
-            if parsed:
+            if parsed and isinstance(parsed.get("examples"), list) and len(parsed["examples"]) >= 4:
                 return parsed
     return None
 
