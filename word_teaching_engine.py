@@ -366,6 +366,15 @@ CATEGORY_VERB_MEANINGS: dict[str, dict[str, str]] = {
         "find": "bulmak",
         "seek": "aramak",
     },
+    "place": {
+        "go": "gitmek",
+        "go to": "gitmek",
+        "be at": "bulunmak",
+        "visit": "ziyaret etmek",
+        "leave": "ayrılmak",
+        "buy": "satın almak",
+        "shop": "alışveriş yapmak",
+    },
 }
 
 PHRASAL_VERB_PRON: dict[str, dict[str, str]] = {
@@ -5021,9 +5030,7 @@ def upgrade_word_lesson_teaching(
     target_word: str,
     profile: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    """AI açıklamalarını şablon kalıplarıyla güçlendir — yalnızca geliştirme modunda."""
-    if not templates_allowed():
-        return examples
+    """İnce AI açıklamalarını kural kalıplarıyla güçlendir."""
     patterns = build_rule_examples_for_word(word_tr, target_word, profile)
     if not patterns:
         return examples
@@ -5177,6 +5184,32 @@ def _lesson_category(word_tr: str, target_word: str, profile: dict[str, Any] | N
     return category
 
 
+def merge_rule_usage_profile(
+    profile: dict[str, Any],
+    word_tr: str,
+    target_word: str,
+    target_lang: str,
+) -> dict[str, Any]:
+    """Kullanım haritası alanlarını kural profiliyle doldur — AI boş bıraksa bile."""
+    category = detect_category(word_tr, target_word)
+    rule = _rule_word_profile(word_tr, target_word, target_lang, category)
+    rule = enforce_category_usage_profile(rule, word_tr, target_word, target_lang)
+    if _is_wallet_like(word_tr, target_word):
+        rule["common_verbs"] = ["lose", "find", "check", "carry", "buy", "forget"]
+    elif _is_umbrella_like(word_tr, target_word):
+        rule["common_verbs"] = ["open", "close", "carry", "bring", "forget", "buy"]
+    elif _is_market_like(word_tr, target_word):
+        rule["common_verbs"] = ["go", "buy", "shop", "visit", "check", "need"]
+    out = dict(profile)
+    for key in CATEGORY_USAGE_KEYS:
+        if rule.get(key):
+            out[key] = rule[key]
+    if rule.get("meaning_tr"):
+        out["meaning_tr"] = rule["meaning_tr"]
+    out["semantic_category"] = rule.get("semantic_category") or out.get("semantic_category") or category
+    return out
+
+
 def guarantee_word_lesson(
     word_tr: str,
     target_word: str,
@@ -5186,6 +5219,7 @@ def guarantee_word_lesson(
     translate_fn: Callable[[str, str, str], str] | None = None,
     *,
     ai_only: bool = False,
+    skip_llm: bool = False,
 ) -> tuple[dict[str, Any], list[dict[str, Any]], str]:
     """Ders tamamlama: ai_only modunda yalnızca AI içeriği korunur, şablon eklenmez."""
     category = _lesson_category(word_tr, target_word, profile)
@@ -5238,7 +5272,7 @@ def guarantee_word_lesson(
             if len(examples) >= 13:
                 break
 
-    if len(examples) < 13 and not ai_only and llm_available() and target_lang == "en":
+    if len(examples) < 13 and not ai_only and not skip_llm and llm_available() and target_lang == "en":
         ai_profile, ai_examples, _ = try_ai_word_lesson(word_tr, target_word, target_lang, profile)
         if ai_examples:
             profile = {**profile, **ai_profile}
@@ -5449,12 +5483,13 @@ def build_usage_from_profile(
     if word_phrases:
         phrase_src = word_phrases
     elif coll:
-        for c in coll[:6]:
+        for c in coll[:8]:
             en = safe_str(c).strip()
-            if not en or not _is_full_sentence(en, min_words=2):
+            if not en:
                 continue
             tr = phrase_lookup.get(en.lower(), "") or _phrase_meaning_tr(en)
-            phrase_src.append({"en": en, "tr": tr})
+            if tr:
+                phrase_src.append({"en": en, "tr": tr})
     if not phrase_src and category in CATEGORY_PHRASES:
         phrase_src = [p for p in CATEGORY_PHRASES.get(category, []) if isinstance(p, dict) and p.get("tr")]
     phrases_enriched: list[dict[str, str]] = []

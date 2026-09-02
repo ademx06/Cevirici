@@ -1,7 +1,7 @@
 """Cümle Kur + Kendini Test Et — kelime/cümle üretimi, yapılandırılmış analiz, telaffuz."""
 from __future__ import annotations
 
-APP_VERSION = "2026.09.02-v63"
+APP_VERSION = "2026.09.02-v64"
 
 import difflib
 import json
@@ -38,6 +38,7 @@ from word_teaching_engine import (
     enforce_category_usage_profile,
     generate_examples_from_profile,
     is_llm_api_failure,
+    merge_rule_usage_profile,
     rule_sentence_teaching,
     build_rich_word_explanation,
     resolve_target_word,
@@ -49,6 +50,7 @@ from word_teaching_engine import (
     templates_allowed,
     upgrade_word_lesson_teaching,
     _rule_word_profile,
+    _thirteen_pattern_examples_en,
 )
 # ── Yasak / şablon açıklamalar ──
 GENERIC_BANNED_RE = re.compile(
@@ -333,6 +335,53 @@ def _apply_quality_word_lesson_fallbacks(
     return profile, examples, category
 
 
+def _fast_complete_word_lesson(
+    word_tr: str,
+    target_word: str,
+    target_lang: str,
+    profile: dict[str, Any],
+    examples: list[dict[str, Any]],
+    translate_fn: Callable[[str, str, str], str] | None,
+    known_words: set[str],
+) -> tuple[dict[str, Any], list[dict[str, Any]], str]:
+    """LLM çağrısı olmadan kural kalıplarıyla dersi tamamla — hızlı yedek."""
+    category = detect_category(word_tr, target_word)
+    profile = merge_rule_usage_profile(profile, word_tr, target_word, target_lang)
+    seen = {_norm(safe_str(ex.get("target"))) for ex in examples if safe_str(ex.get("target")).strip()}
+
+    if len(examples) < 13:
+        for ex in _thirteen_pattern_examples_en(word_tr, target_word, category):
+            key = _norm(safe_str(ex.get("target")))
+            if not key or key in seen:
+                continue
+            enriched = _enrich_example(dict(ex), target_lang, [target_word], known_words)
+            if _validate_example(enriched):
+                examples.append(enriched)
+                seen.add(key)
+            if len(examples) >= 13:
+                break
+
+    if len(examples) < 13:
+        rule_profile = _rule_word_profile(word_tr, target_word, target_lang, category)
+        for ex in build_rule_examples_for_word(word_tr, target_word, rule_profile):
+            key = _norm(safe_str(ex.get("target")))
+            if not key or key in seen:
+                continue
+            enriched = _enrich_example(dict(ex), target_lang, [target_word], known_words)
+            if _validate_example(enriched):
+                examples.append(enriched)
+                seen.add(key)
+            if len(examples) >= 13:
+                break
+
+    examples = sanitize_word_examples(examples, word_tr, target_word, profile, translate_fn)
+    profile, examples, category = guarantee_word_lesson(
+        word_tr, target_word, target_lang, profile, examples, translate_fn,
+        ai_only=False, skip_llm=True,
+    )
+    return profile, examples, category
+
+
 def generate_word_lesson(
     word_tr: str,
     target_lang: str,
@@ -379,24 +428,16 @@ def generate_word_lesson(
             examples = sanitize_word_examples(examples, word_tr, target_word, profile)
             ai_example_count = len(examples)
 
-    lesson_source = "ai" if ai_example_count >= 7 else ("hybrid" if ai_example_count >= 4 else "rules")
+    lesson_source = "ai" if ai_example_count >= 7 else ("hybrid" if ai_example_count >= 1 else "rules")
 
-    if ai_only and len(examples) < 7:
-        profile, examples, category = _apply_quality_word_lesson_fallbacks(
+    if len(examples) < 13:
+        profile, examples, category = _fast_complete_word_lesson(
             word_tr, target_word, target_lang, profile, examples, translate_fn, known_words,
         )
-        if ai_example_count >= 4:
-            lesson_source = "hybrid"
+        if ai_example_count >= 1:
+            lesson_source = "hybrid" if ai_example_count < 7 else "ai+rules"
         else:
             lesson_source = "rules"
-    elif not ai_only:
-        profile, examples, category = _apply_quality_word_lesson_fallbacks(
-            word_tr, target_word, target_lang, profile, examples, translate_fn, known_words,
-        )
-        if ai_example_count >= 7:
-            lesson_source = "ai"
-        elif ai_example_count >= 4:
-            lesson_source = "hybrid"
 
     if len(examples) < 4:
         return {
@@ -411,7 +452,7 @@ def generate_word_lesson(
 
     examples = upgrade_word_lesson_teaching(examples, word_tr, target_word, profile)
 
-    profile = enforce_category_usage_profile(profile, word_tr, target_word, target_lang)
+    profile = merge_rule_usage_profile(profile, word_tr, target_word, target_lang)
     tw_pron = get_word(target_lang, target_word)
     usage = build_usage_from_profile(profile, target_lang, target_word, word_tr)
     if profile.get("regional_variants"):
