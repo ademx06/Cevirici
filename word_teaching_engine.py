@@ -1308,6 +1308,10 @@ def _tr_contains_word(text: str, word_tr: str) -> bool:
     t = _norm(text)
     if wt in t:
         return True
+    if wt.endswith("mek") or wt.endswith("mak"):
+        stem = wt[:-3]
+        if stem and stem in t:
+            return True
     if len(wt) >= 4 and wt[:-1] in t:
         return True
     return False
@@ -4634,9 +4638,8 @@ def _validate_word_example(
         return False
     if _is_adjective_noun_misuse(target, word_tr, target_word, profile):
         return False
-    if tw and tw not in norm_target and f"{tw}s" not in norm_target:
-        if not _target_word_in_sentence(norm_target, tw):
-            return False
+    if tw and not _target_word_in_sentence(target, target_word, word_tr):
+        return False
     return True
 
 
