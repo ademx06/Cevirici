@@ -3267,9 +3267,48 @@ def motivation_message(profile: dict) -> str | None:
     return None
 
 
+def groq_api_key_valid() -> bool:
+    """Groq anahtarı gsk_ ile başlamalı — xAI Grok anahtarı çalışmaz."""
+    key = os.environ.get("GROQ_API_KEY", "").strip()
+    return bool(key) and key.startswith("gsk_")
+
+
+def groq_api_key_status() -> dict[str, str | bool | None]:
+    key = os.environ.get("GROQ_API_KEY", "").strip()
+    if not key:
+        return {
+            "configured": False,
+            "valid_format": False,
+            "hint_tr": (
+                "Groq API anahtarı yok. iPhone Safari: console.groq.com → API Keys → "
+                "Create → gsk_... anahtarını Render'da GROQ_API_KEY olarak kaydedin."
+            ),
+        }
+    if key.startswith("gsk_"):
+        return {"configured": True, "valid_format": True, "hint_tr": None}
+    if key.startswith("xai-"):
+        return {
+            "configured": True,
+            "valid_format": False,
+            "hint_tr": (
+                "Bu xAI Grok anahtarı (xai-...). Bu uygulama Groq kullanır — "
+                "console.groq.com adresinden gsk_... ile başlayan ücretsiz anahtar alın. "
+                "xAI Grok anahtarı burada çalışmaz."
+            ),
+        }
+    return {
+        "configured": True,
+        "valid_format": False,
+        "hint_tr": (
+            "GROQ_API_KEY geçersiz format. Groq anahtarı gsk_ ile başlamalı "
+            "(console.groq.com). xAI Grok anahtarı değil."
+        ),
+    }
+
+
 def _active_llm_provider() -> str | None:
     """Öncelik: Groq/Gemini ücretsiz, sonra OpenAI."""
-    if os.environ.get("GROQ_API_KEY", "").strip():
+    if groq_api_key_valid():
         return "groq"
     if os.environ.get("GEMINI_API_KEY", "").strip():
         return "gemini"
@@ -3497,9 +3536,12 @@ def _groq_chat(
     json_mode: bool = False,
     *,
     timeout_sec: int | None = None,
+    model: str | None = None,
 ) -> str | None:
+    if not groq_api_key_valid():
+        return None
     body: dict[str, Any] = {
-        "model": os.environ.get("GROQ_MODEL", "qwen/qwen3.8-27b"),
+        "model": model or os.environ.get("GROQ_MODEL", "qwen/qwen3.8-27b"),
         "messages": messages,
         "temperature": 0.55,
         "max_tokens": max_tokens,
@@ -3533,7 +3575,7 @@ def _gemini_chat(system: str, user: str, max_tokens: int = 520) -> str | None:
 def _llm_providers_in_order() -> list[str]:
     """Tüm yapılandırılmış sağlayıcılar — Groq başarısız olursa sıradaki denenir."""
     providers: list[str] = []
-    if os.environ.get("GROQ_API_KEY", "").strip():
+    if groq_api_key_valid():
         providers.append("groq")
     if os.environ.get("GEMINI_API_KEY", "").strip():
         providers.append("gemini")
@@ -3551,8 +3593,18 @@ def _llm_chat_json_raw(
     """Tek sağlayıcıdan ham JSON metin al."""
     messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
     if provider == "groq":
-        timeout = min(25, _llm_request_timeout(max_tokens)) if max_tokens >= 2500 else _llm_request_timeout(max_tokens)
-        return _groq_chat(messages, max_tokens=max_tokens, json_mode=True, timeout_sec=timeout)
+        word_lesson = max_tokens >= 2000
+        groq_model = (
+            os.environ.get("GROQ_WORD_LESSON_MODEL", "llama-3.1-8b-instant")
+            if word_lesson
+            else os.environ.get("GROQ_TRANSLATE_MODEL", "llama-3.1-8b-instant")
+            if max_tokens <= 600
+            else None
+        )
+        timeout = min(12, _llm_request_timeout(max_tokens)) if word_lesson else _llm_request_timeout(max_tokens)
+        return _groq_chat(
+            messages, max_tokens=max_tokens, json_mode=True, timeout_sec=timeout, model=groq_model,
+        )
     if provider == "gemini":
         word_lesson = max_tokens >= 2500
         timeout = 50 if word_lesson else None
@@ -3616,19 +3668,19 @@ def _llm_json(
     return None
 
 
-def _llm_json_word_lesson(system: str, user: str, max_tokens: int = 2800) -> dict[str, Any] | None:
-    """Kelime dersi — tek hızlı çağrı (Gemini birincil, Groq yedek)."""
-    prefer = os.environ.get("WORD_LESSON_PROVIDER", "gemini").strip().lower()
+def _llm_json_word_lesson(system: str, user: str, max_tokens: int = 2400) -> dict[str, Any] | None:
+    """Kelime dersi — Groq birincil (hızlı), Gemini yedek."""
+    prefer = os.environ.get("WORD_LESSON_PROVIDER", "groq").strip().lower()
     providers: list[str] = []
     if prefer == "groq":
-        if os.environ.get("GROQ_API_KEY", "").strip():
+        if groq_api_key_valid():
             providers.append("groq")
         if os.environ.get("GEMINI_API_KEY", "").strip():
             providers.append("gemini")
     else:
         if os.environ.get("GEMINI_API_KEY", "").strip():
             providers.append("gemini")
-        if os.environ.get("GROQ_API_KEY", "").strip():
+        if groq_api_key_valid():
             providers.append("groq")
     for provider in providers:
         raw = _llm_chat_json_raw(provider, system, user, max_tokens)
@@ -3640,7 +3692,7 @@ def _llm_json_word_lesson(system: str, user: str, max_tokens: int = 2800) -> dic
 
 
 def llm_translate(text: str, from_lang: str, to_lang: str) -> str | None:
-    """Doğal çeviri — Groq/Gemini (diğer dillerde Google'dan daha isabetli)."""
+    """Doğal çeviri — Groq hızlı model (JSON yerine düz metin)."""
     src = safe_str(text).strip()
     if not src or not llm_available():
         return None
@@ -3649,13 +3701,29 @@ def llm_translate(text: str, from_lang: str, to_lang: str) -> str | None:
     system = (
         f"You are a professional translator. Translate from {from_name} to {to_name}.\n"
         "Natural, conversational phrasing. Preserve meaning and tone.\n"
-        'Return ONLY JSON: {"text": "translation"}'
+        "Reply with ONLY the translation — no quotes, no explanation."
     )
-    parsed = _llm_json(system, src[:800], max_tokens=min(480, 60 + len(src) // 2))
-    if not parsed:
-        return None
-    out = safe_str(parsed.get("text") or parsed.get("translation") or parsed.get("translated")).strip()
-    return out or None
+    translate_model = os.environ.get("GROQ_TRANSLATE_MODEL", "llama-3.1-8b-instant")
+    for provider in _llm_providers_in_order():
+        if provider == "groq":
+            raw = _groq_chat(
+                [{"role": "system", "content": system}, {"role": "user", "content": src[:800]}],
+                max_tokens=min(480, 60 + len(src) // 2),
+                timeout_sec=10,
+                model=translate_model,
+            )
+        elif provider == "gemini":
+            raw = _gemini_chat(system, src[:800], max_tokens=min(480, 60 + len(src) // 2))
+        else:
+            raw = _openai_chat(
+                [{"role": "system", "content": system}, {"role": "user", "content": src[:800]}],
+                max_tokens=min(480, 60 + len(src) // 2),
+            )
+        if raw:
+            line = raw.strip().strip('"').strip("'").split("\n")[0].strip()
+            if line and len(line) >= 1:
+                return line
+    return None
 
 
 def _recent_teacher_questions(history: list[dict], profile: dict, limit: int = 5) -> str:

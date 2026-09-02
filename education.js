@@ -293,14 +293,21 @@ async function fetchAiStatus() {
     const { data: d } = await ApiClient.fetchJson('/api/status', {}, { wakeFirst: false, retries: 1, timeoutMs: 8000 });
     const banner = $('aiBanner');
     if (!banner) return;
+    if (d.groq_key_configured && d.groq_key_valid === false && d.groq_key_hint_tr) {
+      banner.textContent = '⚠️ ' + d.groq_key_hint_tr;
+      banner.classList.remove('hidden');
+      safeText('statusText', 'Groq anahtarı hatalı');
+      return;
+    }
     if (d.ai_enabled) {
       banner.classList.add('hidden');
       safeText('statusText', d.ai_provider_label ? `AI: ${d.ai_provider_label}` : 'AI öğretmen aktif');
       return;
     }
     banner.textContent =
-      '⚠️ AI öğretmen kapalı. ÜCRETSİZ açmak için iPhone Safari: console.groq.com → Sign up → '
-      + 'API Keys → Create → gsk_... anahtarını bana gönder (kredi kartı gerekmez).';
+      '⚠️ AI öğretmen kapalı. ÜCRETSİZ Groq anahtarı: iPhone Safari → console.groq.com → '
+      + 'Sign up → API Keys → Create → gsk_... anahtarını Render\'da GROQ_API_KEY olarak kaydet '
+      + '(xAI Grok değil — gsk_ ile başlamalı, kredi kartı gerekmez).';
     banner.classList.remove('hidden');
     safeText('statusText', 'Kural modu (AI kapalı)');
   } catch {

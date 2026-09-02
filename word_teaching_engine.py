@@ -22,7 +22,7 @@ ENGLISH_VARIANT = "en-US"
 # AI birincil kelime dersi — ChatGPT gibi: önce AI, başarısızsa retry; şablon yedek YOK
 DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
 WORD_LESSON_MAX_TOKENS = 3200
-WORD_LESSON_FAST_MAX_TOKENS = 2800
+WORD_LESSON_FAST_MAX_TOKENS = 2400
 AI_LESSON_MAX_ATTEMPTS = 1
 
 WORD_LESSON_FAST_PROMPT = """Sen profesyonel ESL öğretmenisin — Cümle Kur kartı hazırla.

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Sesli Çevirmen — statik dosya + TTS/çeviri API sunucusu."""
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, quote
 from urllib.request import Request, urlopen
@@ -16,7 +17,7 @@ from tutor import get_lesson, tutor_reply
 from education_engine import (
     process_turn, greeting, session_report, daily_lesson, default_profile,
     finalize_session, weekly_progress, merge_profile, llm_available, ai_provider_info,
-    pronounce_text, safe_str, llm_translate,
+    pronounce_text, safe_str, llm_translate, groq_api_key_status,
 )
 from builder_engine import (
     generate_word_lesson,
@@ -26,7 +27,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.09.02-v56"
+APP_VERSION = "2026.09.02-v57"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -183,7 +184,7 @@ def _cache_set(cache: dict, key: tuple, val, max_size: int = 400) -> None:
 
 
 def smart_translate_text(text: str, from_lang: str, to_lang: str) -> str:
-    """Hızlı + doğru çeviri — önbellek, LLM (diğer diller), Google yedek."""
+    """Hızlı + doğru çeviri — önbellek, Groq/Gemini, Google yedek."""
     if from_lang == to_lang:
         return text
     src = text.strip()
@@ -194,10 +195,8 @@ def smart_translate_text(text: str, from_lang: str, to_lang: str) -> str:
     if cached:
         return cached
 
-    primary_langs = {"tr", "en"}
-    use_llm_first = llm_available() and (
-        from_lang not in primary_langs or to_lang not in primary_langs
-    )
+    primary_pair = {from_lang, to_lang} <= {"tr", "en"}
+    use_llm_first = llm_available() and not primary_pair
     result: str | None = None
 
     if use_llm_first:
@@ -206,19 +205,16 @@ def smart_translate_text(text: str, from_lang: str, to_lang: str) -> str:
         except Exception:
             result = None
 
-    if not result and not use_llm_first:
+    if not result:
         result = google_translate(src, from_lang, to_lang)
 
     if not result:
         try:
-            result = google_translate(src, from_lang, to_lang)
+            result = mymemory_translate(src, from_lang, to_lang)
         except Exception:
             result = None
 
-    if not result:
-        result = mymemory_translate(src, from_lang, to_lang)
-
-    if not result and llm_available() and not use_llm_first:
+    if not result and llm_available():
         try:
             result = llm_translate(src, from_lang, to_lang)
         except Exception:
@@ -248,6 +244,23 @@ WHISPER_PROMPTS: dict[str, str] = {
         "Türkçe konuşma. Öğrenci Türkçe cevap veriyor: bugün koştum, kitap okudum, "
         "işe gittim, yorgunum, evde kaldım, parka gittim, televizyon izledim."
     ),
+}
+
+TRANSLATE_WHISPER_PROMPT_GENERIC = (
+    "Multilingual spoken conversation. Transcribe exactly what was said, word for word."
+)
+
+TRANSLATE_WHISPER_PROMPTS: dict[str, str] = {
+    "tr": "Doğal Türkçe konuşma. Tam cümleleri aynen yaz.",
+    "en": "Natural spoken English conversation. Transcribe exactly what was said.",
+    "de": "Natürliches gesprochenes Deutsch. Wörtlich transkribieren.",
+    "fr": "Conversation française naturelle. Transcrire exactement ce qui est dit.",
+    "es": "Conversación en español natural. Transcribir exactamente lo dicho.",
+    "ka": "ბუნებრივი ქართული საუბარი.",
+    "ar": "محادثة عربية طبيعية.",
+    "ru": "Естественная русская речь.",
+    "it": "Conversazione italiana naturale.",
+    "zh": "自然的中文对话。",
 }
 
 
@@ -373,14 +386,19 @@ def google_stt(wav: str, lang_code: str) -> tuple[str, str, float] | None:
     return None
 
 
-def groq_stt(wav: str, lang_code: str) -> tuple[str, str, float] | None:
-    """Groq Whisper — Google STT başarısız olunca (özellikle sunucu/iPhone sesi)."""
+def _groq_stt_request(
+    wav: str,
+    *,
+    lang_code: str | None,
+    prompt: str,
+    timeout_sec: int = 18,
+) -> tuple[str, str, float] | None:
+    from education_engine import groq_api_key_valid
+
     api_key = os.environ.get("GROQ_API_KEY", "").strip()
-    if not api_key:
+    if not api_key or not groq_api_key_valid():
         return None
-    lang = lang_code if lang_code in STT_LANG else "en"
-    short = lang if lang in STT_LANG else "en"
-    prompt = WHISPER_PROMPTS.get(short, "")
+    short = lang_code if lang_code in STT_LANG else None
     try:
         import uuid
 
@@ -391,12 +409,14 @@ def groq_stt(wav: str, lang_code: str) -> tuple[str, str, float] | None:
 
         boundary = f"----GroqStt{uuid.uuid4().hex}"
         parts: list[bytes] = []
-        for name, value in (
+        fields: list[tuple[str, str]] = [
             ("model", "whisper-large-v3-turbo"),
-            ("language", short),
             ("response_format", "json"),
             ("temperature", "0"),
-        ):
+        ]
+        if short:
+            fields.insert(1, ("language", short))
+        for name, value in fields:
             parts.append(
                 f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode()
             )
@@ -421,14 +441,36 @@ def groq_stt(wav: str, lang_code: str) -> tuple[str, str, float] | None:
             },
             method="POST",
         )
-        with urlopen(req, timeout=28) as resp:
+        with urlopen(req, timeout=timeout_sec) as resp:
             payload = json.loads(resp.read().decode("utf-8"))
         text = (payload.get("text") or "").strip()
-        if len(text) >= 2 and not is_hallucination(text):
-            return text, short, score_text(text, short) + 48
+        if len(text) < 2 or is_hallucination(text):
+            return None
+        detected = short
+        if not detected:
+            for candidate in STT_LANG:
+                if looks_like_lang(text, candidate):
+                    detected = candidate
+                    break
+            detected = detected or "en"
+        return text, detected, score_text(text, detected) + 52
     except Exception:
-        pass
-    return None
+        return None
+
+
+def groq_stt(wav: str, lang_code: str, *, translate_mode: bool = False) -> tuple[str, str, float] | None:
+    """Groq Whisper — eğitim veya çeviri modu."""
+    short = lang_code if lang_code in STT_LANG else "en"
+    if translate_mode:
+        prompt = TRANSLATE_WHISPER_PROMPTS.get(short, TRANSLATE_WHISPER_PROMPT_GENERIC)
+    else:
+        prompt = WHISPER_PROMPTS.get(short, "")
+    return _groq_stt_request(wav, lang_code=short, prompt=prompt)
+
+
+def groq_stt_auto(wav: str) -> tuple[str, str, float] | None:
+    """Groq Whisper — otomatik dil algılama (çeviri modu)."""
+    return _groq_stt_request(wav, lang_code=None, prompt=TRANSLATE_WHISPER_PROMPT_GENERIC)
 
 
 def whisper_stt(wav: str, lang_code: str) -> tuple[str, str, float] | None:
@@ -540,6 +582,7 @@ def stt_for_lang(
     allow_whisper: bool = True,
     allow_groq: bool = True,
 ) -> tuple[str, str, float] | None:
+    """Eğitim modu — Google önce (hızlı), Groq yedek."""
     google = google_stt(wav, lang)
     if google and google[0].strip():
         text = google[0].strip()
@@ -548,7 +591,7 @@ def stt_for_lang(
         return text, lang, score_text(text, lang) + 40
 
     if allow_groq:
-        groq = groq_stt(wav, lang)
+        groq = groq_stt(wav, lang, translate_mode=False)
         if groq and groq[0].strip():
             text = groq[0].strip()
             if is_hallucination(text):
@@ -564,6 +607,21 @@ def stt_for_lang(
         if is_hallucination(text):
             return None
         return text, lang, score_text(text, lang) + 5
+    return None
+
+
+def stt_for_translate(wav: str, lang: str) -> tuple[str, str, float] | None:
+    """Çeviri modu — Groq Whisper önce (doğru telaffuz), Google yedek."""
+    groq = groq_stt(wav, lang, translate_mode=True)
+    if groq and groq[0].strip() and not is_hallucination(groq[0]):
+        return groq
+
+    google = google_stt(wav, lang)
+    if google and google[0].strip():
+        text = google[0].strip()
+        if is_hallucination(text):
+            return None
+        return text, lang, score_text(text, lang) + 28
     return None
 
 
@@ -819,14 +877,24 @@ def transcribe_dual(data: bytes, my: str, other: str, last_from: str | None = No
             raise ValueError("no speech detected")
 
         candidates: list[tuple[str, str, float]] = []
-        for lang in (my, other):
-            r = stt_for_lang(wav, lang, allow_whisper=False)
-            if r:
-                candidates.append(r)
+        tasks = {
+            "auto": lambda: groq_stt_auto(wav),
+            f"my_{my}": lambda: stt_for_translate(wav, my),
+            f"other_{other}": lambda: stt_for_translate(wav, other),
+        }
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            futures = {pool.submit(fn): key for key, fn in tasks.items()}
+            for fut in as_completed(futures):
+                try:
+                    r = fut.result()
+                    if r and r[0].strip():
+                        candidates.append(r)
+                except Exception:
+                    continue
 
-        if not candidates and not DISABLE_WHISPER:
+        if not candidates:
             for lang in (my, other):
-                r = stt_for_lang(wav, lang, allow_whisper=True)
+                r = stt_for_lang(wav, lang, allow_whisper=not DISABLE_WHISPER)
                 if r:
                     candidates.append(r)
 
@@ -836,15 +904,20 @@ def transcribe_dual(data: bytes, my: str, other: str, last_from: str | None = No
         def rank(item: tuple[str, str, float]) -> float:
             text, lang, score = item
             alt = other if lang == my else my
+            resolved = resolve_lang_from_text(text, my, other, lang)
             s = score
-            if looks_like_lang(text, lang):
-                s += 22
-            if looks_like_lang(text, alt) and not looks_like_lang(text, lang):
-                s -= 35
-            if last_from == lang and looks_like_lang(text, lang):
-                s += 4
+            if looks_like_lang(text, resolved):
+                s += 28
+            if resolved == my and looks_like_lang(text, my):
+                s += 12
+            if resolved == other and looks_like_lang(text, other):
+                s += 12
+            if looks_like_lang(text, alt) and not looks_like_lang(text, resolved):
+                s -= 40
+            if last_from == resolved and looks_like_lang(text, resolved):
+                s += 6
             elif last_from == alt and looks_like_lang(text, alt):
-                s -= 8
+                s -= 10
             return s
 
         best = max(candidates, key=rank)
@@ -987,6 +1060,7 @@ class Handler(SimpleHTTPRequestHandler):
             proto = "http"
         origin = f"{proto}://{host}" if host else ""
         info = ai_provider_info()
+        groq_status = groq_api_key_status()
         body = json.dumps(
             {
                 "ok": True,
@@ -1005,6 +1079,9 @@ class Handler(SimpleHTTPRequestHandler):
                 "ai_model": info.get("model"),
                 "ai_providers": info.get("providers") or [],
                 "ai_fallback_enabled": bool(info.get("fallback_enabled")),
+                "groq_key_configured": groq_status.get("configured"),
+                "groq_key_valid": groq_status.get("valid_format"),
+                "groq_key_hint_tr": groq_status.get("hint_tr"),
             },
             ensure_ascii=False,
         ).encode()

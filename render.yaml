@@ -18,6 +18,12 @@ services:
         sync: false
       - key: GROQ_MODEL
         value: qwen/qwen3.8-27b
+      - key: GROQ_WORD_LESSON_MODEL
+        value: llama-3.1-8b-instant
+      - key: GROQ_TRANSLATE_MODEL
+        value: llama-3.1-8b-instant
+      - key: WORD_LESSON_PROVIDER
+        value: groq
       - key: GEMINI_API_KEY
         sync: false
       - key: GEMINI_MODEL

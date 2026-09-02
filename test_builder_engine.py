@@ -532,7 +532,7 @@ def test_ai_only_mode_no_template_fallback():
 
     old_flag = os.environ.pop("WORD_LESSON_ALLOW_TEMPLATES", None)
     old_groq = os.environ.get("GROQ_API_KEY")
-    os.environ["GROQ_API_KEY"] = "test-key"
+    os.environ["GROQ_API_KEY"] = "gsk_test_key_for_unit_tests"
     try:
         with patch.object(education_engine, "_llm_json", return_value=None):
             assert ai_only_lesson_enabled("en")

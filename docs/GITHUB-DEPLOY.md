@@ -36,8 +36,11 @@ git push -u origin main
 
 | Anahtar | Değer |
 |---------|--------|
-| `GROQ_API_KEY` | Groq konsolundan (ücretsiz AI öğretmen) |
+| `GROQ_API_KEY` | [Groq konsolundan](https://console.groq.com) — `gsk_...` ile başlamalı (**xAI Grok `xai-...` değil**) |
 | `GROQ_MODEL` | `qwen/qwen3.8-27b` |
+| `GROQ_WORD_LESSON_MODEL` | `llama-3.1-8b-instant` (hızlı kelime dersi) |
+| `GROQ_TRANSLATE_MODEL` | `llama-3.1-8b-instant` (hızlı çeviri) |
+| `WORD_LESSON_PROVIDER` | `groq` (varsayılan — hız için) |
 | `GEMINI_API_KEY` | [Google AI Studio](https://aistudio.google.com/apikey) — Groq limit dolunca yedek |
 | `GEMINI_MODEL` | `gemini-3.5-flash-lite` (isteğe bağlı) |
 | `TELEGRAM_BOT_TOKEN` | @BotFather token (isteğe bağlı) |
