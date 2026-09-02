@@ -228,7 +228,7 @@ async function fetchPronunciation(text, lang) {
 }
 
 async function processAudio(blob) {
-  /* Tek istek: STT + çeviri birlikte — ikinci tur beklemeyi kaldırır */
+  /* Tek istek: STT + çeviri + okunuş birlikte */
   const data = await fetchProcess(blob, S.my, S.other, S.lastFrom);
   S.lastFrom = data.from;
   const toLang = data.to;
@@ -238,19 +238,21 @@ async function processAudio(blob) {
     from: data.from,
     to: toLang,
     audio: null,
-    phonetic: '',
+    phonetic: data.phonetic || '',
   };
   S.msgs.unshift(msg);
   render();
   clearInterim();
   setStatus('Çeviri hazır', false);
   void fetchTranslateTts(data.translated, toLang, 0);
-  void fetchPronunciation(data.translated, toLang).then((ph) => {
-    if (S.msgs[0]?.orig === data.original && ph) {
-      S.msgs[0].phonetic = ph;
-      render();
-    }
-  });
+  if (!msg.phonetic && toLang !== 'tr') {
+    void fetchPronunciation(data.translated, toLang).then((ph) => {
+      if (S.msgs[0]?.orig === data.original && ph) {
+        S.msgs[0].phonetic = ph;
+        render();
+      }
+    });
+  }
   return { original: data.original, translated: data.translated, from: data.from, to: toLang };
 }
 

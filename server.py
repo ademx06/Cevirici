@@ -27,7 +27,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.09.02-v68"
+APP_VERSION = "2026.09.02-v69"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -229,6 +229,58 @@ def smart_translate_text(text: str, from_lang: str, to_lang: str) -> str:
 
 def translate_text(text: str, from_lang: str, to_lang: str) -> str:
     return smart_translate_text(text, from_lang, to_lang)
+
+
+def translate_pair_safe(
+    original: str,
+    from_lang: str,
+    to_lang: str,
+    my: str = "tr",
+    other: str = "en",
+) -> tuple[str, str, str]:
+    """Çeviri yönünü metne göre düzelt — yabancı kelime Türkçe tarafa sızmasın."""
+    src = safe_str(original).strip()
+    if not src:
+        return "", from_lang, to_lang
+
+    if {my, other} == {"tr", "en"} or {from_lang, to_lang} == {"tr", "en"}:
+        if is_likely_english(src, "tr", "en") and not is_likely_turkish(src):
+            from_lang, to_lang = "en", "tr"
+        elif is_likely_turkish(src) and not is_likely_english(src, "tr", "en"):
+            from_lang, to_lang = "tr", "en"
+
+    translated = translate_text(src, from_lang, to_lang)
+
+    # Hedef Türkçe ama sonuç hâlâ İngilizce görünüyorsa yönü düzeltip tekrar dene
+    if to_lang == "tr" and is_likely_english(translated, "tr", "en") and not is_likely_turkish(translated):
+        if is_likely_english(src, "tr", "en"):
+            from_lang, to_lang = "en", "tr"
+            translated = translate_text(src, "en", "tr")
+        elif from_lang == "tr":
+            # Belki STT İngilizce yazdı ama tr sandık
+            alt = translate_text(src, "en", "tr")
+            if is_likely_turkish(alt) or not is_likely_english(alt, "tr", "en"):
+                from_lang, to_lang = "en", "tr"
+                translated = alt
+
+    # Hedef İngilizce ama sonuç Türkçe kaldıysa
+    if to_lang == "en" and is_likely_turkish(translated) and not is_likely_english(translated, "tr", "en"):
+        if is_likely_turkish(src):
+            from_lang, to_lang = "tr", "en"
+            translated = translate_text(src, "tr", "en")
+
+    return translated, from_lang, to_lang
+
+
+def translate_phonetic(text: str, lang: str) -> str:
+    """Kelime dersindeki gibi Türkçe fonetik okunuş — TTS ile uyumlu, LLM yok (hızlı)."""
+    if not text or lang == "tr":
+        return ""
+    try:
+        from pronunciation_service import build_sentence_natural
+        return safe_str(build_sentence_natural(text, lang)).strip()[:160]
+    except Exception:
+        return ""
 
 
 _whisper_model = None
@@ -982,9 +1034,8 @@ def transcribe_dual(data: bytes, my: str, other: str, last_from: str | None = No
                 strong = (
                     guessed == predicted
                     and (
-                        (predicted == "en" and is_likely_english(text, my, other))
-                        or (predicted == "tr" and is_likely_turkish(text))
-                        or looks_like_lang(text, predicted)
+                        (predicted == "en" and is_likely_english(text, my, other) and not is_likely_turkish(text))
+                        or (predicted == "tr" and is_likely_turkish(text) and not is_likely_english(text, my, other))
                     )
                 )
                 if strong:
@@ -1042,6 +1093,12 @@ def transcribe_dual(data: bytes, my: str, other: str, last_from: str | None = No
         best = max(candidates, key=rank)
         text = best[0]
         from_lang = detect_speech_lang(text, my, other, best[1], last_from)
+        # Metin içeriğine göre dili kilitle — İngilizce konuşma Türkçe balona düşmesin
+        if {my, other} == {"tr", "en"}:
+            if is_likely_english(text, my, other) and not is_likely_turkish(text):
+                from_lang = "en"
+            elif is_likely_turkish(text) and not is_likely_english(text, my, other):
+                from_lang = "tr"
         return text, from_lang
     finally:
         if os.path.exists(wav):
@@ -1309,12 +1366,16 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             original, from_lang = transcribe_dual(data, my, other, last_from)
             to_lang = other if from_lang == my else my
-            translated = translate_text(original, from_lang, to_lang)
+            translated, from_lang, to_lang = translate_pair_safe(
+                original, from_lang, to_lang, my, other,
+            )
+            phonetic = translate_phonetic(translated, to_lang)
             body = json.dumps({
                 "original": original,
                 "translated": translated,
                 "from": from_lang,
                 "to": to_lang,
+                "phonetic": phonetic,
             }).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -1714,7 +1775,8 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_json_error(400, "Metin gerekli")
             return
         try:
-            phonetic = pronounce_text(text, lang)
+            # Kelime modülüyle aynı profesyonel Türkçe fonetik (LLM yok → hızlı)
+            phonetic = translate_phonetic(text, lang) or pronounce_text(text, lang)
             body = json.dumps({"phonetic": phonetic}).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
