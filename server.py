@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Sesli Çevirmen — statik dosya + TTS/çeviri API sunucusu."""
-from http.server import HTTPServer, SimpleHTTPRequestHandler
+from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, quote
 from urllib.request import Request, urlopen
 import asyncio
@@ -25,7 +25,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.09.02-v41"
+APP_VERSION = "2026.09.02-v42"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -893,9 +893,21 @@ class Handler(SimpleHTTPRequestHandler):
             return self.handle_education_progress(parse_qs(parsed.query))
         if parsed.path == "/api/status":
             return self.handle_status()
+        if parsed.path == "/api/ping":
+            return self.handle_ping()
         if parsed.path == "/api/deploy-update":
             return self.handle_deploy_update_info()
         return super().do_GET()
+
+    def handle_ping(self):
+        """Hafif canlılık — keepalive/cron; AI isteği sırasında da yanıt verir."""
+        body = b'{"ok":true,"pong":true}'
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
 
     def handle_status(self):
         host = self.headers.get("Host", "")
@@ -1444,5 +1456,5 @@ if __name__ == "__main__":
         chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
         if chat_id and url:
             maybe_notify_startup(chat_id, url)
-    print("Hazır.")
-    HTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
+    print("Hazır (çoklu istek destekli).")
+    ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()

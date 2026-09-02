@@ -1,10 +1,12 @@
 /**
- * Sunucu bağlantısı — hızlı kontrol, kısa uyandırma, gerektiğinde tek retry.
+ * Sunucu bağlantısı — Render uyku + eşzamanlı AI isteklerinde erişilebilirlik.
  */
 (function (global) {
   'use strict';
 
   const RETRYABLE = new Set([0, 502, 503, 504]);
+  const PING_URL = '/api/ping';
+  const STATUS_URL = '/api/status';
 
   function sleep(ms) {
     return new Promise(function (r) { setTimeout(r, ms); });
@@ -20,10 +22,10 @@
     }
   }
 
-  async function quickStatusCheck(timeoutMs) {
-    timeoutMs = timeoutMs || 3500;
+  async function quickPing(timeoutMs) {
+    timeoutMs = timeoutMs || 6000;
     try {
-      const r = await fetchWithTimeout('/api/status', { method: 'GET' }, timeoutMs);
+      const r = await fetchWithTimeout(PING_URL, { method: 'GET' }, timeoutMs);
       if (!r.ok) return false;
       const d = await r.json();
       return !!(d && d.ok);
@@ -32,29 +34,53 @@
     }
   }
 
-  async function wakeServer(maxWaitMs) {
-    maxWaitMs = maxWaitMs || 15000;
-    if (await quickStatusCheck(3500)) return true;
+  async function quickStatusCheck(timeoutMs) {
+    timeoutMs = timeoutMs || 6000;
+    try {
+      const r = await fetchWithTimeout(STATUS_URL, { method: 'GET' }, timeoutMs);
+      if (!r.ok) return false;
+      const d = await r.json();
+      return !!(d && d.ok);
+    } catch {
+      return false;
+    }
+  }
+
+  async function wakeServer(maxWaitMs, onProgress) {
+    maxWaitMs = maxWaitMs || 90000;
+    if (await quickPing(5000)) return true;
+
     const start = Date.now();
-    let delay = 1200;
+    let delay = 1500;
+    let tick = 0;
     while (Date.now() - start < maxWaitMs) {
-      if (await quickStatusCheck(5000)) return true;
+      tick += 1;
+      if (typeof onProgress === 'function') {
+        const sec = Math.round((Date.now() - start) / 1000);
+        onProgress(sec, maxWaitMs);
+      }
+      if (await quickPing(8000)) return true;
       await sleep(delay);
-      delay = Math.min(Math.round(delay * 1.25), 3500);
+      delay = Math.min(Math.round(delay * 1.15), 4000);
     }
     return false;
+  }
+
+  async function ensureConnection(onProgress) {
+    return wakeServer(90000, onProgress);
   }
 
   async function fetchJson(url, options, cfg) {
     options = options || {};
     cfg = cfg || {};
-    const retries = cfg.retries != null ? cfg.retries : 2;
+    const retries = cfg.retries != null ? cfg.retries : 3;
     const timeoutMs = cfg.timeoutMs != null ? cfg.timeoutMs : 90000;
     const wakeFirst = cfg.wakeFirst !== false;
     const onRetry = cfg.onRetry || null;
+    const onWakeProgress = cfg.onWakeProgress || null;
 
     if (wakeFirst) {
-      const awake = await wakeServer(15000);
+      const awake = await wakeServer(90000, onWakeProgress);
       if (!awake) throw new Error('Sunucu uyanamadı');
     }
 
@@ -62,15 +88,13 @@
     for (let attempt = 0; attempt < retries; attempt++) {
       if (attempt > 0) {
         if (typeof onRetry === 'function') onRetry(attempt, retries);
-        await sleep(1200 * attempt);
+        await wakeServer(60000, onWakeProgress);
+        await sleep(1000 * attempt);
       }
       try {
         const r = await fetchWithTimeout(url, options, timeoutMs);
         if (RETRYABLE.has(r.status)) {
           lastErr = new Error('HTTP ' + r.status);
-          if (attempt === 0 && r.status === 502) {
-            await wakeServer(12000);
-          }
           continue;
         }
         const text = await r.text();
@@ -96,14 +120,16 @@
       return 'İstek zaman aşımına uğradı — tekrar dene.';
     }
     if (err && err.message === 'Sunucu uyanamadı') {
-      return 'Sunucu uyuyor — birkaç saniye bekleyip tekrar dene.';
+      return 'Sunucu uyandırılamadı — 1 dakika bekleyip tekrar dene.';
     }
     return 'Bağlantı hatası — tekrar dene.';
   }
 
   global.ApiClient = {
+    quickPing: quickPing,
     quickStatusCheck: quickStatusCheck,
     wakeServer: wakeServer,
+    ensureConnection: ensureConnection,
     fetchJson: fetchJson,
     connectionErrorMessage: connectionErrorMessage,
   };

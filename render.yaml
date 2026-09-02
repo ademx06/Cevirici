@@ -6,7 +6,7 @@ services:
     name: sesli-cevirmen
     runtime: docker
     plan: free
-    healthCheckPath: /api/status
+    healthCheckPath: /api/ping
     envVars:
       - key: PYTHONUNBUFFERED
         value: "1"
@@ -30,3 +30,13 @@ services:
         sync: false
       - key: RENDER_DEPLOY_HOOK
         sync: false
+
+  # Sunucuyu uyku moduna girmekten korur — 3 dk'da bir ping
+  - type: cron
+    name: sesli-cevirmen-keepalive
+    runtime: image
+    plan: free
+    schedule: "*/3 * * * *"
+    image:
+      url: curlimages/curl:8.5.0
+    dockerCommand: curl -fsS --max-time 25 https://sesli-cevirmen.onrender.com/api/ping

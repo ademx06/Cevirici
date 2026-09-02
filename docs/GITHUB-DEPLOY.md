@@ -82,7 +82,7 @@ Telegram’da bota **`/link`** yazın → güncel Render adresini gönderir.
 | Whisper | Bulutta `tiny` model kullanılır (daha az RAM); ses tanıma biraz daha basit |
 | AI öğretmen | Groq anahtarı zorunlu değil ama **önerilir** |
 
-Uyku modunu azaltmak için ücretli Render planı veya [UptimeRobot](https://uptimerobot.com) ile `/api/status` adresine 5 dk’da bir ping atılabilir.
+Uyku modunu azaltmak için `render.yaml` içindeki cron job (3 dk ping) veya [UptimeRobot](https://uptimerobot.com) ile `https://sesli-cevirmen.onrender.com/api/ping` adresine 3–5 dk'da bir ping atılabilir.
 
 ---
 

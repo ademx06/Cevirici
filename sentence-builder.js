@@ -613,7 +613,8 @@
         body: JSON.stringify({ word, lang: LS.getLang() }),
       }, {
         timeoutMs: 90000,
-        retries: 2,
+        retries: 3,
+        onWakeProgress: (sec) => showLoading(`Sunucu uyanıyor… (${sec} sn)`),
         onRetry: (n, max) => showLoading(`Tekrar deneniyor (${n}/${max})…`),
       });
       if (reqId !== wordRequestSeq) return;

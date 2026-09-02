@@ -1,15 +1,16 @@
 /**
- * Render uyku modunu önlemek — sayfa açıkken /api/status ping (4 dk).
+ * Sunucuyu uyanık tut — /api/ping (2 dk). AI isteği sırasında da yanıt alır.
  */
 (function (global) {
   'use strict';
 
-  const INTERVAL_MS = 4 * 60 * 1000;
+  const INTERVAL_MS = 2 * 60 * 1000;
+  const PING_URL = '/api/ping';
 
   let timer = null;
 
   function ping() {
-    fetch('/api/status', { method: 'GET', cache: 'no-store' }).catch(function () {});
+    fetch(PING_URL, { method: 'GET', cache: 'no-store' }).catch(function () {});
   }
 
   function start() {
@@ -25,8 +26,12 @@
   }
 
   document.addEventListener('visibilitychange', function () {
-    if (document.hidden) stop();
-    else start();
+    if (document.hidden) {
+      stop();
+    } else {
+      ping();
+      start();
+    }
   });
 
   if (!document.hidden) start();

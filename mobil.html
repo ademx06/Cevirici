@@ -10,7 +10,7 @@
   <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%23060B18' width='100' height='100' rx='20'/><text x='50' y='62' font-size='48' text-anchor='middle' fill='%2338BDF8'>🌍</text></svg>">
   <link rel="manifest" href="manifest.json">
   <title>iPhone — Adres & Yardım</title>
-  <meta name="app-version" content="2026.09.02-v41">
+  <meta name="app-version" content="2026.09.02-v42">
   <link rel="stylesheet" href="styles.css?v=62">
 </head>
 <body>
@@ -70,6 +70,8 @@
     <p class="mobil-footer-note">iPhone sunucuyu çalıştıramaz — sadece tarayıcıdan bağlanırsın.</p>
   </div>
 
+  <script src="api-client.js?v=3"></script>
+  <script src="keepalive.js?v=2"></script>
   <script>
     (function () {
       var origin = window.location.origin;
@@ -89,19 +91,32 @@
         statusCard.classList.toggle('mobil-status-fail', !ok);
       }
 
-      ApiClient.wakeServer(12000).then(function () {
-        return ApiClient.fetchJson('/api/status', {}, { wakeFirst: false, retries: 1, timeoutMs: 8000 });
-      }).then(function (res) {
+      function checkConnection() {
+        setStatus(false, 'Sunucuya bağlanılıyor…');
+        ApiClient.wakeServer(90000, function (sec) {
+          setStatus(false, 'Sunucu uyanıyor… (' + sec + ' sn)');
+        }).then(function (ok) {
+          if (!ok) {
+            setStatus(false, 'Sunucu uyuyor — otomatik tekrar deneniyor…');
+            setTimeout(checkConnection, 5000);
+            return;
+          }
+          return ApiClient.fetchJson('/api/status', {}, { wakeFirst: false, retries: 2, timeoutMs: 12000 });
+        }).then(function (res) {
+          if (!res) return;
           var d = res.data || {};
           if (d.ok) {
             setStatus(true, 'Sunucu çalışıyor · bağlantı tamam');
           } else {
-            setStatus(false, 'Sunucu yanıt vermiyor');
+            setStatus(false, 'Sunucu yanıt vermiyor — tekrar deneniyor…');
+            setTimeout(checkConnection, 5000);
           }
-        })
-        .catch(function () {
-          setStatus(false, 'Sunucuya ulaşılamıyor — birkaç saniye sonra yenile');
+        }).catch(function () {
+          setStatus(false, 'Bağlanılıyor… otomatik tekrar denenecek');
+          setTimeout(checkConnection, 5000);
         });
+      }
+      checkConnection();
 
       copyBtn.addEventListener('click', function () {
         var text = origin;
@@ -142,8 +157,6 @@
     <span id="appVersionText">Yükleniyor…</span>
     <button type="button" id="appUpdateBtn" class="app-update-btn hidden">Programı Güncelle</button>
   </div>
-  <script src="api-client.js?v=2"></script>
-  <script src="keepalive.js?v=1"></script>
   <script src="app-version.js?v=1"></script>
   <script>document.addEventListener('DOMContentLoaded', () => AppVersion.init());</script>
 </body>
