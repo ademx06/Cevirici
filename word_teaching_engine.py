@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable
 
 from education_engine import LANG_NAMES, _llm_json, _llm_json_word_lesson, llm_available, safe_str
@@ -4358,13 +4359,7 @@ def _llm_generate_dynamic_lesson_split(
             + "\n\nReturn JSON only."
         )
     prompt_a = WORD_LESSON_SPLIT_PROMPT_A.format(split_base=split_base)
-    part1 = _llm_json_word_lesson(prompt_a, user_a, max_tokens=2800)
-    if not part1 or not isinstance(part1, dict):
-        return None
-    ex1 = part1.get("examples") if isinstance(part1.get("examples"), list) else []
-    if len(ex1) < 4:
-        return None
-
+    prompt_b = WORD_LESSON_SPLIT_PROMPT_B.format(split_base=split_base)
     user_b = "Return JSON with examples array only (exactly 6 items)."
     if prior_issues:
         user_b = (
@@ -4372,8 +4367,21 @@ def _llm_generate_dynamic_lesson_split(
             + "\n".join(f"- {issue}" for issue in prior_issues[:3])
             + "\n\nReturn JSON only."
         )
-    prompt_b = WORD_LESSON_SPLIT_PROMPT_B.format(split_base=split_base)
-    part2 = _llm_json_word_lesson(prompt_b, user_b, max_tokens=2200)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        fut_a = pool.submit(_llm_json_word_lesson, prompt_a, user_a, 2800)
+        fut_b = pool.submit(_llm_json_word_lesson, prompt_b, user_b, 2200)
+        part1 = fut_a.result()
+        part2 = fut_b.result()
+
+    if not part1 or not isinstance(part1, dict):
+        if part2 and isinstance(part2.get("examples"), list) and len(part2["examples"]) >= 4:
+            return {"examples": list(part2["examples"]), **{k: v for k, v in part2.items() if k != "examples"}}
+        return None
+
+    ex1 = part1.get("examples") if isinstance(part1.get("examples"), list) else []
+    if len(ex1) < 4 and not (part2 and isinstance(part2.get("examples"), list)):
+        return None
 
     merged = dict(part1)
     merged["examples"] = list(ex1)
