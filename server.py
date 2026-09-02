@@ -27,7 +27,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.09.02-v59"
+APP_VERSION = "2026.09.02-v60"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -1116,6 +1116,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self.handle_builder_grade_word()
         if parsed.path == "/api/builder/grade-sentence":
             return self.handle_builder_grade_sentence()
+        if parsed.path == "/api/pronounce/batch":
+            return self.handle_pronounce_batch()
         if parsed.path == "/api/deploy-update":
             return self.handle_deploy_update()
         self.send_error(404)
@@ -1677,6 +1679,21 @@ class Handler(SimpleHTTPRequestHandler):
             self.wfile.write(body)
         except Exception as e:
             self.send_json_error(422, self.api_error_message(e))
+
+    def handle_pronounce_batch(self):
+        """Hızlı telaffuz yenileme — kayıtlı dersler için (LLM yok)."""
+        from pronunciation_service import build_pronunciation_bundle
+
+        payload = self._read_json_body()
+        texts = payload.get("texts") or []
+        lang = safe_str(payload.get("lang") or "en").strip() or "en"
+        bundles: dict[str, dict] = {}
+        for raw in texts[:24]:
+            text = safe_str(raw).strip()
+            if not text or text in bundles:
+                continue
+            bundles[text] = build_pronunciation_bundle(text, lang)
+        self._send_json({"ok": True, "bundles": bundles})
 
     def handle_pronounce(self, params):
         text = (params.get("q") or [""])[0].strip()

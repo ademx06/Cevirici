@@ -161,8 +161,30 @@
       </div>`;
   }
 
+  function mergeDetailWordRows(ex) {
+    const breakdown = ex.word_breakdown || [];
+    const pronList = ex.word_pronunciations || [];
+    const byToken = Object.fromEntries(
+      breakdown.map((p) => [(p.token || '').toLowerCase(), p]),
+    );
+    if (pronList.length) {
+      return pronList.map((w) => {
+        const key = (w.word || '').toLowerCase();
+        const meta = byToken[key] || {};
+        return {
+          token: w.word,
+          pronunciation_tr: w.pronunciation_tr,
+          ipa: w.ipa,
+          meaning_tr: meta.meaning_tr || '',
+          role_tr: meta.role_tr || '',
+        };
+      });
+    }
+    return breakdown;
+  }
+
   function buildDetailFallback(ex) {
-    const parts = (ex.word_breakdown || []).map((p) => {
+    const parts = mergeDetailWordRows(ex).map((p) => {
       const tok = p.token || '';
       const mean = p.meaning_tr || '';
       const role = p.role_tr || '';
@@ -179,25 +201,45 @@
     const how = ex.how_it_is_formed_tr || ex.explanation_tr || buildDetailFallback(ex);
     const why = ex.why_this_structure_tr || '';
     const note = ex.important_note_tr || '';
-    const structure = ex.structure_tr || '';
-    const wbHtml = renderWordBreakdown(ex);
+    const structure = ex.structure_tr || ex.structure_label_tr || '';
+    const typeLabel = ex.scenario_badge || ex.sentence_type_label || ex.sentence_type || '';
+    const cardId = `detail-${Date.now()}`;
+    const detailRows = mergeDetailWordRows(ex);
+    const wbHtml = renderWordBreakdown({ ...ex, word_breakdown: detailRows });
+    const wbLines = detailRows.map((p) => {
+      const tok = p.token || '';
+      const pron = formatPronLine(p.pronunciation_tr || p.pronunciation_hint, p.ipa);
+      const mean = p.meaning_tr || '';
+      const role = p.role_tr || '';
+      if (!tok) return '';
+      return `<div class="mod-detail-word-row">
+        <strong>${esc(tok)}</strong>
+        ${pron ? `<span class="mod-pron-inline">${pron}</span>` : ''}
+        ${mean ? `<span>→ ${esc(mean)}</span>` : ''}
+        ${role ? `<small>(${esc(role)})</small>` : ''}
+        <button type="button" class="mod-listen-btn builder-listen mod-listen-sm" data-text="${esc(tok)}" data-lang="${lang}">🔊</button>
+      </div>`;
+    }).join('');
     const overlay = document.createElement('div');
     overlay.className = 'mod-sentence-detail-overlay';
     overlay.innerHTML = `
-      <div class="mod-sentence-detail" role="dialog" aria-label="Cümle detayı">
+      <div class="mod-sentence-detail mod-sentence-detail-rich" role="dialog" aria-label="Cümle detayı">
         <button type="button" class="mod-popup-close" aria-label="Kapat">×</button>
         <h3>📖 Cümle detayı</h3>
-        <p class="mod-detail-lead">Hiç bilmeyen birine anlatır gibi — kelime kelime ve dil bilgisi</p>
+        <p class="mod-detail-lead">Sıfırdan öğrenen birine anlatır gibi — kelime kelime, neden böyle kuruldu</p>
+        ${typeLabel ? `<span class="mod-badge">${esc(typeLabel)}</span>` : ''}
         <div class="mod-card-line mod-card-tr"><span class="mod-flag">🇹🇷</span>${esc(ex.tr || '')}</div>
         <div class="mod-card-line mod-card-target"><span class="mod-flag">🇺🇸</span>${esc(ex.target || '')}</div>
-        ${formatPronLine(ex.pronunciation_tr, ex.ipa) ? `<p class="mod-pron-inline">${formatPronLine(ex.pronunciation_tr, ex.ipa)}</p>` : ''}
+        ${renderPronunciationBlock(ex, lang, cardId)}
         <div class="mod-card-actions mod-card-actions-inline">
-          <button type="button" class="mod-listen-btn builder-listen" data-text="${esc(ex.target)}" data-lang="${lang}">🔊 Dinle</button>
+          <button type="button" class="mod-listen-btn builder-listen" data-text="${esc(ex.target)}" data-lang="${lang}">🔊 Cümleyi dinle</button>
         </div>
-        ${how ? `<div class="mod-detail-section"><h4>🧠 Adım adım açıklama</h4><div class="mod-detail-text">${formatTeachingText(how)}</div></div>` : ''}
-        ${why ? `<div class="mod-detail-section"><h4>💡 Neden böyle?</h4><p>${esc(why)}</p></div>` : ''}
+        ${how ? `<div class="mod-detail-section"><h4>🧠 Adım adım açıklama</h4><div class="mod-detail-text mod-teach-body">${formatTeachingText(how)}</div></div>` : ''}
+        ${wbLines ? `<div class="mod-detail-section"><h4>🔤 Kelime kelime</h4><div class="mod-detail-words">${wbLines}</div></div>` : ''}
+        ${wbHtml && !wbLines ? `<div class="mod-detail-section"><h4>🔤 Kelimeler</h4>${wbHtml}</div>` : ''}
         ${structure ? `<div class="mod-detail-section"><h4>📐 Cümle formülü</h4><code class="mod-detail-formula">${esc(structure)}</code></div>` : ''}
-        ${wbHtml ? `<div class="mod-detail-section"><h4>🔤 Kelimeler</h4>${wbHtml}</div>` : ''}
+        ${why ? `<div class="mod-detail-section"><h4>💡 Neden böyle?</h4><p>${esc(why)}</p></div>` : ''}
+        ${ex.pattern_tr ? `<div class="mod-detail-section"><h4>🎯 Kalıp</h4><p>${esc(ex.pattern_tr)}</p></div>` : ''}
         ${note ? `<p class="mod-warn">⚠️ ${esc(note)}</p>` : ''}
       </div>`;
     overlay.addEventListener('click', (e) => {
@@ -205,6 +247,54 @@
     });
     document.body.appendChild(overlay);
     bindListenButtons(overlay);
+    bindIpaToggles(overlay);
+  }
+
+  async function refreshLessonPronunciation(lesson) {
+    if (!lesson?.examples?.length) return lesson;
+    const texts = new Set();
+    if (lesson.target_word) texts.add(lesson.target_word);
+    lesson.examples.forEach((ex) => { if (ex?.target) texts.add(ex.target); });
+    try {
+      const { ok, data } = await ApiClient.fetchJson('/api/pronounce/batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ texts: [...texts], lang: lesson.target_lang || 'en' }),
+      }, { wakeFirst: false, retries: 1, timeoutMs: 12000 });
+      if (!ok || !data?.bundles) return lesson;
+      const bundles = data.bundles;
+      if (lesson.target_word && bundles[lesson.target_word]) {
+        const hero = bundles[lesson.target_word];
+        lesson.pronunciation_tr = hero.pronunciation_tr;
+        lesson.ipa = hero.ipa;
+      }
+      lesson.examples = lesson.examples.map((ex) => {
+        const bundle = bundles[ex.target];
+        if (!bundle) return ex;
+        const pronMap = Object.fromEntries(
+          (bundle.word_pronunciations || []).map((w) => [(w.word || '').toLowerCase(), w]),
+        );
+        const wordBreakdown = (ex.word_breakdown || []).map((p) => {
+          const wp = pronMap[(p.token || '').toLowerCase()];
+          if (!wp) return p;
+          return {
+            ...p,
+            pronunciation_tr: wp.pronunciation_tr,
+            ipa: wp.ipa || p.ipa,
+          };
+        });
+        return {
+          ...ex,
+          pronunciation_tr: bundle.pronunciation_tr,
+          ipa: bundle.ipa,
+          word_pronunciations: bundle.word_pronunciations,
+          word_breakdown: wordBreakdown.length ? wordBreakdown : ex.word_breakdown,
+        };
+      });
+    } catch {
+      /* kayıtlı ders — eski telaffuz kalsın */
+    }
+    return lesson;
   }
 
   function bindSentenceDetailButtons(root) {
@@ -382,17 +472,8 @@
         <div class="mod-card-line mod-card-target"><span class="mod-flag">🇺🇸</span>${esc(ex.target)}</div>
         ${pronLine ? `<p class="mod-pron-inline">${pronLine}</p>` : ''}
         ${renderCardActions(ex, lang, idx)}
-        ${renderTeachingBlock(ex, lang, { open: false })}
       </article>`;
     }
-    const wbSimple = (ex.word_breakdown || []).length
-      ? `<div class="mod-wb-simple">${(ex.word_breakdown || []).map((p) => {
-          const pron = p.pronunciation_tr || p.pronunciation_hint || '';
-          const ipa = formatIpa(p.ipa);
-          const pronPart = ipa && pron ? `${esc(pron)} ${esc(ipa)}` : esc(pron || ipa);
-          return `<div class="mod-wb-line"><span>${esc(p.token || '')}</span> → <span>${pronPart}</span> → <span>${esc(p.meaning_tr || '')}</span></div>`;
-        }).join('')}</div>`
-      : '';
     return `
       <article class="mod-card" data-idx="${idx}">
         ${typeBadge}
@@ -400,8 +481,6 @@
         <div class="mod-card-line mod-card-target"><span class="mod-flag">🌍</span>${esc(ex.target)}</div>
         ${renderCardActions(ex, lang, idx)}
         ${renderPronunciationBlock(ex, lang, cardId)}
-        ${wbSimple}
-        ${renderTeachingBlock(ex, lang, { open: !isMobileView() || idx === 0 })}
       </article>`;
   }
 
@@ -826,9 +905,11 @@
           const w = LS.getWordById(btn.dataset.wordId);
           if (w) {
             switchTab('word');
-            currentWordLesson = { ok: true, ...w };
-            renderWordLesson(currentWordLesson);
             $('wordInput').value = w.word_tr;
+            refreshLessonPronunciation({ ok: true, ...w }).then((lesson) => {
+              currentWordLesson = lesson;
+              renderWordLesson(lesson, w.word_tr);
+            });
           }
         });
       });

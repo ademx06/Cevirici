@@ -2325,6 +2325,27 @@ body {
   word-break: break-word;
 }
 
+.mod-detail-words {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mod-detail-word-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(30,41,59,0.45);
+  font-size: 14px;
+}
+
+.mod-sentence-detail-rich .mod-pron-block {
+  margin-top: 10px;
+}
+
 @media (min-width: 521px) {
   .mod-sentence-detail-overlay {
     align-items: center;
