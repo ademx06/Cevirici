@@ -4213,6 +4213,36 @@ _THIRTEEN_PATTERN_ORDER: list[str] = [
 ]
 
 
+def _target_word_in_sentence(target: str, target_word: str, word_tr: str) -> bool:
+    """Hedef kelime cümlede geçiyor mu (fiil çekimleri dahil)?"""
+    tw = _en_target_word(target_word)
+    if not tw:
+        return True
+    t = _norm(target)
+    if tw in t or f"{tw}s" in t or f"{tw}es" in t or f"{tw}ing" in t or f"{tw}ed" in t:
+        return True
+    if _is_verb_like(word_tr, target_word) or _norm(word_tr).endswith(("mek", "mak")):
+        irregular: dict[str, tuple[str, ...]] = {
+            "go": ("went", "gone", "going", "goes"),
+            "come": ("came", "coming", "comes"),
+            "be": ("am", "is", "are", "was", "were", "been", "being"),
+            "have": ("has", "had", "having"),
+            "do": ("does", "did", "doing"),
+            "make": ("made", "making", "makes"),
+            "take": ("took", "taken", "taking", "takes"),
+            "get": ("got", "getting", "gets"),
+            "see": ("saw", "seen", "seeing", "sees"),
+            "give": ("gave", "given", "giving", "gives"),
+            "know": ("knew", "known", "knowing", "knows"),
+            "work": ("worked", "working", "works"),
+        }
+        for form in irregular.get(tw, ()):
+            if form in t:
+                return True
+        return False
+    return False
+
+
 def _normalize_llm_example(
     raw: dict[str, Any],
     word_tr: str,
@@ -4227,7 +4257,7 @@ def _normalize_llm_example(
     if not target:
         return None
     tw = _en_target_word(target_word)
-    if tw and tw not in _norm(target) and f"{tw}s" not in _norm(target):
+    if tw and not _target_word_in_sentence(target, target_word, word_tr):
         return None
     if _is_generic_mechanical_template(target) or _is_absurd_example(target, word_tr, target_word):
         return None
@@ -4802,7 +4832,7 @@ def try_ai_word_lesson(
             prior_issues=prior_issues or None,
         )
         if not dynamic:
-            prior_issues = ["Geçerli JSON ve en az 8 örnek döndürülemedi. Tam 13 örnek üret."]
+            prior_issues = ["Geçerli JSON ve en az 6 örnek döndürülemedi."]
             continue
         cand_profile = {**profile, **(dynamic.get("profile") or {})}
         cand_examples = list(dynamic.get("examples") or [])
