@@ -69,6 +69,8 @@ EN_CANONICAL: dict[str, str] = {
     "go": "gou",
     "come": "kam",
     "call": "kol",
+    "called": "kold",
+    "named": "neymd",
     "carry": "keri",
     "drink": "drink",
     "eat": "iit",
@@ -85,7 +87,6 @@ EN_CANONICAL: dict[str, str] = {
     "kitchen": "ki-çın",
     "because": "bikoz",
     "nothing": "nathing",
-    "need": "ni:d",
     "cook": "kuk",
     "market": "markit",
     "home": "houm",
@@ -157,7 +158,7 @@ EN_CANONICAL: dict[str, str] = {
     "aren't": "arent",
     "faucet": "fô-sıt",
     "tap": "tep",
-    "leak": "li:k",
+    "leak": "lik",
     "leaking": "li-king",
     "turn": "törn",
     "off": "of",
@@ -291,6 +292,109 @@ EN_IPA: dict[str, str] = {
     "jar": "/dʒɑːr/",
     "spoon": "/spuːn/",
 }
+
+# Eksik kelimeler — EN_CANONICAL ile tutarlı IPA
+EN_IPA.update({
+    "i'm": "/aɪm/",
+    "we": "/wiː/",
+    "they": "/ðeɪ/",
+    "he": "/hiː/",
+    "she": "/ʃiː/",
+    "it": "/ɪt/",
+    "me": "/miː/",
+    "my": "/maɪ/",
+    "your": "/jɔːr/",
+    "is": "/ɪz/",
+    "are": "/ɑːr/",
+    "am": "/æm/",
+    "was": "/wʌz/",
+    "were": "/wɜːr/",
+    "be": "/biː/",
+    "to": "/tuː/",
+    "in": "/ɪn/",
+    "on": "/ɒn/",
+    "at": "/æt/",
+    "for": "/fɔːr/",
+    "and": "/ænd/",
+    "or": "/ɔːr/",
+    "not": "/nɒt/",
+    "will": "/wɪl/",
+    "would": "/wʊd/",
+    "could": "/kʊd/",
+    "should": "/ʃʊd/",
+    "need": "/niːd/",
+    "go": "/ɡoʊ/",
+    "come": "/kʌm/",
+    "book": "/bʊk/",
+    "table": "/ˈteɪbəl/",
+    "chair": "/tʃer/",
+    "kitchen": "/ˈkɪtʃɪn/",
+    "home": "/hoʊm/",
+    "there": "/ðer/",
+    "here": "/hɪr/",
+    "this": "/ðɪs/",
+    "that": "/ðæt/",
+    "what": "/wʌt/",
+    "where": "/wer/",
+    "when": "/wen/",
+    "why": "/waɪ/",
+    "how": "/haʊ/",
+    "who": "/huː/",
+    "good": "/ɡʊd/",
+    "bad": "/bæd/",
+    "two": "/tuː/",
+    "today": "/təˈdeɪ/",
+    "please": "/pliːz/",
+    "thanks": "/θæŋks/",
+    "thank": "/θæŋk/",
+    "yes": "/jes/",
+    "no": "/noʊ/",
+    "called": "/kɔːld/",
+    "named": "/neɪmd/",
+    "has": "/hæz/",
+    "had": "/hæd/",
+    "did": "/dɪd/",
+    "does": "/dʌz/",
+    "don't": "/doʊnt/",
+    "can't": "/kænt/",
+    "work": "/wɜːrk/",
+    "play": "/pleɪ/",
+    "read": "/riːd/",
+    "write": "/raɪt/",
+    "help": "/help/",
+    "show": "/ʃoʊ/",
+    "open": "/ˈoʊpən/",
+    "close": "/kloʊz/",
+    "door": "/dɔːr/",
+    "window": "/ˈwɪndoʊ/",
+    "market": "/ˈmɑːrkɪt/",
+    "because": "/bɪˈkʌz/",
+    "nothing": "/ˈnʌθɪŋ/",
+    "cook": "/kʊk/",
+    "faucet": "/ˈfɔːsɪt/",
+    "leak": "/liːk/",
+    "leaking": "/ˈliːkɪŋ/",
+    "turn": "/tɜːrn/",
+    "off": "/ɔːf/",
+    "bought": "/bɔːt/",
+    "buy": "/baɪ/",
+    "new": "/nuː/",
+    "car": "/kɑːr/",
+    "happy": "/ˈhæpi/",
+    "every": "/ˈevri/",
+    "day": "/deɪ/",
+    "morning": "/ˈmɔːrnɪŋ/",
+    "night": "/naɪt/",
+    "very": "/ˈveri/",
+    "really": "/ˈrɪəli/",
+    "hot": "/hɒt/",
+    "cold": "/koʊld/",
+    "bottle": "/ˈbɒtəl/",
+    "cup": "/kʌp/",
+    "cups": "/kʌps/",
+    "phone": "/foʊn/",
+    "called": "/kɔːld/",
+})
 
 # Kalıp örnekleri için sabit kelime anlamları
 EN_WORD_MEANINGS: dict[str, str] = {
@@ -902,6 +1006,17 @@ def tokenize_en(text: str) -> list[str]:
     return re.findall(r"[A-Za-z]+(?:'[A-Za-z]+)?", text)
 
 
+def _normalize_pron_tr(pron: str) -> str:
+    """Türkçe okunuş — IPA karakterlerini temizle."""
+    p = safe_str(pron).strip()
+    if not p:
+        return ""
+    if re.search(r"[ɑæəɪʊɔʌθðʃʒŋˈˌː]", p):
+        return ""
+    p = p.replace(":", "").replace("ô", "o").replace("ö", "o")
+    return p.strip()
+
+
 def _article_pron(next_word: str) -> str:
     """a/an — sonraki kelimenin sesine göre."""
     if not next_word:
@@ -944,7 +1059,9 @@ def get_word(lang: str, word: str) -> dict[str, str]:
         pron = EN_CANONICAL.get(low)
         if not pron:
             fallback = _simple_en_phonetic(raw)
-            pron = fallback.split()[0] if fallback else low
+            pron = _normalize_pron_tr(fallback.split()[0] if fallback else low) or low
+        else:
+            pron = _normalize_pron_tr(pron) or pron
         ipa = EN_IPA.get(low, "")
         return {"word": raw, "pronunciation_tr": pron, "ipa": ipa}
 
@@ -985,10 +1102,11 @@ def build_sentence(
         word_parts.append({
             "word": tok,
             "pronunciation_tr": pron if low in ("a", "an") else info["pronunciation_tr"],
-            "ipa": info.get("ipa", ""),
+            "ipa": info.get("ipa") or EN_IPA.get(low, ""),
         })
-        if info.get("ipa"):
-            ipa_parts.append(info["ipa"])
+        ipa_val = info.get("ipa") or EN_IPA.get(low, "")
+        if ipa_val:
+            ipa_parts.append(ipa_val.strip("/"))
 
     sentence_pron = " ".join(pron_words)
     sentence_pron = (
@@ -1000,7 +1118,7 @@ def build_sentence(
     if text and text[0].isupper() and sentence_pron:
         sentence_pron = sentence_pron[0].upper() + sentence_pron[1:]
 
-    sentence_ipa = " ".join(ipa_parts) if ipa_parts else ""
+    sentence_ipa = " ".join(f"/{p}/" for p in ipa_parts if p) if ipa_parts else ""
     return {
         "pronunciation_tr": sentence_pron[:160],
         "ipa": sentence_ipa[:120],

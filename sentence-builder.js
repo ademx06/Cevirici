@@ -153,6 +153,71 @@
     return '';
   }
 
+  function renderCardActions(ex, lang, idx) {
+    return `
+      <div class="mod-card-actions">
+        <button type="button" class="mod-listen-btn builder-listen" data-text="${esc(ex.target)}" data-lang="${lang}">🔊 Dinle</button>
+        <button type="button" class="mod-detail-btn builder-sentence-detail" data-ex-idx="${idx}" data-lang="${lang}">📖 Cümle detay</button>
+      </div>`;
+  }
+
+  function buildDetailFallback(ex) {
+    const parts = (ex.word_breakdown || []).map((p) => {
+      const tok = p.token || '';
+      const mean = p.meaning_tr || '';
+      const role = p.role_tr || '';
+      if (!tok) return '';
+      return `• «${tok}»${mean ? ` = ${mean}` : ''}${role ? ` (${role})` : ''}`;
+    }).filter(Boolean);
+    if (!parts.length) return '';
+    return 'Kelime kelime:\n' + parts.join('\n');
+  }
+
+  function showSentenceDetailModal(ex, lang) {
+    const existing = document.querySelector('.mod-sentence-detail-overlay');
+    if (existing) existing.remove();
+    const how = ex.how_it_is_formed_tr || ex.explanation_tr || buildDetailFallback(ex);
+    const why = ex.why_this_structure_tr || '';
+    const note = ex.important_note_tr || '';
+    const structure = ex.structure_tr || '';
+    const wbHtml = renderWordBreakdown(ex);
+    const overlay = document.createElement('div');
+    overlay.className = 'mod-sentence-detail-overlay';
+    overlay.innerHTML = `
+      <div class="mod-sentence-detail" role="dialog" aria-label="Cümle detayı">
+        <button type="button" class="mod-popup-close" aria-label="Kapat">×</button>
+        <h3>📖 Cümle detayı</h3>
+        <p class="mod-detail-lead">Hiç bilmeyen birine anlatır gibi — kelime kelime ve dil bilgisi</p>
+        <div class="mod-card-line mod-card-tr"><span class="mod-flag">🇹🇷</span>${esc(ex.tr || '')}</div>
+        <div class="mod-card-line mod-card-target"><span class="mod-flag">🇺🇸</span>${esc(ex.target || '')}</div>
+        ${formatPronLine(ex.pronunciation_tr, ex.ipa) ? `<p class="mod-pron-inline">${formatPronLine(ex.pronunciation_tr, ex.ipa)}</p>` : ''}
+        <div class="mod-card-actions mod-card-actions-inline">
+          <button type="button" class="mod-listen-btn builder-listen" data-text="${esc(ex.target)}" data-lang="${lang}">🔊 Dinle</button>
+        </div>
+        ${how ? `<div class="mod-detail-section"><h4>🧠 Adım adım açıklama</h4><div class="mod-detail-text">${formatTeachingText(how)}</div></div>` : ''}
+        ${why ? `<div class="mod-detail-section"><h4>💡 Neden böyle?</h4><p>${esc(why)}</p></div>` : ''}
+        ${structure ? `<div class="mod-detail-section"><h4>📐 Cümle formülü</h4><code class="mod-detail-formula">${esc(structure)}</code></div>` : ''}
+        ${wbHtml ? `<div class="mod-detail-section"><h4>🔤 Kelimeler</h4>${wbHtml}</div>` : ''}
+        ${note ? `<p class="mod-warn">⚠️ ${esc(note)}</p>` : ''}
+      </div>`;
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay || e.target.closest('.mod-popup-close')) overlay.remove();
+    });
+    document.body.appendChild(overlay);
+    bindListenButtons(overlay);
+  }
+
+  function bindSentenceDetailButtons(root) {
+    root?.querySelectorAll('.builder-sentence-detail').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const idx = parseInt(btn.dataset.exIdx, 10);
+        const lang = btn.dataset.lang || 'en';
+        const ex = currentWordLesson?.examples?.[idx];
+        if (ex) showSentenceDetailModal(ex, lang);
+      });
+    });
+  }
+
   function renderUsageLineItem(item, lang, opts = {}) {
     if (!item?.en) return '';
     const listen = opts.listen !== false;
@@ -316,7 +381,7 @@
         <div class="mod-card-line mod-card-tr"><span class="mod-flag">🇹🇷</span>${esc(ex.tr)}</div>
         <div class="mod-card-line mod-card-target"><span class="mod-flag">🇺🇸</span>${esc(ex.target)}</div>
         ${pronLine ? `<p class="mod-pron-inline">${pronLine}</p>` : ''}
-        <button type="button" class="mod-listen-btn builder-listen" data-text="${esc(ex.target)}" data-lang="${lang}">🔊 Dinle</button>
+        ${renderCardActions(ex, lang, idx)}
         ${renderTeachingBlock(ex, lang, { open: false })}
       </article>`;
     }
@@ -333,7 +398,7 @@
         ${typeBadge}
         <div class="mod-card-line mod-card-tr"><span class="mod-flag">🇹🇷</span>${esc(ex.tr)}</div>
         <div class="mod-card-line mod-card-target"><span class="mod-flag">🌍</span>${esc(ex.target)}</div>
-        <button type="button" class="mod-listen-btn builder-listen" data-text="${esc(ex.target)}" data-lang="${lang}">🔊 Cümleyi dinle</button>
+        ${renderCardActions(ex, lang, idx)}
         ${renderPronunciationBlock(ex, lang, cardId)}
         ${wbSimple}
         ${renderTeachingBlock(ex, lang, { open: !isMobileView() || idx === 0 })}
@@ -499,6 +564,7 @@
     bindListenButtons(box);
     bindIpaToggles(box);
     bindWordChips(box, lang);
+    bindSentenceDetailButtons(box);
     $('modScroll')?.scrollTo({ top: 0, behavior: 'smooth' });
   }
 

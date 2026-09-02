@@ -2242,6 +2242,99 @@ body {
   margin: 4px 0 8px;
 }
 
+.mod-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 6px 0 10px;
+}
+
+.mod-card-actions .mod-listen-btn,
+.mod-card-actions-inline .mod-listen-btn {
+  margin: 0;
+}
+
+.mod-detail-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 20px;
+  border: 1px solid rgba(167,139,250,0.35);
+  background: rgba(167,139,250,0.12);
+  color: #C4B5FD;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.mod-sentence-detail-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: rgba(0,0,0,0.6);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 12px;
+  overflow-y: auto;
+}
+
+.mod-sentence-detail {
+  background: #0F172A;
+  border: 1px solid rgba(148,163,184,0.25);
+  border-radius: 18px 18px 12px 12px;
+  padding: 20px 18px 24px;
+  max-width: 480px;
+  width: 100%;
+  max-height: min(88vh, 720px);
+  overflow-y: auto;
+  position: relative;
+}
+
+.mod-sentence-detail h3 {
+  margin: 0 0 4px;
+  font-size: 18px;
+  color: #F8FAFC;
+}
+
+.mod-detail-lead {
+  font-size: 13px;
+  color: #94A3B8;
+  margin: 0 0 14px;
+}
+
+.mod-detail-section {
+  margin-top: 16px;
+}
+
+.mod-detail-section h4 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  color: #E2E8F0;
+}
+
+.mod-detail-formula {
+  display: block;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(56,189,248,0.08);
+  color: #7DD3FC;
+  font-size: 13px;
+  word-break: break-word;
+}
+
+@media (min-width: 521px) {
+  .mod-sentence-detail-overlay {
+    align-items: center;
+    padding: 20px;
+  }
+  .mod-sentence-detail {
+    border-radius: 16px;
+  }
+}
+
 .mod-pron {
   font-size: 14px;
   color: #A78BFA;
