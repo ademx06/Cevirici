@@ -28,7 +28,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.09.03-v71.6"
+APP_VERSION = "2026.09.03-v71.7"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -362,17 +362,21 @@ def _translation_has_age_possession_bug(src: str, translated: str) -> bool:
 
 
 def _polish_georgian(src: str, text: str) -> str:
-    """Kaynak anlamına göre Gürcüce calque düzelt — tek cümleye özel ezber değil."""
+    """Yalnız yanlış calque/gramer düzelt — kaynak anlamını değiştirme (köy≠kasaba, canlan≠gerçeğe dönüş)."""
     t = text or ""
     src_l = (src or "").lower()
 
+    # Gramer (anlam aynı)
     t = t.replace("მცირე გოგონ", "პატარა გოგონ")
     t = t.replace("სუნთქვაშეკრული პატარა გოგონამ", "სუნთქვაშეკრულმა პატარა გოგონამ")
     t = t.replace("სუნთქვაშეკრული გოგონამ", "სუნთქვაშეკრულმა გოგონამ")
+    t = t.replace("სუნთქვა შეკრული, პატარა გოგონამ", "პატარა გოგონამ სუნთქვა შეიკრა და")
+    t = t.replace("სუნთქვა შეკრული პატარა გოგონამ", "პატარა გოგონამ სუნთქვა შეიკრა და")
     t = t.replace("სუნთქვა შეიკრა პატარა გოგონას და", "პატარა გოგონამ სუნთქვა შეიკრა და")
     t = t.replace("სუნთქვა შეიკრა პატარა გოგონას", "პატარა გოგონამ სუნთქვა შეიკრა")
 
-    if "çınar" in src_l:
+    # Yanlış sözlük (çınar ≠ düzlem / mantar)
+    if "çınar" in src_l or "plane tree" in src_l or "platan" in src_l:
         t = t.replace("ბებერ სიბრტყესთან", "ძველ ჭადართან")
         t = t.replace("ძველ სიბრტყემდე", "ძველ ჭადარამდე")
         t = t.replace("სიბრტყესთან", "ჭადართან")
@@ -381,48 +385,113 @@ def _polish_georgian(src: str, text: str) -> str:
         t = t.replace("სიბრტყე", "ჭადარა")
         t = t.replace("სოკოსთან", "ჭადართან")
         t = t.replace("სოკო", "ჭადარა")
-    if re.search(r"kovu", src_l):
+    if re.search(r"kovu|hollow|дупло", src_l):
         t = t.replace("ხის ღრუში", "ხის ფუღუროში")
         t = t.replace("ხის ღრმულში", "ხის ფუღუროში")
-        if "bardak" not in src_l and "fincan" not in src_l:
+        if "bardak" not in src_l and "fincan" not in src_l and "cup" not in src_l:
             t = t.replace("ჭიქაში", "ფუღუროში")
-    if re.search(r"\bkasaba|\bköy\b|kasabanın|köyün|köyde", src_l):
+
+    # Yer: köy / kasaba / şehir ayrı — birbirine çevirme
+    has_koy = bool(re.search(r"köy|village", src_l))
+    has_kasaba = bool(re.search(r"kasaba|\btown\b", src_l))
+    has_city = bool(re.search(r"şehir|\bcity\b|\bstadt\b", src_l)) and not has_koy and not has_kasaba
+    if has_koy and not has_kasaba:
         t = t.replace("ქალაქის ბოლოში მდებარე", "სოფლის პირას მდებარე")
         t = t.replace("ქალაქის ბოლოში", "სოფლის პირას")
-        t = t.replace("ქალაქის ბოლოს", "სოფლის ბოლოს")
-        t = t.replace("ქალაქის კიდეზე", "სოფლის პირას")
         t = t.replace("ქალაქის პირას", "სოფლის პირას")
-    if re.search(r"eline ald|elinde|kitabı eline", src_l):
+        t = t.replace("დაბის პირას", "სოფლის პირას")
+        t = t.replace("დაბის ბოლოში", "სოფლის პირას")
+    elif has_kasaba and not has_koy:
+        t = t.replace("სოფლის პირას მდებარე", "დაბის პირას მდებარე")
+        t = t.replace("სოფლის პირას", "დაბის პირას")
+        t = t.replace("სოფლის ბოლოში", "დაბის პირას")
+        t = t.replace("სოფლის ბოლოს", "დაბის ბოლოს")
+        t = t.replace("ქალაქის ბოლოში მდებარე", "დაბის პირას მდებარე")
+        t = t.replace("ქალაქის ბოლოში", "დაბის პირას")
+        t = t.replace("ქალაქის პირას", "დაბის პირას")
+    elif has_city:
+        t = t.replace("სოფლის პირას", "ქალაქის პირას")
+        t = t.replace("დაბის პირას", "ქალაქის პირას")
+
+    if re.search(r"eline ald|picked up|kitabı eline|picked the book", src_l):
         t = t.replace("ხელში აიყვანა", "ხელში აიღო")
         t = t.replace("ხელში აიყვან", "ხელში აიღ")
-    if re.search(r"omzuna kon|omzuna indi|omzuna otur", src_l):
+    if re.search(r"omzuna kon|omzuna indi|omzuna otur|landed on (?:her |his )?shoulder|perched", src_l):
         t = t.replace("მხარზე დაეშვა", "მხარზე ჩამოჯდა")
         t = t.replace("მხარზე დასხა", "მხარზე ჩამოჯდა")
         t = t.replace("მხარზე დაიკაშა", "მხარზე ჩამოჯდა")
-    if re.search(r"ahşap|oyuncak", src_l) and re.search(r"yap|oy|kazı", src_l):
+    # Başını yana eğdi ≠ omza eğdi
+    if re.search(r"yana eğ|ba[sş]ını.*eğ|tilted.{0,20}head|head.{0,12}side", src_l):
+        t = t.replace("თავი ოდნავ მხარზე დახარა", "თავი ოდნავ გვერდზე დახარა")
+        t = t.replace("თავი მხარზე დახარა", "თავი გვერდზე დახარა")
+
+    # Ahşaptan oymak / yontmak
+    if re.search(r"ahşap|oyuncak|carve|from wood|oyma", src_l) and re.search(
+        r"yap|oy|kazı|carve|will make|yapaca[gğ]", src_l
+    ):
         t = t.replace("ხისგან გააკეთებს", "ხისგან გამოთლის")
         t = t.replace("ხისგან გააკეთა", "ხისგან გამოთალა")
-    if re.search(r"gerçeğe dönüş|hayata geç|canlandı|canlan", src_l):
+
+    # canlandı ≠ gerçeğe dönüştü — ayrı tut
+    if re.search(r"\bcanland[ıi]|came to life|come to life|gacocxld|ცოცხლ", src_l) and not re.search(
+        r"gerçeğe dönüş|became real|turned into reality|came true", src_l
+    ):
         t = t.replace("რეალობად იქცა", "ცოცხლდებოდა")
         t = t.replace("რეალობად იქცევა", "ცოცხლდება")
-    if re.search(r"dolmay[ıi]|dolars|doldurul", src_l):
+    if re.search(r"gerçeğe dönüş|became real|turned into reality|came true", src_l) and not re.search(
+        r"\bcanland[ıi]|came to life|come to life", src_l
+    ):
+        t = t.replace("ცოცხლდებოდა", "რეალობად იქცა")
+        t = t.replace("ცოცხლდება", "რეალობად იქცევა")
+        t = t.replace("გაცოცხლდა", "რეალობად იქცა")
+
+    if re.search(r"dolmay[ıi]|dolars|doldurul|to be filled|waiting to be filled", src_l):
         t = t.replace("გაივსოს", "აივსოს")
-    if "kelebek" in src_l:
+    if re.search(r"kelebek|butterfl", src_l):
         t = t.replace("მწვანეები", "პეპლები")
-    if re.search(r"cıvılda|cikcik", src_l):
+    if re.search(r"cıvılda|cikcik|chirp", src_l):
         t = t.replace("ჩივლით", "ჭიკჭიკით")
-    if re.search(r"takip et", src_l):
+    if re.search(r"takip et|follow", src_l):
         t = t.replace("გაჰყვანა", "გაჰყოლოდა")
-    if re.search(r"peşinden koş|kanatların peş", src_l):
-        t = t.replace("დაიწყო სირბილი ამ იდუმალი ფრთების უკან", "ამ იდუმალ ფრთებს გამოეკიდა")
-        t = t.replace("სირბილი ამ იდუმალი ფრთების უკან", "ამ იდუმალ ფრთებს გამოეკიდა")
+        t = t.replace("გაჰყოლოდას", "გაჰყოლოდა")
     return t
+
+
+def _georgian_fidelity_broken(src: str, translated: str) -> bool:
+    """Kaynak anlamını değiştiren KA çeviriyi reddet."""
+    if not src or not translated:
+        return False
+    src_l = src.lower()
+    # kasaba/town → village
+    if re.search(r"kasaba|\btown\b", src_l) and not re.search(r"köy|village", src_l):
+        if "სოფლ" in translated:
+            return True
+    # köy/village → city/town
+    if re.search(r"köy|village", src_l) and not re.search(r"kasaba|\btown\b|şehir|\bcity\b", src_l):
+        if "ქალაქ" in translated or re.search(r"დაბ[აის]", translated):
+            return True
+    # gerçeğe dönüş ≠ canlan
+    if re.search(r"gerçeğe dönüş|became real|turned into reality|came true", src_l):
+        if "ცოცხლდებოდა" in translated or "გაცოცხლდა" in translated or "ცოცხლდებ" in translated:
+            return True
+    if re.search(r"\bcanland[ıi]|came to life|come to life", src_l) and not re.search(
+        r"gerçeğe dönüş|became real", src_l
+    ):
+        if "რეალობად იქცა" in translated or "რეალობად" in translated:
+            return True
+    # başını yana eğdi ≠ omza
+    if re.search(r"yana eğ|tilted.{0,20}head|head.{0,12}side", src_l):
+        if "თავი" in translated and "მხარზე დახარა" in translated:
+            return True
+    return False
 
 
 def _georgian_rewrite_ok(src: str, draft: str, rewritten: str) -> bool:
     if not rewritten or not _script_matches_lang(rewritten, "ka"):
         return False
     if _translation_is_garbled(src, rewritten, "ka"):
+        return False
+    if _georgian_fidelity_broken(src, rewritten):
         return False
     if draft and len(rewritten) < max(24, int(len(draft) * 0.5)):
         return False
@@ -435,6 +504,8 @@ def _translation_is_garbled(src: str, translated: str, lang: str) -> bool:
         return True
     src_l = src.lower()
     if lang == "ka":
+        if _georgian_fidelity_broken(src, translated):
+            return True
         if "სოკო" in translated and "çınar" in src_l:
             return True
         if "მწვანეები" in translated and "kelebek" in src_l:
@@ -447,7 +518,6 @@ def _translation_is_garbled(src: str, translated: str, lang: str) -> bool:
             return True
         if "სიბრტყე" in translated and "çınar" in src_l:
             return True
-        # Akıcılık: model Gürcüce uyduruyor
         if "დახრიла" in translated or "ჩივლით" in translated:
             return True
         if "თანხლებით დაიწყო" in translated or "იმედს აცოცხლებს" in translated:
@@ -456,14 +526,23 @@ def _translation_is_garbled(src: str, translated: str, lang: str) -> bool:
             return True
         if "მხარზე დასხა" in translated or "მხარზე დაიკაშა" in translated:
             return True
-        if "რეალობად იქცა" in translated and re.search(r"gerçeğe dönüş|canlan", src_l):
-            return True
-        if "აიყვანა" in translated and re.search(r"eline ald", src_l):
+        if "აიყვანა" in translated and re.search(r"eline ald|picked up", src_l):
             return True
     if lang == "es" and re.search(r"\bcedro", translated, re.I) and "çınar" in src_l:
         return True
     if lang == "zh" and "樟树" in translated and "çınar" in src_l:
         return True
+    # KA→TR/EN: village/köy korunmalı
+    if lang in ("tr", "en") and re.search(r"სოფლ", src):
+        if lang == "tr" and re.search(r"\bkasaba\b", translated, re.I) and not re.search(r"\bköy\b", translated, re.I):
+            return True
+        if lang == "en" and re.search(r"\btown\b", translated, re.I) and not re.search(r"\bvillage\b", translated, re.I):
+            return True
+    if lang in ("tr", "en") and re.search(r"ცოცხლდებ", src):
+        if lang == "tr" and re.search(r"gerçeğe dönüş", translated, re.I):
+            return True
+        if lang == "en" and re.search(r"became real|turned into reality|came true", translated, re.I):
+            return True
     return False
 
 

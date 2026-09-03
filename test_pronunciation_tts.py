@@ -97,14 +97,31 @@ def test_polish_georgian_is_source_conditioned():
     )
     out = _polish_georgian(STORY_TR, googleish)
     assert "სუნთქვაშეკრულმა" in out
-    assert "სოფლის პირას" in out
+    # kasaba → დაბა (not village/სოფელი)
+    assert "დაბის პირას" in out
+    assert "სოფლის პირას" not in out
     assert "ქალაქის ბოლოში" not in out
     assert "ხელში აიღო" in out
     assert "აიყვანა" not in out
     assert "ჩამოჯდა" in out
     assert "გამოთლის" in out
-    assert "ცოცხლდებოდა" in out
+    # gerçeğe dönüştü → keep reality, not came-to-life
+    assert "რეალობად იქცა" in out
+    assert "ცოცხლდებოდა" not in out
     assert "ჭადარ" in out
+
+
+def test_polish_kasaba_vs_koy_fidelity():
+    from server import _georgian_fidelity_broken
+    assert _georgian_fidelity_broken("kasabanın kenarı", "სოფლის პირას")
+    assert not _georgian_fidelity_broken("kasabanın kenarı", "დაბის პირას")
+    assert _georgian_fidelity_broken("köyün kenarı", "ქალაქის პირას")
+    assert not _georgian_fidelity_broken("köyün kenarı", "სოფლის პირას")
+    assert _georgian_fidelity_broken("gerçeğe dönüştü", "ცოცხლდებოდა")
+    assert not _georgian_fidelity_broken("gerçeğe dönüştü", "რეალობად იქცა")
+    assert _georgian_fidelity_broken("canlandı", "რეალობად იქცა")
+    fixed = _polish_georgian("başını hafifçe yana eğdi", "ჩიტმა თავი ოდნავ მხარზე დახარა")
+    assert "გვერდზე დახარა" in fixed
 
 
 def test_polish_does_not_rewrite_unrelated_city():
@@ -121,5 +138,6 @@ if __name__ == "__main__":
     test_story_phonetic_matches_jenny_not_spelling()
     test_georgian_romanization_matches_eka()
     test_polish_georgian_is_source_conditioned()
+    test_polish_kasaba_vs_koy_fidelity()
     test_polish_does_not_rewrite_unrelated_city()
     print("All pronunciation/TTS tests passed.")

@@ -3737,45 +3737,59 @@ _SCRIPT_HINTS = {
 
 
 _LITERARY_GLOSS = (
-    "Exact meanings (do not distort):\n"
+    "MEANING FIDELITY (mandatory — creative rewrite forbidden):\n"
+    "- Preserve every subject, object, verb, tense, number, possessive, place, direction, and quote.\n"
+    "- Add NOTHING that is not in the source. Remove NOTHING important from the source.\n"
+    "- village/köy/სოფელი ≠ town/kasaba/დაბა ≠ city/şehir/ქალაქი — never swap these.\n"
+    "- came to life/canlandı/ცოცხლდებოდა ≠ became real/gerçeğe dönüştü/რეალობად იქცა — never swap.\n"
+    "- follow ≠ chase unless the source is clearly chase; shoulder ≠ side; edge ≠ center.\n"
+    "- Do not upgrade adjectives (old≠ancient, small≠tiny) or invent magical/mysterious tone.\n"
+    "Exact glossary:\n"
     "- küçük kız = little girl (a child), never 'minor girl'\n"
     "- kelebek = butterfly\n"
     "- çınar = plane tree (Platanus / platane / plátano / Platane / ჭადარა / платан), "
     "never cedar, camphor, mushroom, or 'plane' as flat surface\n"
     "- kovuk = hollow / cavity in a tree, never cup/glass\n"
     "- masal kitabı = fairy-tale storybook, never generic legend unless the source says so\n"
-    "- sihirli = magical\n"
+    "- sihirli = magical ONLY if the source says sihirli/magical\n"
     "- oyuncak = toy\n"
     "- cıvıldamak = to chirp\n"
 )
 
 _NATIVE_GLOSS = {
     "ka": (
-        "Write natural native Georgian, like a Georgian children's book or everyday speech — never translationese.\n"
-        "Always: პატარა გოგონა (not მცირე); small bird=ჩიტი (not ფრინველი); butterfly=პეპელა;\n"
-        "plane tree/çınar=ჭადარა (never სიბრტყე, სოკო); tree hollow/kovuk=ფუღურო (not ჭიქა, not ღრუ calque);\n"
-        "hold breath=სუნთქვა შეიკრა (ergative სუნთქვაშეკრულმა if the subject acts);\n"
-        "tilt head=თავი გვერდზე დახარა (never დახრიла); chirp=ჭიკჭიკით (not ჩივლით);\n"
-        "chase after / follow closely=გამოეკიდა (never თანხლებით დაიწყო);\n"
-        "town/village/kasaba edge=სოფლის პირას (not ქალაქი unless it is a city);\n"
-        "pick up an object=აიღო (never აიყვანა for a book);\n"
-        "bird perches on shoulder=ჩამოჯდა (not დაეშვა, not დასხა);\n"
-        "be filled=აივსოს; carve from wood=გამოთლის (not გააკეთებს);\n"
-        "come to life=ცოცხლდებოდა (not რეალობად იქცა); magical=ჯადოსნური; fairy tale=ზღაპარი; toy=სათამაშო.\n"
-        "Use native cases and word order. Keep every fact and quoted speech.\n"
+        "Georgian: meaning-preserving native Mkhedruli — NOT creative children's rewrite.\n"
+        "Lexicon only when source matches:\n"
+        "- little girl → პატარა გოგონა (not მცირე)\n"
+        "- small bird → ჩიტი (not ფრინველი unless poultry)\n"
+        "- butterfly → პეპელა\n"
+        "- plane tree/çınar → ჭადარა (never სიბრტყე/სოკო)\n"
+        "- tree hollow/kovuk → ფუღურო\n"
+        "- village/köy → სოფელი; town/kasaba → დაბა; city/şehir → ქალაქი "
+        "(never village↔town↔city)\n"
+        "- at the edge → პირას / კიდეზე\n"
+        "- pick up object → აიღო (not აიყვანა for a book)\n"
+        "- perch on shoulder → ჩამოჯდა; tilt head to the SIDE → გვერდზე დახარა "
+        "(never მხარზე დახარა for 'to the side')\n"
+        "- came to life/canlandı → ცოცხლდებოდა; became real/gerçeğe dönüştü → რეალობად იქცა "
+        "(never swap)\n"
+        "- carve from wood → გამოთლის; be filled → აივსოს; chirp → ჭიკჭიკი\n"
+        "- magical → ჯადოსნური only if source is magical/sihirli; fairy tale → ზღაპარი; toy → სათამაშო\n"
+        "- hold breath → სუნთქვა შეიკრა (ergative -მა when the subject acts)\n"
+        "If naturalness conflicts with fidelity, keep fidelity.\n"
     ),
-    "zh": "Chinese: 小女孩; 蝴蝶; 悬铃木/梧桐 for çınar (not 樟树 unless camphor); 树洞; 童话书; 魔法.\n",
-    "es": "Spanish: niña; mariposas; plátano / árbol plátano for çınar (not cedro); hueco; libro de cuentos; mágico.\n",
-    "de": "German: kleines Mädchen; Schmetterlinge; Platane; Baumhöhle; Märchenbuch; zauberhaft.\n",
-    "fr": "French: petite fille; papillons; platane; creux; livre de contes; magique.\n",
-    "it": "Italian: bambina / piccola ragazza; farfalle; platano; cavità; libro di fiabe; magico.\n",
-    "ru": "Russian: маленькая девочка; бабочки; платан; дупло; сказка; волшебный; игрушки.\n",
-    "ar": "Arabic: الفتاة الصغيرة; فراشات; شجرة دلب/صنار for çınar; تجويف; كتاب حكايات; سحري; ألعاب.\n",
+    "zh": "Chinese: 小女孩; 蝴蝶; 悬铃木/梧桐 for çınar (not 樟树 unless camphor); 树洞; 童话书; 魔法 only if source. village≠town≠city.\n",
+    "es": "Spanish: niña; mariposas; plátano for çınar (not cedro); hueco; libro de cuentos; mágico only if source. village/pueblo vs town vs ciudad carefully.\n",
+    "de": "German: kleines Mädchen; Schmetterlinge; Platane; Baumhöhle; Märchenbuch; zauberhaft only if source. Dorf≠Stadt≠Kleinstadt.\n",
+    "fr": "French: petite fille; papillons; platane; creux; livre de contes; magique only if source. village≠ville.\n",
+    "it": "Italian: bambina; farfalle; platano; cavità; libro di fiabe; magico only if source. villaggio≠città.\n",
+    "ru": "Russian: маленькая девочка; бабочки; платан; дупло; сказка; волшебный only if source. деревня≠город≠посёлок.\n",
+    "ar": "Arabic: الفتاة الصغيرة; فراشات; شجرة دلب/صنار for çınar; تجويف; كتاب حكايات; سحري only if source. قرية≠بلدة≠مدينة.\n",
 }
 
 
 def llm_translate(text: str, from_lang: str, to_lang: str) -> str | None:
-    """Doğal çeviri — Groq hızlı model (tam metin, dilbilgisi korunur)."""
+    """Anlamı koruyan çeviri — yaratıcı rewrite yok."""
     src = safe_str(text).strip()
     if not src or not llm_available():
         return None
@@ -3784,17 +3798,25 @@ def llm_translate(text: str, from_lang: str, to_lang: str) -> str | None:
     opener = _FAIRY_OPENERS.get(to_lang, "")
     script = _SCRIPT_HINTS.get(to_lang, f"Write only in {to_name}.")
     opener_line = (
-        f"3) Fairy-tale opener 'Bir varmış bir yokmuş' → {opener}.\n"
+        f"3) Fairy-tale opener 'Bir varmış bir yokmuş' → {opener} (only if the source has that opener).\n"
         if opener else
-        "3) Keep the original narrative tone.\n"
+        "3) Keep the original narrative tone; do not embellish.\n"
     )
     native = _NATIVE_GLOSS.get(to_lang, "")
+    ka_extra = ""
+    if from_lang == "ka" or to_lang == "ka":
+        ka_extra = (
+            "GEORGIAN FIDELITY CHECK: After drafting, verify subject, verb, tense, possessives, "
+            "place (სოფელი/დაბა/ქალაქი), motion, and modifiers match the source. "
+            "If back-translated mentally, people/places/actions must match.\n"
+        )
     system = (
-        f"You are a native {to_name} literary translator. Translate from {from_name} into fluent {to_name}.\n"
-        f"First understand the exact meaning, then write ONLY the {to_name} text.\n"
+        f"You are a professional meaning-preserving translator into {to_name} (from {from_name}).\n"
+        f"NOT a creative rewriter. Prefer exact meaning over prettier wording.\n"
         f"{script}\n"
         f"{_LITERARY_GLOSS}"
         f"{native}"
+        f"{ka_extra}"
         "Rules:\n"
         "1) Keep subjects/possessives exact. Do not mix who is who.\n"
         "2) Turkish 'X'in N yaşında oğlu/kızı/çocuğu' means 'X HAD an N-year-old son/daughter/child'. "
@@ -3802,7 +3824,7 @@ def llm_translate(text: str, from_lang: str, to_lang: str) -> str | None:
         "   yaramaz=mischievous/naughty; uysal=gentle; oynamak=to play games.\n"
         f"{opener_line}"
         "4) Full sentences, natural punctuation, native word order. Do not drop clauses.\n"
-        "5) Reply with ONLY the translation — no quotes, no English notes, no transliteration."
+        "5) Reply with ONLY the translation — no quotes, no notes, no transliteration, no explanations."
     )
     translate_model = (
         os.environ.get("GROQ_TRANSLATE_MODEL")
@@ -3851,33 +3873,31 @@ def llm_translate(text: str, from_lang: str, to_lang: str) -> str | None:
 
 
 def llm_rewrite_georgian(src: str, meaning_en: str, draft_ka: str) -> str | None:
-    """Google taslağını yerli Gürcüceye çek — ezber cümle yok, her metin için geçerli."""
+    """Google taslağını yerli Gürcüceye çek — anlamı değiştirmeden (yaratıcı rewrite yok)."""
     draft = safe_str(draft_ka).strip()
     if not draft or not llm_available():
         return None
     meaning = safe_str(meaning_en).strip() or safe_str(src).strip()
     system = (
-        "You are a native Georgian editor. Rewrite DRAFT so it sounds originally written in Georgian.\n"
-        "MEANING is the source of truth for facts. Keep every fact, name, quote, number, and clause.\n"
-        "Write 100% Mkhedruli. No Latin letters, no notes, no transliteration.\n"
-        "Grammar: ergative -მა when the subject acts; native word order; no translationese.\n"
-        "Lexicon for ANY text (not one story):\n"
-        "- little girl → პატარა გოგონა (never მცირე გოგონა)\n"
-        "- small bird → ჩიტი (not ფრინველი unless poultry)\n"
+        "You are a native Georgian editor for MEANING-PRESERVING translation.\n"
+        "SOURCE + MEANING are the truth. DRAFT may have wrong words or calques — fix those only.\n"
+        "Do NOT invent facts, adjectives, places, emotions, or plot.\n"
+        "Do NOT swap village/town/city or came-to-life vs became-real.\n"
+        "Write 100% Mkhedruli. No Latin, no notes.\n"
+        "Grammar: ergative -მა when the subject acts; keep tense/number/possessives.\n"
+        "Lexicon ONLY when the source matches:\n"
+        "- little girl → პატარა გოგონა (never მცირე)\n"
+        "- small bird → ჩიტი\n"
         "- butterfly → პეპელა\n"
-        "- plane tree / çınar → ჭადარა (never სიბრტყე / სოკო)\n"
-        "- tree hollow / kovuk → ფუღურო\n"
-        "- pick up an object → აიღო (never აიყვანა for books/objects)\n"
-        "- bird perches on a shoulder → ჩამოჯდა\n"
-        "- town/village / kasaba / köy → სოფელი or დაბა; at the edge → პირას "
-        "(ქალაქი only if the source is a city)\n"
-        "- come to life → ცოცხლდებოდა / გაცოცხლდა (not რეალობად იქცა)\n"
-        "- carve from wood → გამოთლის (not გააკეთებს)\n"
-        "- be filled → აივსოს\n"
-        "- chirp → ჭიკჭიკი\n"
-        "- magical → ჯადოსნური; fairy tale → ზღაპარი; toy → სათამაშო\n"
-        "- hold one's breath → სუნთქვა შეიკრა\n"
-        "Everyday source → everyday Georgian. Story source → children's-book Georgian.\n"
+        "- plane tree/çınar → ჭადარა (never სიბრტყე/სოკო)\n"
+        "- hollow/kovuk → ფუღურო\n"
+        "- village/köy → სოფელი; town/kasaba → დაბა; city → ქალაქი\n"
+        "- pick up → აიღო; perch on shoulder → ჩამოჯდა\n"
+        "- tilt head to the SIDE → გვერდზე დახარა (never მხარზე დახარა)\n"
+        "- came to life → ცოცხლდებოდა; became real/gerçeğe dönüştü → რეალობად იქცა\n"
+        "- carve wood → გამოთლის; fill → აივსოს; chirp → ჭიკჭიკი\n"
+        "- magical → ჯადოსნური only if source says magical/sihirli\n"
+        "Self-check: if reverse-translated, subject/place/verb/tense/possessive must match SOURCE.\n"
         "Reply with ONLY the Georgian text."
     )
     user_msg = (
@@ -3897,7 +3917,7 @@ def llm_rewrite_georgian(src: str, meaning_en: str, draft_ka: str) -> str | None
             kwargs = {
                 "max_tokens": max_tok,
                 "timeout_sec": 8,
-                "temperature": 0.1,
+                "temperature": 0.05,
             }
             if translate_model:
                 kwargs["model"] = translate_model
