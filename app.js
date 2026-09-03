@@ -16,8 +16,8 @@ audio.setAttribute('playsinline', 'true');
 audio.setAttribute('webkit-playsinline', 'true');
 document.body.appendChild(audio);
 
-const TAIL_MS = 100;
-const MIN_HOLD_MS = 280;
+const TAIL_MS = 350;
+const MIN_HOLD_MS = 150;
 
 const S = {
   my: 'tr', other: 'en', msgs: [],
@@ -324,7 +324,7 @@ const mic = MicHold.create({
   state: S,
   tailMs: TAIL_MS,
   minHoldMs: MIN_HOLD_MS,
-  minBlobBytes: 50,
+  minBlobBytes: 20,
   micOpts: MIC_OPTS,
   onHideError: hideErr,
   onSpeaking: () => {

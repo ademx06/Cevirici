@@ -287,27 +287,28 @@ _whisper_model = None
 
 WHISPER_PROMPTS: dict[str, str] = {
     "en": (
-        "English lesson conversation. Student answers in simple English only. "
-        "Common phrases: I run, I ran today, I read a book, I went to work, "
-        "I am tired, what did you do today, I went for a run, I watched TV, "
-        "I walked, I played, I stayed home."
+        "English lesson conversation. Student may say single words or short phrases. "
+        "Common words: one two three four five head long short yes no go run eat, "
+        "I run, I ran today, I read a book, I went to work, "
+        "I am tired, what did you do today."
     ),
     "tr": (
-        "Türkçe konuşma. Öğrenci Türkçe cevap veriyor: bugün koştum, kitap okudum, "
-        "işe gittim, yorgunum, evde kaldım, parka gittim, televizyon izledim."
+        "Türkçe konuşma. Tek kelime de olabilir. Öğrenci Türkçe cevap veriyor: "
+        "bugün koştum, kitap okudum, işe gittim, yorgunum, evde kaldım."
     ),
 }
 
 TRANSLATE_WHISPER_PROMPT_GENERIC = (
-    "Multilingual spoken conversation. Transcribe exactly what was said, word for word."
+    "Multilingual spoken conversation. Even single words must be transcribed exactly."
 )
 
 TRANSLATE_WHISPER_PROMPTS: dict[str, str] = {
-    "tr": "Doğal Türkçe konuşma. Tam cümleleri aynen yaz.",
+    "tr": "Doğal Türkçe konuşma. Tek kelime de olabilir. Tam olarak söyleneni yaz.",
     "en": (
-        "Natural spoken English. Transcribe exactly what was said. "
-        "Common words: one two three four five six seven eight nine ten, "
-        "bad good red bed bet head bread, yes no hello please thanks sorry, "
+        "Natural spoken English. Even single words must be transcribed. "
+        "Common short words: one two three four five six seven eight nine ten, "
+        "head bed red bad bet set met let get long short tall big small, "
+        "yes no hi bye hello please thanks sorry okay stop go run eat drink, "
         "what where when why how who."
     ),
     "de": "Natürliches gesprochenes Deutsch. Wörtlich transkribieren.",
@@ -359,7 +360,7 @@ def prepare_wav(data: bytes, *, fast: bool = False) -> str:
         inp = tmp.name
     wav = inp + ".wav"
     if fast:
-        filters = ("volume=2.2", None)
+        filters = ("volume=2.2,apad=pad_dur=0.5", "volume=2.2", None)
     else:
         filters = (
             "highpass=f=80,lowpass=f=7500,apad=pad_dur=1.2,dynaudnorm,volume=3.5",
@@ -421,9 +422,9 @@ def google_stt(wav: str, lang_code: str) -> tuple[str, str, float] | None:
     import speech_recognition as sr
 
     recognizer = sr.Recognizer()
-    recognizer.energy_threshold = 280
+    recognizer.energy_threshold = 150
     recognizer.dynamic_energy_threshold = True
-    recognizer.pause_threshold = 0.6
+    recognizer.pause_threshold = 0.4
 
     with sr.AudioFile(wav) as src:
         audio = recognizer.record(src)
@@ -675,7 +676,7 @@ def stt_for_lang(
 
 
 def stt_for_translate(wav: str, lang: str) -> tuple[str, str, float] | None:
-    """Çeviri modu — Groq Whisper önce (doğru telaffuz), Google yedek."""
+    """Çeviri modu — Groq Whisper önce (doğru telaffuz), Google yedek, local whisper son şans."""
     groq = groq_stt(wav, lang, translate_mode=True)
     if groq and groq[0].strip() and not is_hallucination(groq[0]):
         return groq
@@ -686,6 +687,11 @@ def stt_for_translate(wav: str, lang: str) -> tuple[str, str, float] | None:
         if is_hallucination(text):
             return None
         return text, lang, score_text(text, lang) + 28
+
+    if not DISABLE_WHISPER:
+        w = whisper_stt(wav, lang)
+        if w and w[0].strip() and not is_hallucination(w[0]):
+            return w
     return None
 
 
@@ -1060,6 +1066,14 @@ def transcribe_dual(data: bytes, my: str, other: str, last_from: str | None = No
             for lang in (my, other):
                 r = stt_for_lang(wav, lang, allow_whisper=not DISABLE_WHISPER)
                 add(r, f"fallback_{lang}")
+
+        # Son şans: auto dil ile whisper dene (kısa kelimeler için)
+        if not candidates:
+            try:
+                r = whisper_stt(wav, "auto")
+                add(r, "fallback_whisper_auto")
+            except Exception:
+                pass
 
         if not candidates:
             raise ValueError("speech not recognized")
