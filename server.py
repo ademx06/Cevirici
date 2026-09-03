@@ -27,7 +27,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.09.03-v70.7"
+APP_VERSION = "2026.09.03-v70.8"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -239,29 +239,30 @@ def translate_pair_safe(
     other: str = "en",
 ) -> tuple[str, str, str]:
     """Çeviri yönünü metne göre düzelt — yabancı kelime Türkçe tarafa sızmasın."""
-    src = safe_str(original).strip()
+    src = clean_stt_text(safe_str(original))
     if not src:
         return "", from_lang, to_lang
 
     if {my, other} == {"tr", "en"} or {from_lang, to_lang} == {"tr", "en"}:
-        if is_likely_english(src, "tr", "en") and not is_likely_turkish(src):
-            from_lang, to_lang = "en", "tr"
-        elif is_likely_turkish(src) and not is_likely_english(src, "tr", "en"):
+        if is_likely_turkish(src) and not is_likely_english(src, "tr", "en"):
             from_lang, to_lang = "tr", "en"
+        elif is_likely_english(src, "tr", "en") and not is_likely_turkish(src):
+            from_lang, to_lang = "en", "tr"
+
+    # Çift dil dışındaki çiftlerde sadece my/other içinde kal
+    if from_lang not in (my, other):
+        from_lang = my
+        to_lang = other
+    elif to_lang not in (my, other) or to_lang == from_lang:
+        to_lang = other if from_lang == my else my
 
     translated = translate_text(src, from_lang, to_lang)
 
     # Hedef Türkçe ama sonuç hâlâ İngilizce görünüyorsa yönü düzeltip tekrar dene
     if to_lang == "tr" and is_likely_english(translated, "tr", "en") and not is_likely_turkish(translated):
-        if is_likely_english(src, "tr", "en"):
+        if is_likely_english(src, "tr", "en") and not is_likely_turkish(src):
             from_lang, to_lang = "en", "tr"
             translated = translate_text(src, "en", "tr")
-        elif from_lang == "tr":
-            # Belki STT İngilizce yazdı ama tr sandık
-            alt = translate_text(src, "en", "tr")
-            if is_likely_turkish(alt) or not is_likely_english(alt, "tr", "en"):
-                from_lang, to_lang = "en", "tr"
-                translated = alt
 
     # Hedef İngilizce ama sonuç Türkçe kaldıysa
     if to_lang == "en" and is_likely_turkish(translated) and not is_likely_english(translated, "tr", "en"):
@@ -418,6 +419,57 @@ def is_hallucination(text: str) -> bool:
     return False
 
 
+_WHISPER_LANG_ALIASES = {
+    "turkish": "tr", "tr": "tr",
+    "english": "en", "en": "en",
+    "german": "de", "de": "de",
+    "french": "fr", "fr": "fr",
+    "spanish": "es", "es": "es",
+    "georgian": "ka", "ka": "ka",
+    "arabic": "ar", "ar": "ar",
+    "russian": "ru", "ru": "ru",
+    "italian": "it", "it": "it",
+    "chinese": "zh", "zh": "zh", "mandarin": "zh",
+}
+
+
+def normalize_whisper_lang(raw: str | None) -> str | None:
+    if not raw:
+        return None
+    key = safe_str(raw).strip().lower()
+    return _WHISPER_LANG_ALIASES.get(key)
+
+
+def clean_stt_text(text: str) -> str:
+    """Whisper tekrarlarını temizle: 'merhaba merhaba', çift cümle."""
+    t = re.sub(r"\s+", " ", safe_str(text)).strip()
+    if not t:
+        return ""
+    words = t.split()
+    out: list[str] = []
+    for w in words:
+        if out and out[-1].casefold() == w.casefold():
+            continue
+        out.append(w)
+    # 2'li tekrar: "çok iyi çok iyi"
+    i = 0
+    deduped: list[str] = []
+    while i < len(out):
+        if i + 3 < len(out) and out[i].casefold() == out[i + 2].casefold() and out[i + 1].casefold() == out[i + 3].casefold():
+            deduped.extend(out[i:i + 2])
+            i += 4
+            continue
+        deduped.append(out[i])
+        i += 1
+    out = deduped
+    # Tüm metin iki kez: "A B C A B C"
+    if len(out) >= 4 and len(out) % 2 == 0:
+        half = len(out) // 2
+        if [w.casefold() for w in out[:half]] == [w.casefold() for w in out[half:]]:
+            out = out[:half]
+    return " ".join(out).strip()
+
+
 def google_stt(wav: str, lang_code: str) -> tuple[str, str, float] | None:
     import speech_recognition as sr
 
@@ -462,6 +514,8 @@ def _groq_stt_request(
     if not api_key or not groq_api_key_valid():
         return None
     short = lang_code if lang_code in STT_LANG else None
+    # Auto: verbose_json → dil alanı; sabit dil: json (daha hafif)
+    response_format = "json" if short else "verbose_json"
     try:
         import uuid
 
@@ -474,7 +528,7 @@ def _groq_stt_request(
         parts: list[bytes] = []
         fields: list[tuple[str, str]] = [
             ("model", "whisper-large-v3-turbo"),
-            ("response_format", "json"),
+            ("response_format", response_format),
             ("temperature", "0"),
         ]
         if short:
@@ -506,10 +560,10 @@ def _groq_stt_request(
         )
         with urlopen(req, timeout=timeout_sec) as resp:
             payload = json.loads(resp.read().decode("utf-8"))
-        text = (payload.get("text") or "").strip()
+        text = clean_stt_text(payload.get("text") or "")
         if len(text) < 2 or is_hallucination(text):
             return None
-        detected = short
+        detected = short or normalize_whisper_lang(payload.get("language"))
         if not detected:
             for candidate in STT_LANG:
                 if looks_like_lang(text, candidate):
@@ -816,9 +870,11 @@ def _stt_has_turkish_markers(text: str) -> bool:
     if re.search(r"[ğüşıöçĞÜŞİÖÇ]", text):
         return True
     return bool(re.search(
-        r"\b(merhaba|nasılsın|nasilsin|teşekkür|evet|hayır|tamam|iyiyim|günaydın|"
-        r"neler|yapıyorum|yaptım|gittim|yorgunum|kitap|okudum|bugün|yarın|"
-        r"koştum|kosdum|koşuyorum|yürüdüm|izledim|çalıştım|evde|parka|işe)\b",
+        r"\b(merhaba|nasılsın|nasilsin|teşekkür|tesekkur|evet|hayır|hayir|tamam|iyiyim|günaydın|gunaydin|"
+        r"neler|yapıyorum|yapiyorum|yaptım|yaptim|gittim|yorgunum|kitap|okudum|bugün|bugun|yarın|yarin|"
+        r"koştum|kosdum|koşuyorum|yürüdüm|izledim|çalıştım|calistim|evde|parka|işe|ise|"
+        r"ben|sen|biz|siz|bunu|şunu|sunu|neden|niye|lütfen|lutfen|güzel|guzel|çok|cok|"
+        r"değil|degil|vardır|var|yok|için|icin|gibi|şimdi|simdi|sonra|önce|once)\b",
         text,
         re.I,
     ))
@@ -1015,68 +1071,152 @@ def transcribe_education(
             os.unlink(wav)
 
 
+def _clamp_lang_to_pair(lang: str, my: str, other: str, text: str) -> str:
+    if lang in (my, other):
+        return lang
+    if {my, other} == {"tr", "en"}:
+        if is_likely_turkish(text) and not is_likely_english(text, my, other):
+            return "tr"
+        if is_likely_english(text, my, other) and not is_likely_turkish(text):
+            return "en"
+    return my
+
+
+def _resolve_translate_stt(
+    candidates: list[tuple[str, str, float, str]],
+    my: str,
+    other: str,
+    last_from: str | None,
+) -> tuple[str, str] | None:
+    """STT adayından doğru metin + kaynak dil — zorla-dil uydurmalarını ele."""
+    if not candidates:
+        return None
+
+    cleaned: list[tuple[str, str, float, str]] = []
+    for text, stt_lang, score, source in candidates:
+        t = clean_stt_text(text)
+        if t and not is_hallucination(t):
+            cleaned.append((t, stt_lang, score, source))
+    if not cleaned:
+        return None
+    candidates = cleaned
+
+    def _strength(c: tuple[str, str, float, str]) -> float:
+        text, stt_lang, score, source = c
+        s = float(score) + score_text(text, stt_lang) * 0.08
+        if re.search(r"[ğüşıöçĞÜŞİÖÇ]", text):
+            s += 60
+        if _stt_has_turkish_markers(text):
+            s += 35
+        if source == "groq_auto":
+            s += 20
+        if stt_lang == "tr" and is_likely_turkish(text):
+            s += 22
+        if stt_lang == "en" and is_likely_english(text, my, other):
+            s += 22
+        return s
+
+    if {my, other} == {"tr", "en"}:
+        auto = [c for c in candidates if c[3] == "groq_auto"]
+        my_cands = [c for c in candidates if c[3] == f"groq_{my}"]
+
+        # 1) Auto net dil + uyumlu metin → sesin gerçek dili
+        if auto:
+            atext, alang, _, _ = max(auto, key=_strength)
+            clear_en = is_likely_english(atext, my, other) and not is_likely_turkish(atext)
+            clear_tr = is_likely_turkish(atext) and not is_likely_english(atext, my, other)
+            if clear_tr or (alang == "tr" and is_likely_turkish(atext)):
+                if my == "tr" and my_cands and is_likely_turkish(my_cands[0][0]):
+                    return max(my_cands, key=_strength)[0], "tr"
+                return atext, "tr"
+            if clear_en:
+                return atext, "en"
+
+        # 2) Auto belirsiz: Türkçe karakter → TR
+        ortho_tr = [c for c in candidates if re.search(r"[ğüşıöçĞÜŞİÖÇ]", c[0])]
+        if ortho_tr:
+            return max(ortho_tr, key=_strength)[0], "tr"
+
+        strong_tr = [
+            c for c in candidates
+            if is_likely_turkish(c[0]) and not is_likely_english(c[0], my, other)
+        ]
+        strong_en = [
+            c for c in candidates
+            if is_likely_english(c[0], my, other) and not is_likely_turkish(c[0])
+        ]
+        if strong_tr and not strong_en:
+            return max(strong_tr, key=_strength)[0], "tr"
+        if strong_en and not strong_tr:
+            return max(strong_en, key=_strength)[0], "en"
+        if strong_tr and strong_en:
+            marked = [
+                c for c in strong_tr
+                if _stt_has_turkish_markers(c[0]) or looks_like_lang(c[0], "tr")
+            ]
+            if marked:
+                return max(marked, key=_strength)[0], "tr"
+            best = max(strong_tr + strong_en, key=_strength)
+            return best[0], ("tr" if best in strong_tr else "en")
+
+    auto = [c for c in candidates if c[3] == "groq_auto"]
+    pool = auto if auto else candidates
+    best = max(pool, key=_strength)
+    text = best[0]
+    from_lang = detect_speech_lang(text, my, other, best[1], last_from)
+    if {my, other} == {"tr", "en"}:
+        if is_likely_turkish(text) and not is_likely_english(text, my, other):
+            from_lang = "tr"
+        elif is_likely_english(text, my, other) and not is_likely_turkish(text):
+            from_lang = "en"
+    return text, _clamp_lang_to_pair(from_lang, my, other, text)
+
+
 def transcribe_dual(data: bytes, my: str, other: str, last_from: str | None = None) -> tuple[str, str]:
+    """Çeviri STT — auto dil algılama + benim dilim. Zorla karşı-dil yok (uydurma engeli)."""
     wav = prepare_wav(data, fast=True)
     try:
         candidates: list[tuple[str, str, float, str]] = []
-        predicted = None
-        if last_from in (my, other):
-            predicted = other if last_from == my else my
 
         def add(r: tuple[str, str, float] | None, source: str) -> None:
-            if r and r[0].strip() and not is_hallucination(r[0]):
-                candidates.append((r[0].strip(), r[1], r[2], source))
+            if not r or not r[0].strip():
+                return
+            text = clean_stt_text(r[0])
+            if text and not is_hallucination(text):
+                candidates.append((text, r[1], r[2], source))
 
-        # === HIZLI YOL: Groq paralel (predicted + other) — tek ağ turu ===
-        # ÖNEMLİ: groq_stt(wav, lang_code, ...) — wav ilk argüman olmalı
-        if predicted:
-            alt_lang = other if predicted == my else my
-            with ThreadPoolExecutor(max_workers=2) as pool:
-                f_pred = pool.submit(groq_stt, wav, predicted, translate_mode=True)
-                f_other = pool.submit(groq_stt, wav, alt_lang, translate_mode=True)
-                for fut, src in ((f_pred, f"groq_{predicted}"), (f_other, f"groq_{alt_lang}")):
-                    try:
-                        add(fut.result(timeout=2.8), src)
-                    except Exception:
-                        pass
-        else:
-            # İlk kullanım: her iki dili paralel
-            with ThreadPoolExecutor(max_workers=2) as pool:
-                f_my = pool.submit(groq_stt, wav, my, translate_mode=True)
-                f_other = pool.submit(groq_stt, wav, other, translate_mode=True)
-                for fut, src in ((f_my, f"groq_{my}"), (f_other, f"groq_{other}")):
-                    try:
-                        add(fut.result(timeout=2.8), src)
-                    except Exception:
-                        pass
+        # Tek ağ turu: auto (doğru dil) + my (kullanıcı dili, daha temiz transcript)
+        # Karşı dili zorla ÇALIŞTIRMA — Türkçe sesten İngilizce uydurmayı bitirir
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            f_auto = pool.submit(groq_stt_auto, wav)
+            f_my = pool.submit(groq_stt, wav, my, translate_mode=True)
+            for fut, src in ((f_auto, "groq_auto"), (f_my, f"groq_{my}")):
+                try:
+                    add(fut.result(timeout=2.8), src)
+                except Exception:
+                    pass
 
-        # Groq sonuç verdiyse → hızlı değerlendir ve dön
         if candidates:
-            best = _pick_best_candidate(candidates, my, other, last_from)
+            best = _resolve_translate_stt(candidates, my, other, last_from)
             if best:
                 return best
 
-        # === YEDEK: Google STT (Groq başarısızsa) ===
-        for lang in (predicted or my, other if predicted != other else my):
+        # Yedek: Google — önce my, belirsizse other
+        for lang in (my, other):
             google = google_stt(wav, lang)
             if google and google[0].strip() and not is_hallucination(google[0]):
-                text = google[0].strip()
+                text = clean_stt_text(google[0])
+                if not text:
+                    continue
                 from_lang = detect_speech_lang(text, my, other, lang, last_from)
                 if {my, other} == {"tr", "en"}:
-                    if is_likely_english(text, my, other) and not is_likely_turkish(text):
-                        from_lang = "en"
-                    elif is_likely_turkish(text) and not is_likely_english(text, my, other):
+                    if is_likely_turkish(text) and not is_likely_english(text, my, other):
                         from_lang = "tr"
-                return text, from_lang
+                    elif is_likely_english(text, my, other) and not is_likely_turkish(text):
+                        from_lang = "en"
+                return text, _clamp_lang_to_pair(from_lang, my, other, text)
 
-        if not candidates:
-            raise ValueError("speech not recognized")
-
-        # Groq adayları vardı ama _pick_best None döndü — en iyisini seç
-        best_c = max(candidates, key=lambda c: c[2])
-        text = best_c[0]
-        from_lang = detect_speech_lang(text, my, other, best_c[1], last_from)
-        return text, from_lang
+        raise ValueError("speech not recognized")
     finally:
         if os.path.exists(wav):
             os.unlink(wav)
@@ -1086,106 +1226,8 @@ def _pick_best_candidate(
     candidates: list[tuple[str, str, float, str]],
     my: str, other: str, last_from: str | None,
 ) -> tuple[str, str] | None:
-    """Adaylardan en iyi metni seç — içerik dili STT tahmininden önce gelir."""
-    if not candidates:
-        return None
-
-    if {my, other} == {"tr", "en"}:
-        strong_tr = [
-            c for c in candidates
-            if is_likely_turkish(c[0]) and not is_likely_english(c[0], my, other)
-        ]
-        strong_en = [
-            c for c in candidates
-            if is_likely_english(c[0], my, other) and not is_likely_turkish(c[0])
-        ]
-
-        def _content_strength(c: tuple[str, str, float, str]) -> float:
-            text, stt_lang, score, _source = c
-            s = float(score) + score_text(text, stt_lang) * 0.05
-            if re.search(r"[ğüşıöçĞÜŞİÖÇ]", text):
-                s += 55
-            if _stt_has_turkish_markers(text) or looks_like_lang(text, "tr"):
-                s += 30
-            if stt_lang == "tr" and is_likely_turkish(text):
-                s += 28
-            if stt_lang == "en" and is_likely_english(text, my, other):
-                s += 28
-            if looks_like_lang(text, "en"):
-                s += 12
-            return s
-
-        # Net Türkçe aday varken İngilizce uydurma/yanlış STT'yi seçme
-        if strong_tr and not strong_en:
-            best = max(strong_tr, key=_content_strength)
-            return best[0], "tr"
-        if strong_en and not strong_tr:
-            best = max(strong_en, key=_content_strength)
-            return best[0], "en"
-        if strong_tr and strong_en:
-            # Ortografi / marker gücü: ğüşıöç → kesin TR; aksi halde skor
-            best = max(strong_tr + strong_en, key=_content_strength)
-            if is_likely_turkish(best[0]) and not is_likely_english(best[0], my, other):
-                return best[0], "tr"
-            if is_likely_english(best[0], my, other) and not is_likely_turkish(best[0]):
-                return best[0], "en"
-            return best[0], detect_speech_lang(best[0], my, other, best[1], last_from)
-
-    def rank(item: tuple[str, str, float, str]) -> float:
-        text, stt_lang, score, _source = item
-        from_lang = detect_speech_lang(text, my, other, stt_lang, last_from)
-        s = float(score)
-        if from_lang == stt_lang:
-            s += 18
-        if from_lang == "en" and is_likely_english(text, my, other):
-            s += 35
-        if from_lang == "tr" and is_likely_turkish(text):
-            s += 35
-        if looks_like_lang(text, from_lang) or (
-            from_lang == "en" and is_likely_english(text, my, other)
-        ):
-            s += 22
-        # last_from sadece hafif ipucu — taraf karıştırmasın
-        if last_from and from_lang == last_from:
-            s += 2
-        return s
-
-    best = max(candidates, key=rank)
-    text = best[0]
-    from_lang = detect_speech_lang(text, my, other, best[1], last_from)
-
-    # Kısa kelime: EN yalnızca TR aday Türkçe değilse (head→at); net TR'yi ezme
-    if {my, other} == {"tr", "en"} and len(text.split()) <= 2 and len(candidates) >= 2:
-        en_cands = [
-            c for c in candidates
-            if c[1] == "en" or (is_likely_english(c[0], my, other) and not is_likely_turkish(c[0]))
-        ]
-        tr_cands = [
-            c for c in candidates
-            if c[1] == "tr" or (is_likely_turkish(c[0]) and not is_likely_english(c[0], my, other))
-        ]
-        if en_cands and tr_cands:
-            en_text = en_cands[0][0]
-            tr_text = tr_cands[0][0]
-            if en_text.lower() != tr_text.lower():
-                if is_likely_turkish(tr_text) and not is_likely_english(tr_text, my, other):
-                    text = tr_text
-                    from_lang = "tr"
-                elif (
-                    is_ascii_latin(en_text)
-                    and not is_likely_turkish(en_text)
-                    and not is_likely_turkish(tr_text)
-                ):
-                    text = en_text
-                    from_lang = "en"
-
-    if {my, other} == {"tr", "en"}:
-        if is_likely_turkish(text) and not is_likely_english(text, my, other):
-            from_lang = "tr"
-        elif is_likely_english(text, my, other) and not is_likely_turkish(text):
-            from_lang = "en"
-
-    return text, from_lang
+    """Geriye dönük uyumluluk — yeni çözümleyiciye delege."""
+    return _resolve_translate_stt(candidates, my, other, last_from)
 
 
 def transcribe_audio(data: bytes, lang_code: str) -> tuple[str, str, float]:
