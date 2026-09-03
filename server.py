@@ -27,7 +27,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.09.03-v70.9"
+APP_VERSION = "2026.09.03-v71.0"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -148,10 +148,79 @@ def google_translate(text: str, from_lang: str, to_lang: str) -> str | None:
     return None
 
 
+def _chunk_for_translate(text: str, max_len: int = 220) -> list[str]:
+    """Uzun metni kelime sınırında parçala — Google URL limiti / hız."""
+    t = re.sub(r"\s+", " ", text.strip())
+    if len(t) <= max_len:
+        return [t]
+    # Cümle sonu varsa tercih et
+    parts = re.split(r"(?<=[.!?…;:])\s+", t)
+    chunks: list[str] = []
+    buf = ""
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+        if not buf:
+            buf = part
+        elif len(buf) + 1 + len(part) <= max_len:
+            buf = f"{buf} {part}"
+        else:
+            chunks.append(buf)
+            buf = part
+    if buf:
+        chunks.append(buf)
+    # Hâlâ çok uzun parçalar → kelime kes
+    out: list[str] = []
+    for ch in chunks:
+        if len(ch) <= max_len:
+            out.append(ch)
+            continue
+        words = ch.split()
+        cur: list[str] = []
+        for w in words:
+            trial = " ".join(cur + [w])
+            if cur and len(trial) > max_len:
+                out.append(" ".join(cur))
+                cur = [w]
+            else:
+                cur.append(w)
+        if cur:
+            out.append(" ".join(cur))
+    return out or [t]
+
+
+def google_translate_fast(text: str, from_lang: str, to_lang: str) -> str | None:
+    """Google çeviri — uzun metinde paralel parça (hızlı)."""
+    src = text.strip()
+    if not src:
+        return ""
+    chunks = _chunk_for_translate(src)
+    if len(chunks) == 1:
+        return google_translate(chunks[0], from_lang, to_lang)
+
+    results: list[str | None] = [None] * len(chunks)
+
+    def _one(i: int, piece: str) -> None:
+        results[i] = google_translate(piece, from_lang, to_lang)
+
+    with ThreadPoolExecutor(max_workers=min(4, len(chunks))) as pool:
+        futs = [pool.submit(_one, i, c) for i, c in enumerate(chunks)]
+        for fut in futs:
+            try:
+                fut.result(timeout=8)
+            except Exception:
+                pass
+    if any(not r for r in results):
+        # Parça başarısızsa tek seferde dene
+        return google_translate(src[:4500], from_lang, to_lang)
+    return " ".join(r.strip() for r in results if r)
+
+
 def mymemory_translate(text: str, from_lang: str, to_lang: str) -> str:
     url = (
         "https://api.mymemory.translated.net/get?"
-        f"q={quote(text)}&langpair={quote(from_lang)}|{quote(to_lang)}"
+        f"q={quote(text[:450])}&langpair={quote(from_lang)}|{quote(to_lang)}"
     )
     with urlopen(url, timeout=12) as resp:
         data = json.loads(resp.read().decode())
@@ -184,7 +253,7 @@ def _cache_set(cache: dict, key: tuple, val, max_size: int = 400) -> None:
 
 
 def smart_translate_text(text: str, from_lang: str, to_lang: str) -> str:
-    """Hızlı + doğru çeviri — önbellek, Groq/Gemini, Google yedek."""
+    """Hızlı + doğru çeviri — Google önce (tüm diller), LLM yedek. Uzun metin parçalı."""
     if from_lang == to_lang:
         return text
     src = text.strip()
@@ -195,18 +264,10 @@ def smart_translate_text(text: str, from_lang: str, to_lang: str) -> str:
     if cached:
         return cached
 
-    primary_pair = {from_lang, to_lang} <= {"tr", "en"}
-    use_llm_first = llm_available() and not primary_pair
     result: str | None = None
 
-    if use_llm_first:
-        try:
-            result = llm_translate(src, from_lang, to_lang)
-        except Exception:
-            result = None
-
-    if not result:
-        result = google_translate(src, from_lang, to_lang)
+    # Her dil çifti: Google önce (KA dahil LLM beklemesin)
+    result = google_translate_fast(src, from_lang, to_lang)
 
     if not result:
         try:
@@ -216,7 +277,8 @@ def smart_translate_text(text: str, from_lang: str, to_lang: str) -> str:
 
     if not result and llm_available():
         try:
-            result = llm_translate(src, from_lang, to_lang)
+            # LLM yalnız yedek; uzun metinde kısalt
+            result = llm_translate(src[:1200], from_lang, to_lang)
         except Exception:
             result = None
 
@@ -276,9 +338,15 @@ def translate_phonetic(text: str, lang: str) -> str:
     """Kelime dersindeki gibi Türkçe fonetik okunuş — TTS ile uyumlu, LLM yok (hızlı)."""
     if not text or lang == "tr":
         return ""
+    # Uzun çeviride yalnızca ilk cümle/parça — yanıtı bloklamasın
+    snippet = re.sub(r"\s+", " ", text.strip())
+    if len(snippet) > 140:
+        cut = snippet[:140]
+        sp = cut.rfind(" ")
+        snippet = cut if sp < 60 else cut[:sp]
     try:
         from pronunciation_service import build_sentence_natural
-        return safe_str(build_sentence_natural(text, lang)).strip()[:160]
+        return safe_str(build_sentence_natural(snippet, lang)).strip()[:160]
     except Exception:
         return ""
 
@@ -1075,6 +1143,8 @@ def transcribe_dual(data: bytes, my: str, other: str, last_from: str | None = No
     wav = prepare_wav(data, fast=True)
     try:
         candidates: list[tuple[str, str, float, str]] = []
+        # ~3sn+ ses: karşı dili zorlama (uzun seste yavaş + uydurma). auto+my yeterli.
+        long_audio = os.path.getsize(wav) >= 96_000
 
         def add(r: tuple[str, str, float] | None, source: str) -> None:
             if not r or not r[0].strip():
@@ -1083,16 +1153,22 @@ def transcribe_dual(data: bytes, my: str, other: str, last_from: str | None = No
             if text and not is_hallucination(text):
                 candidates.append((text, r[1], r[2], source))
 
-        tasks = {
-            "auto": lambda: groq_stt_auto(wav),
-            f"lang_{my}": lambda: stt_for_translate(wav, my),
-            f"lang_{other}": lambda: stt_for_translate(wav, other),
-        }
-        with ThreadPoolExecutor(max_workers=3) as pool:
+        if long_audio:
+            tasks = {
+                "auto": lambda: groq_stt_auto(wav),
+                f"lang_{my}": lambda: stt_for_translate(wav, my),
+            }
+        else:
+            tasks = {
+                "auto": lambda: groq_stt_auto(wav),
+                f"lang_{my}": lambda: stt_for_translate(wav, my),
+                f"lang_{other}": lambda: stt_for_translate(wav, other),
+            }
+        with ThreadPoolExecutor(max_workers=min(3, len(tasks))) as pool:
             futures = {pool.submit(fn): key for key, fn in tasks.items()}
             for fut in as_completed(futures):
                 try:
-                    add(fut.result(), futures[fut])
+                    add(fut.result(timeout=4.5 if long_audio else 2.8), futures[fut])
                 except Exception:
                     continue
 
@@ -1450,7 +1526,11 @@ class Handler(SimpleHTTPRequestHandler):
             translated, from_lang, to_lang = translate_pair_safe(
                 original, from_lang, to_lang, my, other,
             )
-            phonetic = translate_phonetic(translated, to_lang)
+            # Uzun çeviride fonetiği istemciye bırak — yanıtı hemen dön
+            if len(translated) > 180:
+                phonetic = ""
+            else:
+                phonetic = translate_phonetic(translated, to_lang)
             body = json.dumps({
                 "original": original,
                 "translated": translated,
