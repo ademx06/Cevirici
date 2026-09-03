@@ -2416,9 +2416,12 @@ def _rule_word_profile(
             "semantic_category": "verb",
             "meaning_tr": word_tr,
             "usage_notes_tr": f"«{word_tr}» fiildir; özne + fiil + nesne/zarf yapısı kullanılır.",
-            "common_verbs": [target_word],
-            "common_collocations": [f"I {target_word}", f"need to {target_word}", f"don't {target_word}"],
-            "common_patterns": [f"I {target_word} every day.", f"Do you {target_word} here?"],
+            "common_verbs": [],
+            "common_collocations": [],
+            "common_patterns": [
+                {"en": f"I {target_word} every day.", "tr": f"Her gün {word_tr[:-3] if word_tr.endswith(('mak','mek')) else word_tr}ırım."},
+                {"en": f"Do you {target_word} here?", "tr": f"Burada {word_tr[:-3] if word_tr.endswith(('mak','mek')) else word_tr}ıyor musun?"},
+            ],
             "article_notes_tr": None,
             "avoid_patterns": [],
             "avoid_reason_tr": "Fiil çekimine dikkat: works, worked, working.",
@@ -4345,50 +4348,108 @@ def _interjection_pattern_examples(W: str, T: str) -> list[dict[str, Any]]:
 
 
 def _verb_pattern_examples(W: str, T: str) -> list[dict[str, Any]]:
-    """Fiil örnekleri — Türkçe cümlede fiil gövdesi, İngilizcede T kullanılır."""
+    """Fiil örnekleri — Türkçe cümlede doğal Türkçe çekim, İngilizcede T kullanılır."""
     tw = _en_target_word(T)
-    stem = W
+    # Doğal Türkçe fiil çekimleri için KNOWN harita
+    _VERB_TR_FORMS: dict[str, dict[str, str]] = {
+        "çalışmak": {"root": "çalış", "present": "çalışıyorum", "past": "çalıştım", "future": "çalışacağım",
+                      "routine": "çalışırım", "question": "çalışıyor musun", "negative": "çalışmam",
+                      "imperative": "Çalış", "polite": "çalışabilir misin", "should": "çalışmalısın",
+                      "need": "çalışmam lazım", "might": "çalışırım", "conditional": "çalış",
+                      "dialogue_q": "Çalışıyor musun"},
+        "gitmek": {"root": "git", "present": "gidiyorum", "past": "gittim", "future": "gideceğim",
+                   "routine": "giderim", "question": "gidiyor musun", "negative": "gitmem",
+                   "imperative": "Git", "polite": "gidebilir misin", "should": "gitmelisin",
+                   "need": "gitmem lazım", "might": "giderim", "conditional": "git",
+                   "dialogue_q": "Gidiyor musun"},
+        "gelmek": {"root": "gel", "present": "geliyorum", "past": "geldim", "future": "geleceğim",
+                   "routine": "gelirim", "question": "geliyor musun", "negative": "gelmem",
+                   "imperative": "Gel", "polite": "gelebilir misin", "should": "gelmelisin",
+                   "need": "gelmem lazım", "might": "gelirim", "conditional": "gel",
+                   "dialogue_q": "Geliyor musun"},
+        "yapmak": {"root": "yap", "present": "yapıyorum", "past": "yaptım", "future": "yapacağım",
+                   "routine": "yaparım", "question": "yapıyor musun", "negative": "yapmam",
+                   "imperative": "Yap", "polite": "yapabilir misin", "should": "yapmalısın",
+                   "need": "yapmam lazım", "might": "yaparım", "conditional": "yap",
+                   "dialogue_q": "Yapıyor musun"},
+        "okumak": {"root": "oku", "present": "okuyorum", "past": "okudum", "future": "okuyacağım",
+                   "routine": "okurum", "question": "okuyor musun", "negative": "okumam",
+                   "imperative": "Oku", "polite": "okuyabilir misin", "should": "okumalısın",
+                   "need": "okumam lazım", "might": "okurum", "conditional": "oku",
+                   "dialogue_q": "Okuyor musun"},
+        "yazmak": {"root": "yaz", "present": "yazıyorum", "past": "yazdım", "future": "yazacağım",
+                   "routine": "yazarım", "question": "yazıyor musun", "negative": "yazmam",
+                   "imperative": "Yaz", "polite": "yazabilir misin", "should": "yazmalısın",
+                   "need": "yazmam lazım", "might": "yazarım", "conditional": "yaz",
+                   "dialogue_q": "Yazıyor musun"},
+        "koşmak": {"root": "koş", "present": "koşuyorum", "past": "koştum", "future": "koşacağım",
+                   "routine": "koşarım", "question": "koşuyor musun", "negative": "koşmam",
+                   "imperative": "Koş", "polite": "koşabilir misin", "should": "koşmalısın",
+                   "need": "koşmam lazım", "might": "koşarım", "conditional": "koş",
+                   "dialogue_q": "Koşuyor musun"},
+        "almak": {"root": "al", "present": "alıyorum", "past": "aldım", "future": "alacağım",
+                  "routine": "alırım", "question": "alıyor musun", "negative": "almam",
+                  "imperative": "Al", "polite": "alabilir misin", "should": "almalısın",
+                  "need": "almam lazım", "might": "alırım", "conditional": "al",
+                  "dialogue_q": "Alıyor musun"},
+        "vermek": {"root": "ver", "present": "veriyorum", "past": "verdim", "future": "vereceğim",
+                   "routine": "veririm", "question": "veriyor musun", "negative": "vermem",
+                   "imperative": "Ver", "polite": "verebilir misin", "should": "vermelisin",
+                   "need": "vermem lazım", "might": "veririm", "conditional": "ver",
+                   "dialogue_q": "Veriyor musun"},
+    }
     low = _norm(W)
-    if low.endswith(("mak", "mek")) and len(W) > 3:
-        stem = W[:-3]
+    forms = _VERB_TR_FORMS.get(low, {})
+    if not forms:
+        # Bilinmeyen fiil: mastar formundan basit gövde çıkar
+        stem = W[:-3] if low.endswith(("mak", "mek")) and len(W) > 3 else W
+        forms = {
+            "root": stem, "present": f"{stem}iyorum", "past": f"{stem}dim",
+            "future": f"{stem}eceğim", "routine": f"{stem}irim",
+            "question": f"{stem}iyor musun", "negative": f"{stem}mem",
+            "imperative": stem.capitalize(), "polite": f"{stem}ebilir misin",
+            "should": f"{stem}melisin", "need": f"{stem}mem lazım",
+            "might": f"{stem}irim", "conditional": stem,
+            "dialogue_q": f"{stem.capitalize()}iyor musun",
+        }
     ing = f"{tw[:-1]}ing" if tw.endswith("e") and len(tw) > 2 else f"{tw}ing"
     return [
-        _pe(W, f"Her gün {stem}irim.", f"I {tw} every day.", "basic",
+        _pe(W, f"Her gün {forms['routine']}.", f"I {tw} every day.", "basic",
             f"I + {tw} + every day",
             _rich_teaching_how(
-                f"Geniş zamanda «{stem}» eylemini anlatırsınız.",
+                f"Geniş zamanda «{W}» eylemini anlatırsınız.",
                 f"I {tw} every day",
-                f"Her gün {stem}irim.",
+                f"Her gün {forms['routine']}.",
                 [
                     (f"I {tw}", f"I + fiil(yalın) → geniş zaman\nHe/She/It {tw}s → 3. tekil -s alır."),
                     ("every day", "every day → her gün (rutin)"),
                 ],
                 mistakes=[f"I {tw}s every day", f"I am {tw} every day"],
             )),
-        _pe(W, f"Şu an {stem}iyorum.", f"I am {ing} now.", "present",
+        _pe(W, f"Şu an {forms['present']}.", f"I am {ing} now.", "present",
             f"I + am + {ing}",
             f"1️⃣ Şimdiki zaman\nam + fiil-ing → şu anda …-yor"),
-        _pe(W, f"Dün {stem}dim.", f"I {tw}ed yesterday.", "past",
+        _pe(W, f"Dün {forms['past']}.", f"I {tw}ed yesterday.", "past",
             f"I + {tw}ed", f"1️⃣ Geçmiş zaman\nfiil + -ed (düzensizlerde ayrı geçmiş biçim)"),
-        _pe(W, f"Yarın {stem}eceğim.", f"I will {tw} tomorrow.", "future",
+        _pe(W, f"Yarın {forms['future']}.", f"I will {tw} tomorrow.", "future",
             f"I + will + {tw}", f"1️⃣ Gelecek zaman\nwill + fiil → …-eceğim"),
-        _pe(W, f"Burada {stem}iyor musun?", f"Do you {tw} here?", "question",
+        _pe(W, f"Burada {forms['question']}?", f"Do you {tw} here?", "question",
             f"Do + you + {tw}", f"1️⃣ Soru cümlesi\nDo + özne + fiil(yalın)?"),
-        _pe(W, f"Pazar günleri {stem}mem.", f"I don't {tw} on Sundays.", "negative",
+        _pe(W, f"Pazar günleri {forms['negative']}.", f"I don't {tw} on Sundays.", "negative",
             f"I + don't + {tw}", f"1️⃣ Olumsuz\ndon't + fiil(yalın)"),
-        _pe(W, f"{stem.capitalize()}!", f"{tw.capitalize()}!", "imperative",
+        _pe(W, f"{forms['imperative']}!", f"{tw.capitalize()}!", "imperative",
             f"{tw.capitalize()}", f"1️⃣ Emir kipi\nFiil ile başlar, özne yok"),
-        _pe(W, f"Biraz {stem}ebilir misin?", f"Could you {tw} a bit?", "polite_request",
+        _pe(W, f"Biraz {forms['polite']}?", f"Could you {tw} a bit?", "polite_request",
             f"Could + you + {tw}", f"1️⃣ Rica\nCould you…? → …-ebilir misin?"),
-        _pe(W, f"Daha çok {stem}melisin.", f"You should {tw} harder.", "advice",
+        _pe(W, f"Daha çok {forms['should']}.", f"You should {tw} harder.", "advice",
             f"You + should + {tw}", f"1️⃣ Tavsiye\nshould → …-melisin"),
-        _pe(W, f"Bugün {stem}mem lazım.", f"I need to {tw} today.", "obligation",
+        _pe(W, f"Bugün {forms['need']}.", f"I need to {tw} today.", "obligation",
             f"I + need to + {tw}", f"1️⃣ Zorunluluk\nneed to + fiil"),
-        _pe(W, f"Belki yarın {stem}irim.", f"I might {tw} tomorrow.", "possibility",
+        _pe(W, f"Belki yarın {forms['might']}.", f"I might {tw} tomorrow.", "possibility",
             f"I + might + {tw}", f"1️⃣ İhtimal\nmight → belki / -ebilir"),
-        _pe(W, f"Vaktin olursa {stem}.", f"If you have time, {tw}.", "conditional",
+        _pe(W, f"Vaktin olursa {forms['conditional']}.", f"If you have time, {tw}.", "conditional",
             f"If + you + have time, + {tw}", f"1️⃣ Koşul\nIf you have time → vaktin olursa"),
-        _pe(W, f"A: {stem.capitalize()}iyor musun? B: Evet.", f"A: Are you {ing}? B: Yes, I am.", "dialogue",
+        _pe(W, f"A: {forms['dialogue_q']}? B: Evet.", f"A: Are you {ing}? B: Yes, I am.", "dialogue",
             f"A: Are you {ing}? B: Yes", f"1️⃣ Günlük diyalog"),
     ]
 
@@ -5790,6 +5851,9 @@ def _word_specific_usage_phrases(word_tr: str, target_word: str) -> list[dict[st
     wt, tw = _norm(word_tr), _norm(T)
     if not T:
         return []
+    # Fiil / dilbilgisi dersleri: phrase listesi doğal değil
+    if detect_part_of_speech(word_tr, target_word) in ("verb", "adverb", "pronoun", "preposition", "conjunction", "interjection"):
+        return []
     if _is_entertainment_abstract(wt, tw):
         return [
             {"en": "live entertainment", "tr": "canlı eğlence"},
@@ -5822,12 +5886,12 @@ def _word_specific_usage_phrases(word_tr: str, target_word: str) -> list[dict[st
                 out.append({"en": en, "tr": tr})
         if out:
             return out[:6]
-    # Genel ama kelimeye bağlı eşdizimler
+    # Genel ama kelimeye bağlı eşdizimler — TR tarafında İngilizce kelime olmamalı
     return [
         {"en": f"my {T}", "tr": _possessive_tr(W)},
         {"en": f"a new {T}", "tr": f"yeni bir {W}"},
         {"en": f"look for {T}", "tr": f"{W} aramak"},
-        {"en": f"need {T}", "tr": f"{W} lazım / {W}e ihtiyaç"},
+        {"en": f"need {T}", "tr": f"{W} lazım"},
     ]
 
 
@@ -5889,10 +5953,8 @@ def build_usage_from_profile(
             if not en:
                 continue
             tr = phrase_lookup.get(en.lower(), "") or _phrase_meaning_tr(en)
-            if not tr and tw and word_tr and tw.split()[0] in en.lower():
-                tr = en.lower().replace(tw, word_tr)
-                if tr == en.lower():
-                    tr = f"{word_tr}: {en}"
+            if not tr:
+                continue  # TR yoksa İngilizce karıştırmak yerine atla
             if tr:
                 phrase_src.append({"en": en, "tr": tr})
     # 3) Kelimeye özel üretilmiş ifadeler (abstract vb.)
@@ -5917,9 +5979,12 @@ def build_usage_from_profile(
         tr = safe_str(item.get("tr") if isinstance(item, dict) else "").strip()
         if not tr:
             tr = _phrase_meaning_tr(en)
-        if not tr and word_tr:
-            tr = f"{word_tr} ifadesi"
         if not tr:
+            continue  # TR yoksa atla — İngilizce karıştırma
+        # TR'de İngilizce kelime kontrolü: en ve tr aynıysa veya tr'de sadece İngilizce varsa atla
+        tr_low = tr.lower().strip()
+        en_low = en.lower().strip()
+        if tr_low == en_low:
             continue
         phrases_enriched.append(_enrich_usage_entry(en, tr, target_lang))
 
