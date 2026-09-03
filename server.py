@@ -393,7 +393,7 @@ def audio_has_speech(wav: str) -> bool:
     mean = re.search(r"mean_volume:\s*([-\d.]+)\s*dB", output)
     maxv = re.search(r"max_volume:\s*([-\d.]+)\s*dB", output)
     if mean and maxv:
-        return float(maxv.group(1)) > -48 and float(mean.group(1)) > -54
+        return float(maxv.group(1)) > -55 and float(mean.group(1)) > -60
     return True
 
 
@@ -439,7 +439,7 @@ def google_stt(wav: str, lang_code: str) -> tuple[str, str, float] | None:
         try:
             text = recognizer.recognize_google(audio, language=code)
             text = text.strip()
-            if len(text) >= 2:
+            if text:
                 return text, short, 0.88
         except sr.UnknownValueError:
             continue
@@ -608,7 +608,7 @@ def looks_like_lang(text: str, lang: str) -> bool:
 
 def score_text(text: str, lang: str) -> float:
     t = text.strip()
-    if len(t) < 2:
+    if len(t) < 1:
         return -100.0
     score = 5.0
     if lang == "tr":
@@ -949,8 +949,7 @@ def transcribe_education(
         raise ValueError("audio too short")
     wav = prepare_wav(data)
     try:
-        if not audio_has_speech(wav):
-            raise ValueError("no speech detected")
+        # Kısa kelimeler (head, one, two) sessiz sanılmasın — VAD atla
 
         primary = target_lang if target_lang in STT_LANG else "en"
         langs: list[str] = [primary]

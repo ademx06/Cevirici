@@ -256,6 +256,40 @@ async function processAudio(blob) {
   return { original: data.original, translated: data.translated, from: data.from, to: toLang };
 }
 
+async function processText(text) {
+  const trimmed = (text || '').trim();
+  if (!trimmed) return;
+  if (S.busyCount > 0) return;
+  S.busyCount += 1;
+  setStatus('Çevriliyor…', true);
+  try {
+    const isLikelyTR = /[ğüşıöçĞÜŞİÖÇ]/.test(trimmed) ||
+      /^(bir|ben|sen|bu|şu|ne|nasıl|merhaba|evet|hayır|tamam|güzel|neden)\b/i.test(trimmed);
+    const fromLang = isLikelyTR ? S.my : S.other;
+    const toLang = fromLang === S.my ? S.other : S.my;
+    const translated = await fetchTranslateText(trimmed, fromLang, toLang);
+    S.lastFrom = fromLang;
+    const phonetic = toLang !== 'tr' ? await fetchPronunciation(translated, toLang).catch(() => '') : '';
+    const msg = {
+      orig: trimmed,
+      trans: translated,
+      from: fromLang,
+      to: toLang,
+      audio: null,
+      phonetic: phonetic || '',
+    };
+    S.msgs.unshift(msg);
+    render();
+    setStatus('Çeviri hazır', false);
+    void fetchTranslateTts(translated, toLang, 0);
+  } catch (e) {
+    showErr(e.message || 'Çeviri başarısız');
+  } finally {
+    S.busyCount -= 1;
+    if (S.busyCount === 0) resetIdle();
+  }
+}
+
 async function fetchTranslateTts(text, lang, msgIndex) {
   const phrase = (text || '').trim().slice(0, 500);
   if (!phrase) return;
@@ -290,7 +324,7 @@ const mic = MicHold.create({
   state: S,
   tailMs: TAIL_MS,
   minHoldMs: MIN_HOLD_MS,
-  minBlobBytes: 200,
+  minBlobBytes: 50,
   micOpts: MIC_OPTS,
   onHideError: hideErr,
   onSpeaking: () => {
@@ -338,6 +372,23 @@ function syncLang() {
 }
 
 mic.bindHold($('micBtn'));
+
+/* Yazı ile çeviri */
+const _txtInput = $('translateTextInput');
+const _txtSend = $('translateSendBtn');
+if (_txtInput && _txtSend) {
+  _txtSend.onclick = () => {
+    const v = _txtInput.value.trim();
+    if (v) { _txtInput.value = ''; processText(v); }
+  };
+  _txtInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      const v = _txtInput.value.trim();
+      if (v) { _txtInput.value = ''; processText(v); }
+    }
+  });
+}
 
 $('testBtn').onclick = async () => {
   if (isRecording()) return;
