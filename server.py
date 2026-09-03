@@ -514,8 +514,8 @@ def _groq_stt_request(
     if not api_key or not groq_api_key_valid():
         return None
     short = lang_code if lang_code in STT_LANG else None
-    # Auto: verbose_json → dil alanı; sabit dil: json (daha hafif)
-    response_format = "json" if short else "verbose_json"
+    # json yeterli — dil metinden + (varsa) language alanından
+    response_format = "json"
     try:
         import uuid
 
