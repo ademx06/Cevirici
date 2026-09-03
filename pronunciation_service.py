@@ -1945,8 +1945,13 @@ def romanize_for_tr_reader(text: str, lang: str) -> str:
     if not t:
         return ""
     if lang == "ka":
-        out = "".join(_KA_ROMA.get(ch, ch) for ch in t)
-        return re.sub(r"\s+", " ", out).strip()
+        out = []
+        for ch in t:
+            if ch in _KA_ROMA:
+                out.append(_KA_ROMA[ch])
+            elif ch.isascii():
+                out.append(ch)
+        return re.sub(r"\s+", " ", "".join(out)).strip()
     if lang == "ru":
         chars: list[str] = []
         for ch in t:

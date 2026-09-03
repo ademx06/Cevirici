@@ -27,7 +27,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.09.03-v71.3"
+APP_VERSION = "2026.09.03-v71.4"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -336,6 +336,23 @@ def _translation_has_age_possession_bug(src: str, translated: str) -> bool:
     )
 
 
+def _polish_georgian(src: str, text: str) -> str:
+    """Google'ın çınar→სიბრტყე calque'ini ve kovuk sözlüğünü düzelt — akıcılığa dokunma."""
+    t = text or ""
+    src_l = src.lower()
+    if "çınar" in src_l:
+        t = t.replace("ბებერ სიბრტყესთან", "ძველ ჭადართან")
+        t = t.replace("ძველ სიბრტყემდე", "ძველ ჭადარამდე")
+        t = t.replace("სიბრტყესთან", "ჭადართან")
+        t = t.replace("სიბრტყემდე", "ჭადარამდე")
+        t = t.replace("სიბრტყეზე", "ჭადარაზე")
+        t = t.replace("სიბრტყე", "ჭადარა")
+    if re.search(r"kovu", src_l):
+        t = t.replace("ხის ღრუში", "ხის ფუღუროში")
+        t = t.replace("ხის ღრმულში", "ხის ფუღუროში")
+    return t
+
+
 def _translation_is_garbled(src: str, translated: str, lang: str) -> bool:
     """Edebi TR kelimelerin hedef dilde saçma karşılığı (Gürcüce sökü/kelebek vb.)."""
     if not translated:
@@ -354,6 +371,15 @@ def _translation_is_garbled(src: str, translated: str, lang: str) -> bool:
             return True
         if "სიბრტყე" in translated and "çınar" in src_l:
             return True
+        # Akıcılık: model Gürcüce uyduruyor
+        if "დახრიла" in translated or "ჩივლით" in translated:
+            return True
+        if "თანხლებით დაიწყო" in translated or "იმედს აცოცხლებს" in translated:
+            return True
+        if "ზრდასრულ ჭადარ" in translated:
+            return True
+        if "მხარზე დასხა" in translated or "მხარზე დაიკაშა" in translated:
+            return True
     if lang == "es" and re.search(r"\bcedro", translated, re.I) and "çınar" in src_l:
         return True
     if lang == "zh" and "樟树" in translated and "çınar" in src_l:
@@ -362,7 +388,13 @@ def _translation_is_garbled(src: str, translated: str, lang: str) -> bool:
 
 
 def _pick_translation(src: str, to_lang: str, llm_r: str | None, g_r: str | None) -> str | None:
-    """LLM'i tercih et; yazı/yaş/uydurma hatası varsa Google'a düş."""
+    """LLM'i tercih et; Gürcüce'de Google (düzeltmeli) daha doğal."""
+    if to_lang == "ka":
+        if g_r:
+            g_r = _polish_georgian(src, g_r)
+        if llm_r:
+            llm_r = _polish_georgian(src, llm_r)
+
     def _ok(val: str | None) -> bool:
         if not val:
             return False
@@ -373,6 +405,16 @@ def _pick_translation(src: str, to_lang: str, llm_r: str | None, g_r: str | None
         if _translation_is_garbled(src, val, to_lang):
             return False
         return True
+
+    # Gürcüce: NMT akıcılığı LLM'den iyi — calque düzeltilmiş Google önce
+    if to_lang == "ka":
+        if _ok(g_r):
+            return g_r
+        if _ok(llm_r):
+            return llm_r
+        if g_r and _script_matches_lang(g_r, "ka"):
+            return g_r
+        return llm_r or g_r
 
     if _ok(llm_r):
         return llm_r
@@ -429,12 +471,18 @@ def smart_translate_text(text: str, from_lang: str, to_lang: str) -> str:
                         val = None
                     if fut is f_llm:
                         llm_r = val
-                        picked = _pick_translation(src, to_lang, llm_r, None)
-                        if picked:
-                            result = picked
-                            break
+                        if to_lang != "ka":
+                            picked = _pick_translation(src, to_lang, llm_r, None)
+                            if picked:
+                                result = picked
+                                break
                     else:
                         g_r = val
+                        if to_lang == "ka":
+                            picked = _pick_translation(src, to_lang, None, g_r)
+                            if picked:
+                                result = picked
+                                break
             except Exception:
                 pass
             if result is None:

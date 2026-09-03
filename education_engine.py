@@ -3749,10 +3749,15 @@ _LITERARY_GLOSS = (
 
 _NATIVE_GLOSS = {
     "ka": (
-        "Georgian must-use words: პატარა გოგონა (not მცირე გოგონა); "
-        "პეპელა/პეპლები (not მწვანეები); ჭადარა (not სოკო, not სიბრტყე); "
-        "ღრუ (not ჭიქა); ზღაპარი (not ლეგენდა); ჯადოსნური (not სასოფლო); "
-        "სათამაშო (toy).\n"
+        "Write natural fairy-tale Georgian, like a native children's book.\n"
+        "Must-use: პატარა გოგონა (not მცირე); სუნთქვა შეიკრა (not შეაჩერა); "
+        "ჩიტი for a small bird (not ფრინველი); თავი გვერდზე გადახარა (never დახრიла); "
+        "ჭიკჭიკით (not ჩივლით); ფრთებს გამოეკიდა (never თანხლებით დაიწყო); "
+        "ჭადარა (not სოკო, not სიბრტყე, not ზრდასრული); ფუღურო (not ჭიქა); "
+        "ჩამოჯდა on the shoulder (not დასხა); წიგნი ელოდება რომ აივსოს "
+        "(never იმედს აცოცხლებს); ზღაპარი; ჯადოსნური; სათამაშო; ცოცხლდებოდა.\n"
+        "Example: 'Küçük kız nefesini tutarak mavi kuşa doğru bir adım attı.' → "
+        "'პატარა გოგონამ სუნთქვა შეიკრა და ლურჯი ჩიტისკენ ერთი ნაბიჯი გადადგა.'\n"
     ),
     "zh": "Chinese: 小女孩; 蝴蝶; 悬铃木/梧桐 for çınar (not 樟树 unless camphor); 树洞; 童话书; 魔法.\n",
     "es": "Spanish: niña; mariposas; plátano / árbol plátano for çınar (not cedro); hueco; libro de cuentos; mágico.\n",
