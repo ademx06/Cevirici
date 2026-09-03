@@ -945,7 +945,7 @@ def transcribe_education(
     history: list[dict] | None = None,
 ) -> tuple[str, str]:
     """Eğitim modu — EN ve TR STT adaylarını bağlamla birleştir."""
-    if len(data) < 200:
+    if len(data) < 50:
         raise ValueError("audio too short")
     wav = prepare_wav(data)
     try:
@@ -1106,7 +1106,7 @@ def transcribe_dual(data: bytes, my: str, other: str, last_from: str | None = No
 
 
 def transcribe_audio(data: bytes, lang_code: str) -> tuple[str, str, float]:
-    if len(data) < 200:
+    if len(data) < 50:
         raise ValueError("audio too short")
     wav = prepare_wav(data)
     try:
@@ -1137,13 +1137,13 @@ class Handler(SimpleHTTPRequestHandler):
     def api_error_message(self, exc: Exception) -> str:
         msg = str(exc).lower()
         if "speech not recognized" in msg or "not recognized" in msg:
-            return "Konuşma anlaşılamadı — daha net ve biraz daha uzun konuşun"
+            return "Konuşma anlaşılamadı — tekrar deneyin"
         if "no speech" in msg:
             return "Konuşma algılanmadı — basılı tutup konuşun"
         if "audio conversion" in msg or "ffmpeg" in msg:
             return "Ses dosyası işlenemedi — tekrar deneyin"
         if "too short" in msg:
-            return "Kayıt çok kısa — butona basılı tutup konuşun"
+            return "Kayıt çok kısa — basılı tutup konuşun"
         return "Bir hata oluştu — tekrar deneyin"
 
     def end_headers(self):
@@ -1626,7 +1626,7 @@ class Handler(SimpleHTTPRequestHandler):
                     pass
             data = data[idx + len(EDU_STATE_MARKER):]
 
-        if len(data) < 200:
+        if len(data) < 50:
             return self.send_json_error(400, "Kayıt çok kısa — butona basılı tutup konuşun")
 
         profile = merge_profile(state.get("profile"), None)
