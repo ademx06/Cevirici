@@ -264,8 +264,17 @@ async function processText(text) {
   setStatus('Çevriliyor…', true);
   try {
     const isLikelyTR = /[ğüşıöçĞÜŞİÖÇ]/.test(trimmed) ||
-      /^(bir|ben|sen|bu|şu|ne|nasıl|merhaba|evet|hayır|tamam|güzel|neden)\b/i.test(trimmed);
-    const fromLang = isLikelyTR ? S.my : S.other;
+      /^(bir|ben|sen|bu|şu|ne|nasıl|merhaba|evet|hayır|tamam|güzel|neden|kitap|bugün|yarın|evet|lütfen)\b/i.test(trimmed);
+    // Dil kodunu metne göre seç (S.my'ye zorlama — taraf karışmasın)
+    let fromLang;
+    if (isLikelyTR && (S.my === 'tr' || S.other === 'tr')) {
+      fromLang = 'tr';
+    } else if (/^[a-zA-Z0-9',.\-!? ]+$/.test(trimmed) && (S.my === 'en' || S.other === 'en')) {
+      fromLang = 'en';
+    } else {
+      fromLang = S.my;
+    }
+    if (fromLang !== S.my && fromLang !== S.other) fromLang = S.my;
     const toLang = fromLang === S.my ? S.other : S.my;
     const translated = await fetchTranslateText(trimmed, fromLang, toLang);
     S.lastFrom = fromLang;
