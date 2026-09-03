@@ -22,7 +22,7 @@ const MIN_HOLD_MS = 180;
 const S = {
   my: 'tr', other: 'en', msgs: [],
   holdActive: false, holdGen: 0,
-  lastFrom: 'tr', audioReady: false,
+  lastFrom: null, audioReady: false,
   stream: null, recorder: null, chunks: [],
   fingerDownAt: 0, pressMs: 0,
   stopHandled: false, usedTouch: false,
@@ -408,7 +408,7 @@ $('testBtn').onclick = async () => {
     const tts = await fetch(`/api/tts?${new URLSearchParams({ tl: 'en', q: d.text })}`);
     const blob = await tts.blob();
     S.msgs.unshift({ orig: 'Merhaba nasılsın', trans: d.text, from: 'tr', to: 'en' });
-    S.lastFrom = 'tr';
+    S.lastFrom = null;
     render();
     await new Promise((ok, no) => {
       const u = URL.createObjectURL(blob);
@@ -421,21 +421,21 @@ $('testBtn').onclick = async () => {
 $('swapBtn').onclick = () => {
   if (isRecording()) return;
   [S.my, S.other] = [S.other, S.my];
-  S.lastFrom = S.my;
+  S.lastFrom = null;
   syncLang();
 };
 
 $('myLang').onchange = (e) => {
   if (!isRecording()) {
     S.my = e.target.value;
-    S.lastFrom = S.my;
+    S.lastFrom = null;
   } else e.target.value = S.my;
 };
 $('otherLang').onchange = (e) => { if (!isRecording()) S.other = e.target.value; else e.target.value = S.other; };
 $('clearBtn').onclick = () => {
   if (!isRecording() && S.busyCount === 0) {
     S.msgs = [];
-    S.lastFrom = S.my;
+    S.lastFrom = null;
     render();
   }
 };
