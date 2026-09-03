@@ -219,7 +219,7 @@ async function fetchPronunciation(text, lang) {
   const phrase = (text || '').trim();
   if (!phrase || lang === 'tr') return '';
   try {
-    const r = await fetch(`/api/pronounce?${new URLSearchParams({ q: phrase.slice(0, 800), lang })}`);
+    const r = await fetch(`/api/pronounce?${new URLSearchParams({ q: phrase.slice(0, 2500), lang })}`);
     const d = await r.json().catch(() => ({}));
     return d.phonetic || '';
   } catch {
@@ -308,7 +308,7 @@ async function processText(text) {
 }
 
 async function fetchTranslateTts(text, lang, msgIndex) {
-  const phrase = (text || '').trim().slice(0, 500);
+  const phrase = (text || '').trim().slice(0, 2500);
   if (!phrase) return;
   try {
     const r = await fetch(`/api/tts?${new URLSearchParams({ q: phrase, tl: lang })}`);

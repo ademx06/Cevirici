@@ -3331,7 +3331,7 @@ def pronounce_text(text: str, lang: str = "en") -> str:
         from pronunciation_service import romanize_for_tr_reader
         roma = romanize_for_tr_reader(text, lang)
         if roma:
-            return roma[:500]
+            return roma[:2500]
     except Exception:
         pass
     lang_name = LANG_NAMES.get(lang, lang)
@@ -3379,17 +3379,19 @@ def _simple_en_phonetic(text: str) -> str:
     t = re.sub(r"[^\w\s'-]", "", text.lower())
     word_map = {
         "the": "dı", "you": "yu", "your": "yor", "are": "ar", "was": "vaz",
-        "were": "ver", "have": "hev", "has": "hez", "had": "hed", "would": "vud",
+        "were": "vör", "have": "hev", "has": "hez", "had": "hed", "would": "vud",
         "could": "kud", "should": "şud", "because": "bikoz", "through": "thru",
         "though": "tho", "people": "pipıl", "really": "rili", "usually": "yuğuali",
         "beautiful": "byutiful", "comfortable": "kamftıbıl", "interesting": "intresting",
         "yesterday": "yestırdey", "today": "tudey", "tomorrow": "tumoro",
-        "work": "vork", "walk": "vok", "water": "votır", "where": "ver",
+        "work": "vörk", "walk": "vok", "water": "votır", "where": "ver",
         "what": "vat", "when": "ven", "why": "vay", "who": "hu", "how": "hav",
         "good": "gud", "great": "greyt", "thanks": "thenks", "please": "pliz",
         "sorry": "sori", "hello": "helo", "friend": "frend", "family": "femili",
         "school": "skul", "coffee": "kofi", "tea": "ti", "book": "buk", "read": "rid",
         "tired": "tayırd", "happy": "hepi", "understand": "anderstand",
+        "bird": "börd", "girl": "görl", "her": "hör", "blue": "blu", "took": "tuk",
+        "with": "vid", "first": "först", "turn": "törn", "heard": "hörd",
     }
     words = t.split()
     out_words: list[str] = []
@@ -3749,15 +3751,18 @@ _LITERARY_GLOSS = (
 
 _NATIVE_GLOSS = {
     "ka": (
-        "Write natural fairy-tale Georgian, like a native children's book.\n"
-        "Must-use: პატარა გოგონა (not მცირე); სუნთქვა შეიკრა (not შეაჩერა); "
-        "ჩიტი for a small bird (not ფრინველი); თავი გვერდზე გადახარა (never დახრიла); "
-        "ჭიკჭიკით (not ჩივლით); ფრთებს გამოეკიდა (never თანხლებით დაიწყო); "
-        "ჭადარა (not სოკო, not სიბრტყე, not ზრდასრული); ფუღურო (not ჭიქა); "
-        "ჩამოჯდა on the shoulder (not დასხა); წიგნი ელოდება რომ აივსოს "
-        "(never იმედს აცოცხლებს); ზღაპარი; ჯადოსნური; სათამაშო; ცოცხლდებოდა.\n"
-        "Example: 'Küçük kız nefesini tutarak mavi kuşa doğru bir adım attı.' → "
-        "'პატარა გოგონამ სუნთქვა შეიკრა და ლურჯი ჩიტისკენ ერთი ნაბიჯი გადადგა.'\n"
+        "Write natural native Georgian, like a Georgian children's book or everyday speech — never translationese.\n"
+        "Always: პატარა გოგონა (not მცირე); small bird=ჩიტი (not ფრინველი); butterfly=პეპელა;\n"
+        "plane tree/çınar=ჭადარა (never სიბრტყე, სოკო); tree hollow/kovuk=ფუღურო (not ჭიქა, not ღრუ calque);\n"
+        "hold breath=სუნთქვა შეიკრა (ergative სუნთქვაშეკრულმა if the subject acts);\n"
+        "tilt head=თავი გვერდზე დახარა (never დახრიла); chirp=ჭიკჭიკით (not ჩივლით);\n"
+        "chase after / follow closely=გამოეკიდა (never თანხლებით დაიწყო);\n"
+        "town/village/kasaba edge=სოფლის პირას (not ქალაქი unless it is a city);\n"
+        "pick up an object=აიღო (never აიყვანა for a book);\n"
+        "bird perches on shoulder=ჩამოჯდა (not დაეშვა, not დასხა);\n"
+        "be filled=აივსოს; carve from wood=გამოთლის (not გააკეთებს);\n"
+        "come to life=ცოცხლდებოდა (not რეალობად იქცა); magical=ჯადოსნური; fairy tale=ზღაპარი; toy=სათამაშო.\n"
+        "Use native cases and word order. Keep every fact and quoted speech.\n"
     ),
     "zh": "Chinese: 小女孩; 蝴蝶; 悬铃木/梧桐 for çınar (not 樟树 unless camphor); 树洞; 童话书; 魔法.\n",
     "es": "Spanish: niña; mariposas; plátano / árbol plátano for çınar (not cedro); hueco; libro de cuentos; mágico.\n",
@@ -3841,6 +3846,86 @@ def llm_translate(text: str, from_lang: str, to_lang: str) -> str | None:
                 out = re.sub(r"^```\w*\n?", "", out)
                 out = re.sub(r"\n?```$", "", out).strip()
             if out and len(out) >= 1 and out.lower() != src.lower():
+                return out
+    return None
+
+
+def llm_rewrite_georgian(src: str, meaning_en: str, draft_ka: str) -> str | None:
+    """Google taslağını yerli Gürcüceye çek — ezber cümle yok, her metin için geçerli."""
+    draft = safe_str(draft_ka).strip()
+    if not draft or not llm_available():
+        return None
+    meaning = safe_str(meaning_en).strip() or safe_str(src).strip()
+    system = (
+        "You are a native Georgian editor. Rewrite DRAFT so it sounds originally written in Georgian.\n"
+        "MEANING is the source of truth for facts. Keep every fact, name, quote, number, and clause.\n"
+        "Write 100% Mkhedruli. No Latin letters, no notes, no transliteration.\n"
+        "Grammar: ergative -მა when the subject acts; native word order; no translationese.\n"
+        "Lexicon for ANY text (not one story):\n"
+        "- little girl → პატარა გოგონა (never მცირე გოგონა)\n"
+        "- small bird → ჩიტი (not ფრინველი unless poultry)\n"
+        "- butterfly → პეპელა\n"
+        "- plane tree / çınar → ჭადარა (never სიბრტყე / სოკო)\n"
+        "- tree hollow / kovuk → ფუღურო\n"
+        "- pick up an object → აიღო (never აიყვანა for books/objects)\n"
+        "- bird perches on a shoulder → ჩამოჯდა\n"
+        "- town/village / kasaba / köy → სოფელი or დაბა; at the edge → პირას "
+        "(ქალაქი only if the source is a city)\n"
+        "- come to life → ცოცხლდებოდა / გაცოცხლდა (not რეალობად იქცა)\n"
+        "- carve from wood → გამოთლის (not გააკეთებს)\n"
+        "- be filled → აივსოს\n"
+        "- chirp → ჭიკჭიკი\n"
+        "- magical → ჯადოსნური; fairy tale → ზღაპარი; toy → სათამაშო\n"
+        "- hold one's breath → სუნთქვა შეიკრა\n"
+        "Everyday source → everyday Georgian. Story source → children's-book Georgian.\n"
+        "Reply with ONLY the Georgian text."
+    )
+    user_msg = (
+        f"SOURCE:\n{safe_str(src).strip()[:3500]}\n\n"
+        f"MEANING:\n{meaning[:3500]}\n\n"
+        f"DRAFT Georgian:\n{draft[:3500]}"
+    )
+    translate_model = (
+        os.environ.get("GROQ_TRANSLATE_MODEL")
+        or os.environ.get("GROQ_MODEL")
+        or ""
+    ).strip() or None
+    max_tok = min(1800, 220 + len(draft))
+    for provider in _llm_providers_in_order():
+        raw = None
+        if provider == "groq":
+            kwargs = {
+                "max_tokens": max_tok,
+                "timeout_sec": 8,
+                "temperature": 0.1,
+            }
+            if translate_model:
+                kwargs["model"] = translate_model
+            raw = _groq_chat(
+                [{"role": "system", "content": system}, {"role": "user", "content": user_msg}],
+                **kwargs,
+            )
+            if not raw and translate_model:
+                raw = _groq_chat(
+                    [{"role": "system", "content": system}, {"role": "user", "content": user_msg}],
+                    max_tokens=max_tok,
+                    timeout_sec=8,
+                    temperature=0.1,
+                )
+        elif provider == "gemini":
+            raw = _gemini_chat(system, user_msg, max_tokens=max_tok)
+        else:
+            raw = _openai_chat(
+                [{"role": "system", "content": system}, {"role": "user", "content": user_msg}],
+                max_tokens=max_tok,
+            )
+        if raw:
+            out = raw.strip().strip('"').strip("'")
+            out = re.sub(r"^translation\s*:\s*", "", out, flags=re.I).strip()
+            if out.startswith("```"):
+                out = re.sub(r"^```\w*\n?", "", out)
+                out = re.sub(r"\n?```$", "", out).strip()
+            if out and re.search(r"[\u10A0-\u10FF]", out):
                 return out
     return None
 

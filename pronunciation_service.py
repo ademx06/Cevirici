@@ -864,6 +864,175 @@ LESSON_VOCAB_CANONICAL: dict[str, str] = {
 
 EN_CANONICAL.update(LESSON_VOCAB_CANONICAL)
 
+# Edge TTS en-US-JennyNeural nasıl okuyorsa Türkçe harflerle birebir o ses.
+# NURSE ünlüsü (/ɝ/ /ɚ/) → ö; oo/u → u; th → d/t. İngilizce yazımı olduğu gibi bırakma.
+JENNY_TTS_CANONICAL: dict[str, str] = {
+    "bird": "börd",
+    "birds": "bördz",
+    "girl": "görl",
+    "girls": "görlz",
+    "her": "hör",
+    "were": "vör",
+    "word": "vörd",
+    "words": "vördz",
+    "work": "vörk",
+    "works": "vörks",
+    "worked": "vörkt",
+    "working": "vörking",
+    "world": "vörld",
+    "worse": "vörs",
+    "worst": "vörst",
+    "worth": "vörth",
+    "first": "först",
+    "third": "thörd",
+    "thirty": "thörti",
+    "birthday": "börthdey",
+    "birth": "börth",
+    "shirt": "şört",
+    "church": "çörç",
+    "turn": "törn",
+    "turned": "törnd",
+    "hurt": "hört",
+    "heard": "hörd",
+    "learn": "lörn",
+    "learned": "lörnd",
+    "learning": "lörning",
+    "earth": "örth",
+    "early": "örli",
+    "search": "sörç",
+    "person": "pörsın",
+    "perfect": "pörfekt",
+    "certain": "sörtın",
+    "purpose": "pörpıs",
+    "further": "fördır",
+    "return": "ritörn",
+    "nurse": "nörs",
+    "purple": "pörpıl",
+    "circle": "sörkıl",
+    "chirp": "çörp",
+    "chirped": "çörpt",
+    "chirping": "çörping",
+    "sir": "sör",
+    "stir": "sör",
+    "dirty": "dörti",
+    "with": "vid",
+    "blue": "blu",
+    "took": "tuk",
+    "breath": "breth",
+    "toward": "tıword",
+    "towards": "tıwordz",
+    "instead": "insted",
+    "fly": "flay",
+    "flying": "flaying",
+    "away": "evey",
+    "tilt": "tilt",
+    "tilted": "tiltid",
+    "slight": "slayt",
+    "slightly": "slaytli",
+    "side": "sayd",
+    "invite": "invayt",
+    "inviting": "invayting",
+    "soar": "sor",
+    "soared": "sord",
+    "into": "intu",
+    "forget": "forget",
+    "forgetting": "forgeting",
+    "color": "kalar",
+    "colour": "kalar",
+    "colorful": "kalarfıl",
+    "colourful": "kalarfıl",
+    "butterfly": "baterflay",
+    "butterflies": "baterflayz",
+    "began": "bigen",
+    "begin": "bigin",
+    "chase": "çeys",
+    "chased": "çeyst",
+    "after": "aftır",
+    "these": "diz",
+    "those": "douz",
+    "this": "dis",
+    "that": "det",
+    "mysterious": "mistirias",
+    "wing": "ving",
+    "wings": "vingz",
+    "village": "vilic",
+    "hollow": "halou",
+    "stood": "stud",
+    "fairy": "feri",
+    "tale": "teyl",
+    "tales": "teylz",
+    "storybook": "storibuk",
+    "sparkle": "sparkıl",
+    "sparkling": "sparkling",
+    "bright": "brayt",
+    "brightly": "braytli",
+    "land": "lend",
+    "landed": "lendid",
+    "shoulder": "şouldır",
+    "whisper": "vispır",
+    "whispered": "vispırd",
+    "ear": "ir",
+    "waiting": "veyting",
+    "filled": "fild",
+    "mother": "madır",
+    "father": "fadır",
+    "toy": "toy",
+    "toys": "toyz",
+    "carve": "karv",
+    "carved": "karvd",
+    "wood": "vud",
+    "drew": "dru",
+    "came": "keym",
+    "page": "peyc",
+    "pages": "peyciz",
+    "magical": "mecikıl",
+    "magic": "mecik",
+    "edge": "ec",
+    "from": "fram",
+    "step": "step",
+    "held": "held",
+    "head": "hed",
+    "little": "litıl",
+    "old": "ould",
+    "book": "buk",
+    "sky": "skay",
+    "follow": "falou",
+    "followed": "faloud",
+    "picture": "pikçır",
+    "every": "evri",
+    "life": "layf",
+    "up": "ap",
+    "on": "an",
+    "of": "ov",
+    "and": "end",
+    "the": "dı",
+    "a": "e",
+    "an": "en",
+    "to": "tu",
+    "for": "for",
+    "as": "ez",
+    "if": "if",
+    "its": "its",
+    "in": "in",
+    "at": "et",
+    "very": "veri",
+    "when": "ven",
+    "picked": "pikt",
+    "will": "vil",
+    "tell": "tel",
+    "your": "yor",
+    "you": "yu",
+    "this": "dis",
+    "is": "iz",
+    "be": "bi",
+    "new": "nu",
+    "day": "dey",
+    "on": "an",
+}
+EN_CANONICAL.update(JENNY_TTS_CANONICAL)
+
+PHONETIC_MAX = 2500
+
 EN_IPA: dict[str, str] = {
     "i": "/aɪ/",
     "love": "/lʌv/",
@@ -1810,14 +1979,13 @@ def tokenize_en(text: str) -> list[str]:
 
 
 def _normalize_pron_tr(pron: str) -> str:
-    """Türkçe okunuş — IPA karakterlerini temizle."""
+    """IPA'yı at; ö/ü/ş/ç/ı/ğ Jenny sesini yazmak için kalır (bird=börd)."""
     p = safe_str(pron).strip()
     if not p:
         return ""
     if re.search(r"[ɑæəɪʊɔʌθðʃʒŋˈˌː]", p):
         return ""
-    p = p.replace(":", "").replace("ô", "o").replace("ö", "o")
-    return p.strip()
+    return p.replace(":", "").strip()
 
 
 def _pron_matches_english(pron: str, english: str) -> bool:
@@ -1829,39 +1997,138 @@ def _pron_matches_english(pron: str, english: str) -> bool:
     return p == e
 
 
+def _ed_pron(base: str) -> str:
+    core = re.sub(r"[^a-zöüışçğ]", "", base.lower())
+    if core.endswith(("t", "d")):
+        return base + "id"
+    if core.endswith(("k", "p", "s", "ş", "ç", "f")):
+        return base + "t"
+    return base + "d"
+
+
+def _s_pron(base: str) -> str:
+    core = re.sub(r"[^a-zöüışçğ]", "", base.lower())
+    if core.endswith(("s", "z", "ş", "ç", "c", "x")):
+        return base + "iz"
+    if core.endswith(("k", "p", "t", "f")):
+        return base + "s"
+    return base + "z"
+
+
+def _canon_pron(low: str) -> str:
+    raw = EN_CANONICAL.get(low, "")
+    return _normalize_pron_tr(raw) or raw
+
+
+def _en_inflected_pron(low: str) -> str | None:
+    """Sözlük kökünden -ed/-ing/-s — her yeni cümlede TTS ile aynı kalsın."""
+    if low in EN_CANONICAL:
+        return None
+    if low.endswith("'s") and low[:-2] in EN_CANONICAL:
+        return _s_pron(_canon_pron(low[:-2]))
+    pairs: list[tuple[str, str]] = []
+    if low.endswith("ing") and len(low) > 5:
+        stem = low[:-3]
+        pairs.extend(((stem, "ing"), (stem + "e", "ing")))
+        if len(stem) >= 2 and stem[-1] == stem[-2]:
+            pairs.append((stem[:-1], "ing"))
+    if low.endswith("ed") and len(low) > 3:
+        stem = low[:-2]
+        pairs.extend(((stem, "ed"), (stem + "e", "ed")))
+        if len(stem) >= 2 and stem[-1] == stem[-2]:
+            pairs.append((stem[:-1], "ed"))
+        if stem.endswith("i"):
+            pairs.append((stem[:-1] + "y", "ed"))
+    if low.endswith("ies") and len(low) > 4:
+        pairs.append((low[:-3] + "y", "s"))
+    if low.endswith("es") and len(low) > 3:
+        pairs.append((low[:-2], "s"))
+    if low.endswith("s") and not low.endswith("ss") and len(low) > 2:
+        pairs.append((low[:-1], "s"))
+    if low.endswith("ly") and len(low) > 4:
+        pairs.append((low[:-2], "ly"))
+    seen: set[str] = set()
+    for stem, kind in pairs:
+        if not stem or stem in seen or stem not in EN_CANONICAL:
+            continue
+        seen.add(stem)
+        base = _canon_pron(stem)
+        if not base:
+            continue
+        if kind == "ing":
+            return base + "ing"
+        if kind == "ed":
+            return _ed_pron(base)
+        if kind == "s":
+            return _s_pron(base)
+        if kind == "ly":
+            return base + "li"
+    return None
+
+
+def _en_g2p_jenny(word: str) -> str:
+    """Sözlükte yoksa bile Jenny sesine Türkçe harf — tek hikâyeye özel değil."""
+    t = word.lower()
+    if t in ("here", "hire", "fire", "tired", "iron"):
+        t = t.replace("ire", "ayır").replace("ere", "ir")
+    else:
+        t = t.replace("earth", "örth").replace("heard", "hörd")
+        t = t.replace("learn", "lörn").replace("early", "örli")
+        t = t.replace("search", "sörç").replace("pearl", "pörl")
+        t = t.replace("world", "vörld").replace("worth", "vörth")
+        t = t.replace("worse", "vörs").replace("worst", "vörst")
+        t = t.replace("word", "vörd").replace("work", "vörk")
+        t = t.replace("earn", "örn")
+        t = re.sub(r"ir(?=[dltpkmncs]|$)", "ör", t)
+        t = re.sub(r"(?<![o])ur(?=[ntdkpbflmgcs]|$)", "ör", t)
+    t = t.replace("through", "thru").replace("though", "dou")
+    t = t.replace("tion", "şın").replace("sion", "jın")
+    t = t.replace("ough", "of").replace("ight", "ayt").replace("eau", "ou")
+    t = t.replace("wh", "v")
+    t = t.replace("th", "t")
+    t = t.replace("ph", "f").replace("qu", "kv")
+    t = t.replace("ch", "ç").replace("sh", "ş").replace("ck", "k")
+    t = re.sub(r"^c(?=[eiy])", "s", t)
+    t = t.replace("kn", "n").replace("wr", "r")
+    t = t.replace("oo", "u").replace("ee", "i")
+    t = t.replace("ea", "i")
+    t = t.replace("ay", "ey").replace("ai", "ey")
+    t = t.replace("ow", "ou").replace("ou", "au")
+    t = t.replace("oi", "oy")
+    t = re.sub(r"a([bcdfgklmnprstv])e$", r"ey\1", t)
+    t = re.sub(r"i([bcdfgklmnprstv])e$", r"ay\1", t)
+    t = re.sub(r"o([bcdfgklmnprstv])e$", r"ou\1", t)
+    if t.endswith("y") and len(t) > 1:
+        vowels = re.findall(r"[aeiouö]", t[:-1])
+        t = t[:-1] + ("ay" if len(vowels) <= 1 else "i")
+    t = re.sub(r"le$", "ıl", t)
+    t = re.sub(r"er$", "ır", t)
+    t = t.replace("w", "v")
+    t = t.replace("c", "k").replace("x", "ks")
+    t = t.replace("q", "k")
+    return t
+
+
 def _resolve_en_phonetic(word: str) -> str:
-    """Türkçe fonetik okunuş — asla düz İngilizce yazım döndürme."""
+    """Türkçe fonetik okunuş — TTS (Jenny) ile aynı ses; düz İngilizce yazım yok."""
     raw = safe_str(word).strip()
     low = raw.lower()
     if low in EN_CANONICAL:
-        return _normalize_pron_tr(EN_CANONICAL[low]) or EN_CANONICAL[low]
+        return _canon_pron(low) or EN_CANONICAL[low]
+
+    inflected = _en_inflected_pron(low)
+    if inflected:
+        return inflected
+
+    g2p = _en_g2p_jenny(low)
+    if g2p and not _pron_matches_english(g2p, low):
+        return g2p
 
     simple = _normalize_pron_tr(_simple_en_phonetic(raw))
     if simple and not _pron_matches_english(simple, low):
         return simple
 
-    t = low
-    t = re.sub(r"^c(?=[iey])", "s", t)
-    t = re.sub(r"ph", "f", t)
-    t = re.sub(r"qu", "kv", t)
-    t = re.sub(r"gh(?=$)", "", t)
-    t = re.sub(r"ette$", "et", t)
-    t = re.sub(r"ttes$", "ts", t)
-    t = re.sub(r"tion$", "şın", t)
-    t = re.sub(r"sion$", "jın", t)
-    t = re.sub(r"ough", "of", t)
-    t = re.sub(r"ight", "ayt", t)
-    t = re.sub(r"eau", "ou", t)
-    t = re.sub(r"ea", "i", t)
-    t = re.sub(r"ou", "au", t)
-    t = re.sub(r"ow", "au", t)
-    t = re.sub(r"th", "t", t)
-    t = re.sub(r"sh", "ş", t)
-    t = re.sub(r"ch", "ç", t)
-    t = re.sub(r"wh", "v", t)
-    if t and not _pron_matches_english(t, low):
-        return t
-    return simple if simple else EN_CANONICAL.get(low, t or low)
+    return g2p or simple or low
 
 
 def _article_pron(next_word: str) -> str:
@@ -1912,15 +2179,17 @@ def get_word(lang: str, word: str) -> dict[str, str]:
 
 
 # Gürcüce / Kiril / Arapça → Türkçe okunuş (LLM yok, anında)
+# EkaNeural nasıl okuyorsa Türkçe harf: ხ=kh (hışırtı), ყ=q (kalın k)
 _KA_ROMA = {
     "ა": "a", "ბ": "b", "გ": "g", "დ": "d", "ე": "e", "ვ": "v", "ზ": "z",
     "თ": "t", "ი": "i", "კ": "k", "ლ": "l", "მ": "m", "ნ": "n", "ო": "o",
     "პ": "p", "ჟ": "j", "რ": "r", "ს": "s", "ტ": "t", "უ": "u", "ფ": "p",
-    "ქ": "k", "ღ": "ğ", "ყ": "k", "შ": "ş", "ჩ": "ç", "ც": "ts", "ძ": "dz",
-    "წ": "ts", "ჭ": "ç", "ხ": "h", "ჯ": "c", "ჰ": "h",
+    "ქ": "k", "ღ": "ğ", "ყ": "q", "შ": "ş", "ჩ": "ç", "ც": "ts", "ძ": "dz",
+    "წ": "ts", "ჭ": "ç", "ხ": "kh", "ჯ": "c", "ჰ": "h",
     " ": " ", ",": ",", ".": ".", "!": "!", "?": "?", ":": ":", ";": ";",
     "«": '"', "»": '"', "—": "—", "-": "-", "„": '"', "“": '"',
 }
+_KA_MTAVRULI_OFF = 0x1C90 - 0x10D0
 _RU_ROMA = {
     "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "ye", "ё": "yo",
     "ж": "j", "з": "z", "и": "i", "й": "y", "к": "k", "л": "l", "м": "m",
@@ -1947,11 +2216,14 @@ def romanize_for_tr_reader(text: str, lang: str) -> str:
     if lang == "ka":
         out = []
         for ch in t:
+            o = ord(ch)
+            if 0x1C90 <= o <= 0x1CBF:
+                ch = chr(o - _KA_MTAVRULI_OFF)
             if ch in _KA_ROMA:
                 out.append(_KA_ROMA[ch])
             elif ch.isascii():
                 out.append(ch)
-        return re.sub(r"\s+", " ", "".join(out)).strip()
+        return re.sub(r"\s+", " ", "".join(out)).strip()[:PHONETIC_MAX]
     if lang == "ru":
         chars: list[str] = []
         for ch in t:
@@ -2020,7 +2292,7 @@ def build_sentence(
 
     sentence_ipa = " ".join(f"/{p}/" for p in ipa_parts if p) if ipa_parts else ""
     return {
-        "pronunciation_tr": sentence_pron[:500],
+        "pronunciation_tr": sentence_pron[:PHONETIC_MAX],
         "ipa": sentence_ipa[:120],
         "word_pronunciations": word_parts,
     }
@@ -2096,7 +2368,7 @@ def build_sentence_natural(text: str, lang: str = "en") -> str:
         pron = pron.replace(a, b)
     if text[0].isupper():
         pron = pron[0].upper() + pron[1:]
-    return pron[:500]
+    return pron[:PHONETIC_MAX]
 
 
 def build_pronunciation_bundle(

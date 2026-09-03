@@ -18,6 +18,7 @@ from education_engine import (
     process_turn, greeting, session_report, daily_lesson, default_profile,
     finalize_session, weekly_progress, merge_profile, llm_available, ai_provider_info,
     pronounce_text, safe_str, llm_translate, groq_api_key_status,
+    llm_rewrite_georgian,
 )
 from builder_engine import (
     generate_word_lesson,
@@ -27,7 +28,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.09.03-v71.4"
+APP_VERSION = "2026.09.03-v71.5"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -337,9 +338,16 @@ def _translation_has_age_possession_bug(src: str, translated: str) -> bool:
 
 
 def _polish_georgian(src: str, text: str) -> str:
-    """Google'ın çınar→სიბრტყე calque'ini ve kovuk sözlüğünü düzelt — akıcılığa dokunma."""
+    """Kaynak anlamına göre Gürcüce calque düzelt — tek cümleye özel ezber değil."""
     t = text or ""
-    src_l = src.lower()
+    src_l = (src or "").lower()
+
+    t = t.replace("მცირე გოგონ", "პატარა გოგონ")
+    t = t.replace("სუნთქვაშეკრული პატარა გოგონამ", "სუნთქვაშეკრულმა პატარა გოგონამ")
+    t = t.replace("სუნთქვაშეკრული გოგონამ", "სუნთქვაშეკრულმა გოგონამ")
+    t = t.replace("სუნთქვა შეიკრა პატარა გოგონას და", "პატარა გოგონამ სუნთქვა შეიკრა და")
+    t = t.replace("სუნთქვა შეიკრა პატარა გოგონას", "პატარა გოგონამ სუნთქვა შეიკრა")
+
     if "çınar" in src_l:
         t = t.replace("ბებერ სიბრტყესთან", "ძველ ჭადართან")
         t = t.replace("ძველ სიბრტყემდე", "ძველ ჭადარამდე")
@@ -347,10 +355,54 @@ def _polish_georgian(src: str, text: str) -> str:
         t = t.replace("სიბრტყემდე", "ჭადარამდე")
         t = t.replace("სიბრტყეზე", "ჭადარაზე")
         t = t.replace("სიბრტყე", "ჭადარა")
+        t = t.replace("სოკოსთან", "ჭადართან")
+        t = t.replace("სოკო", "ჭადარა")
     if re.search(r"kovu", src_l):
         t = t.replace("ხის ღრუში", "ხის ფუღუროში")
         t = t.replace("ხის ღრმულში", "ხის ფუღუროში")
+        if "bardak" not in src_l and "fincan" not in src_l:
+            t = t.replace("ჭიქაში", "ფუღუროში")
+    if re.search(r"\bkasaba|\bköy\b|kasabanın|köyün|köyde", src_l):
+        t = t.replace("ქალაქის ბოლოში მდებარე", "სოფლის პირას მდებარე")
+        t = t.replace("ქალაქის ბოლოში", "სოფლის პირას")
+        t = t.replace("ქალაქის ბოლოს", "სოფლის ბოლოს")
+        t = t.replace("ქალაქის კიდეზე", "სოფლის პირას")
+        t = t.replace("ქალაქის პირას", "სოფლის პირას")
+    if re.search(r"eline ald|elinde|kitabı eline", src_l):
+        t = t.replace("ხელში აიყვანა", "ხელში აიღო")
+        t = t.replace("ხელში აიყვან", "ხელში აიღ")
+    if re.search(r"omzuna kon|omzuna indi|omzuna otur", src_l):
+        t = t.replace("მხარზე დაეშვა", "მხარზე ჩამოჯდა")
+        t = t.replace("მხარზე დასხა", "მხარზე ჩამოჯდა")
+        t = t.replace("მხარზე დაიკაშა", "მხარზე ჩამოჯდა")
+    if re.search(r"ahşap|oyuncak", src_l) and re.search(r"yap|oy|kazı", src_l):
+        t = t.replace("ხისგან გააკეთებს", "ხისგან გამოთლის")
+        t = t.replace("ხისგან გააკეთა", "ხისგან გამოთალა")
+    if re.search(r"gerçeğe dönüş|hayata geç|canlandı|canlan", src_l):
+        t = t.replace("რეალობად იქცა", "ცოცხლდებოდა")
+        t = t.replace("რეალობად იქცევა", "ცოცხლდება")
+    if re.search(r"dolmay[ıi]|dolars|doldurul", src_l):
+        t = t.replace("გაივსოს", "აივსოს")
+    if "kelebek" in src_l:
+        t = t.replace("მწვანეები", "პეპლები")
+    if re.search(r"cıvılda|cikcik", src_l):
+        t = t.replace("ჩივლით", "ჭიკჭიკით")
+    if re.search(r"takip et", src_l):
+        t = t.replace("გაჰყვანა", "გაჰყოლოდა")
+    if re.search(r"peşinden koş|kanatların peş", src_l):
+        t = t.replace("დაიწყო სირბილი ამ იდუმალი ფრთების უკან", "ამ იდუმალ ფრთებს გამოეკიდა")
+        t = t.replace("სირბილი ამ იდუმალი ფრთების უკან", "ამ იდუმალ ფრთებს გამოეკიდა")
     return t
+
+
+def _georgian_rewrite_ok(src: str, draft: str, rewritten: str) -> bool:
+    if not rewritten or not _script_matches_lang(rewritten, "ka"):
+        return False
+    if _translation_is_garbled(src, rewritten, "ka"):
+        return False
+    if draft and len(rewritten) < max(24, int(len(draft) * 0.5)):
+        return False
+    return True
 
 
 def _translation_is_garbled(src: str, translated: str, lang: str) -> bool:
@@ -380,6 +432,10 @@ def _translation_is_garbled(src: str, translated: str, lang: str) -> bool:
             return True
         if "მხარზე დასხა" in translated or "მხარზე დაიკაშა" in translated:
             return True
+        if "რეალობად იქცა" in translated and re.search(r"gerçeğe dönüş|canlan", src_l):
+            return True
+        if "აიყვანა" in translated and re.search(r"eline ald", src_l):
+            return True
     if lang == "es" and re.search(r"\bcedro", translated, re.I) and "çınar" in src_l:
         return True
     if lang == "zh" and "樟树" in translated and "çınar" in src_l:
@@ -388,7 +444,7 @@ def _translation_is_garbled(src: str, translated: str, lang: str) -> bool:
 
 
 def _pick_translation(src: str, to_lang: str, llm_r: str | None, g_r: str | None) -> str | None:
-    """LLM'i tercih et; Gürcüce'de Google (düzeltmeli) daha doğal."""
+    """LLM'i tercih et; Gürcüce'de yerli yeniden yazım (llm_r) Google taslağından önce."""
     if to_lang == "ka":
         if g_r:
             g_r = _polish_georgian(src, g_r)
@@ -406,11 +462,12 @@ def _pick_translation(src: str, to_lang: str, llm_r: str | None, g_r: str | None
             return False
         return True
 
-    # Gürcüce: NMT akıcılığı LLM'den iyi — calque düzeltilmiş Google önce
     if to_lang == "ka":
+        if _ok(llm_r):
+            return llm_r
         if _ok(g_r):
             return g_r
-        if _ok(llm_r):
+        if llm_r and _script_matches_lang(llm_r, "ka"):
             return llm_r
         if g_r and _script_matches_lang(g_r, "ka"):
             return g_r
@@ -425,6 +482,68 @@ def _pick_translation(src: str, to_lang: str, llm_r: str | None, g_r: str | None
     if g_r and _script_matches_lang(g_r, to_lang):
         return g_r
     return llm_r or g_r
+
+
+def _translate_georgian_native(src: str, from_lang: str) -> str | None:
+    """TR/EN → KA: Google taslak + anlam + yerli yeniden yazım. EN çeviri yoluna dokunmaz."""
+    g_ka: str | None = None
+    meaning_en: str | None = src if from_lang == "en" else None
+
+    def _gka() -> str | None:
+        try:
+            return google_translate_fast(src, from_lang, "ka")
+        except Exception:
+            return None
+
+    def _en() -> str | None:
+        if from_lang == "en":
+            return src
+        try:
+            return google_translate_fast(src, from_lang, "en")
+        except Exception:
+            return None
+
+    pool = ThreadPoolExecutor(max_workers=2)
+    try:
+        f_ka = pool.submit(_gka)
+        f_en = pool.submit(_en)
+        try:
+            g_ka = f_ka.result(timeout=2.5)
+        except Exception:
+            g_ka = None
+        try:
+            meaning_en = f_en.result(timeout=2.5)
+        except Exception:
+            if from_lang == "en":
+                meaning_en = src
+            else:
+                meaning_en = None
+    finally:
+        pool.shutdown(wait=False, cancel_futures=False)
+
+    if g_ka:
+        g_ka = _polish_georgian(src, g_ka)
+
+    rewritten: str | None = None
+    if llm_available() and g_ka:
+        try:
+            rewritten = llm_rewrite_georgian(src, meaning_en or "", g_ka)
+        except Exception:
+            rewritten = None
+        if rewritten:
+            rewritten = _polish_georgian(src, rewritten)
+            if not _georgian_rewrite_ok(src, g_ka, rewritten):
+                rewritten = None
+
+    if not g_ka and llm_available():
+        try:
+            rewritten = llm_translate(src, from_lang, "ka")
+        except Exception:
+            rewritten = None
+        if rewritten:
+            rewritten = _polish_georgian(src, rewritten)
+
+    return _pick_translation(src, "ka", rewritten, g_ka)
 
 
 def smart_translate_text(text: str, from_lang: str, to_lang: str) -> str:
@@ -443,62 +562,59 @@ def smart_translate_text(text: str, from_lang: str, to_lang: str) -> str:
     quality = _needs_quality_translate(src, from_lang, to_lang) and llm_available()
 
     if quality:
-        llm_r: str | None = None
-        g_r: str | None = None
+        if to_lang == "ka":
+            result = _translate_georgian_native(src, from_lang)
+        else:
+            llm_r: str | None = None
+            g_r: str | None = None
 
-        def _llm() -> str | None:
-            try:
-                return llm_translate(src, from_lang, to_lang)
-            except Exception:
-                return None
+            def _llm() -> str | None:
+                try:
+                    return llm_translate(src, from_lang, to_lang)
+                except Exception:
+                    return None
 
-        def _google() -> str | None:
-            try:
-                return google_translate_fast(src, from_lang, to_lang)
-            except Exception:
-                return None
+            def _google() -> str | None:
+                try:
+                    return google_translate_fast(src, from_lang, to_lang)
+                except Exception:
+                    return None
 
-        pool = ThreadPoolExecutor(max_workers=2)
-        try:
-            f_llm = pool.submit(_llm)
-            f_g = pool.submit(_google)
-            llm_r = g_r = None
+            pool = ThreadPoolExecutor(max_workers=2)
             try:
-                for fut in as_completed((f_llm, f_g), timeout=2.8):
-                    try:
-                        val = fut.result()
-                    except Exception:
-                        val = None
-                    if fut is f_llm:
-                        llm_r = val
-                        if to_lang != "ka":
+                f_llm = pool.submit(_llm)
+                f_g = pool.submit(_google)
+                llm_r = g_r = None
+                try:
+                    for fut in as_completed((f_llm, f_g), timeout=2.8):
+                        try:
+                            val = fut.result()
+                        except Exception:
+                            val = None
+                        if fut is f_llm:
+                            llm_r = val
                             picked = _pick_translation(src, to_lang, llm_r, None)
                             if picked:
                                 result = picked
                                 break
-                    else:
-                        g_r = val
-                        if to_lang == "ka":
-                            picked = _pick_translation(src, to_lang, None, g_r)
-                            if picked:
-                                result = picked
-                                break
-            except Exception:
-                pass
-            if result is None:
-                if llm_r is None:
-                    try:
-                        llm_r = f_llm.result(timeout=0.05)
-                    except Exception:
-                        llm_r = None
-                if g_r is None:
-                    try:
-                        g_r = f_g.result(timeout=0.05)
-                    except Exception:
-                        g_r = None
-                result = _pick_translation(src, to_lang, llm_r, g_r)
-        finally:
-            pool.shutdown(wait=False, cancel_futures=False)
+                        else:
+                            g_r = val
+                except Exception:
+                    pass
+                if result is None:
+                    if llm_r is None:
+                        try:
+                            llm_r = f_llm.result(timeout=0.05)
+                        except Exception:
+                            llm_r = None
+                    if g_r is None:
+                        try:
+                            g_r = f_g.result(timeout=0.05)
+                        except Exception:
+                            g_r = None
+                    result = _pick_translation(src, to_lang, llm_r, g_r)
+            finally:
+                pool.shutdown(wait=False, cancel_futures=False)
     else:
         result = google_translate_fast(src, from_lang, to_lang)
         if result and (
@@ -528,6 +644,9 @@ def smart_translate_text(text: str, from_lang: str, to_lang: str) -> str:
 
     if not result:
         raise ValueError("translation failed")
+
+    if to_lang == "ka":
+        result = _polish_georgian(src, result)
 
     _cache_set(_TRANSLATE_CACHE, key, result)
     return result
@@ -601,7 +720,7 @@ def translate_phonetic(text: str, lang: str) -> str:
     snippet = re.sub(r"\s+", " ", text.strip())
     try:
         from pronunciation_service import build_sentence_natural
-        return safe_str(build_sentence_natural(snippet, lang)).strip()[:500]
+        return safe_str(build_sentence_natural(snippet, lang)).strip()[:2500]
     except Exception:
         return ""
 
@@ -2140,7 +2259,7 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_json_error(400, "Metin gerekli")
             return
         try:
-            data = synthesize(text[:500], lang, slow=slow)
+            data = synthesize(text[:2500], lang, slow=slow)
             if not data:
                 raise ValueError("Ses oluşturulamadı")
             self.send_response(200)
