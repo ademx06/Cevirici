@@ -3930,7 +3930,7 @@ def llm_rewrite_georgian(src: str, meaning_en: str, draft_ka: str) -> str | None
                     [{"role": "system", "content": system}, {"role": "user", "content": user_msg}],
                     max_tokens=max_tok,
                     timeout_sec=8,
-                    temperature=0.1,
+                    temperature=0.05,
                 )
         elif provider == "gemini":
             raw = _gemini_chat(system, user_msg, max_tokens=max_tok)
