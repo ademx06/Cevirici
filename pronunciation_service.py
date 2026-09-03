@@ -1911,6 +1911,57 @@ def get_word(lang: str, word: str) -> dict[str, str]:
     return {"word": raw, "pronunciation_tr": fb, "ipa": ""}
 
 
+# Gürcüce / Kiril / Arapça → Türkçe okunuş (LLM yok, anında)
+_KA_ROMA = {
+    "ა": "a", "ბ": "b", "გ": "g", "დ": "d", "ე": "e", "ვ": "v", "ზ": "z",
+    "თ": "t", "ი": "i", "კ": "k", "ლ": "l", "მ": "m", "ნ": "n", "ო": "o",
+    "პ": "p", "ჟ": "j", "რ": "r", "ს": "s", "ტ": "t", "უ": "u", "ფ": "p",
+    "ქ": "k", "ღ": "ğ", "ყ": "k", "შ": "ş", "ჩ": "ç", "ც": "ts", "ძ": "dz",
+    "წ": "ts", "ჭ": "ç", "ხ": "h", "ჯ": "c", "ჰ": "h",
+    " ": " ", ",": ",", ".": ".", "!": "!", "?": "?", ":": ":", ";": ";",
+    "«": '"', "»": '"', "—": "—", "-": "-", "„": '"', "“": '"',
+}
+_RU_ROMA = {
+    "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "ye", "ё": "yo",
+    "ж": "j", "з": "z", "и": "i", "й": "y", "к": "k", "л": "l", "м": "m",
+    "н": "n", "о": "o", "п": "p", "р": "r", "с": "s", "т": "t", "у": "u",
+    "ф": "f", "х": "h", "ц": "ts", "ч": "ç", "ш": "ş", "щ": "şç", "ъ": "",
+    "ы": "ı", "ь": "", "э": "e", "ю": "yu", "я": "ya",
+}
+_AR_ROMA = {
+    "ا": "a", "ب": "b", "ت": "t", "ث": "s", "ج": "c", "ح": "h", "خ": "h",
+    "د": "d", "ذ": "z", "ر": "r", "ز": "z", "س": "s", "ش": "ş", "ص": "s",
+    "ض": "d", "ط": "t", "ظ": "z", "ع": "a", "غ": "ğ", "ف": "f", "ق": "k",
+    "ك": "k", "ل": "l", "م": "m", "ن": "n", "ه": "h", "و": "u", "ي": "i",
+    "ى": "a", "ة": "e", "أ": "e", "إ": "i", "آ": "a", "ء": "", "ئ": "i",
+    "ؤ": "u", "َ": "e", "ِ": "i", "ُ": "u", "ً": "en", "ٌ": "un", "ٍ": "in",
+    "ّ": "", "ْ": "", " ": " ", "،": ",", "؟": "?", "ـ": "",
+}
+
+
+def romanize_for_tr_reader(text: str, lang: str) -> str:
+    """Yabancı yazıyı Türkçe harflerle oku — sözlük, LLM yok."""
+    t = safe_str(text).strip()
+    if not t:
+        return ""
+    if lang == "ka":
+        out = "".join(_KA_ROMA.get(ch, ch) for ch in t)
+        return re.sub(r"\s+", " ", out).strip()
+    if lang == "ru":
+        chars: list[str] = []
+        for ch in t:
+            low = ch.lower()
+            mapped = _RU_ROMA.get(low, ch)
+            if ch.isupper() and mapped:
+                mapped = mapped[0].upper() + mapped[1:]
+            chars.append(mapped)
+        return re.sub(r"\s+", " ", "".join(chars)).strip()
+    if lang == "ar":
+        out = "".join(_AR_ROMA.get(ch, ch if ch.isascii() else "") for ch in t)
+        return re.sub(r"\s+", " ", out).strip()
+    return ""
+
+
 def build_sentence(
     text: str,
     lang: str = "en",
@@ -1922,7 +1973,9 @@ def build_sentence(
         return {"pronunciation_tr": "", "ipa": "", "word_pronunciations": []}
 
     if lang != "en":
-        fb = pronounce_text(text, lang)
+        fb = romanize_for_tr_reader(text, lang)
+        if not fb:
+            fb = pronounce_text(text, lang)
         return {"pronunciation_tr": fb, "ipa": "", "word_pronunciations": []}
 
     tokens = tokenize_en(text)
@@ -1962,7 +2015,7 @@ def build_sentence(
 
     sentence_ipa = " ".join(f"/{p}/" for p in ipa_parts if p) if ipa_parts else ""
     return {
-        "pronunciation_tr": sentence_pron[:160],
+        "pronunciation_tr": sentence_pron[:500],
         "ipa": sentence_ipa[:120],
         "word_pronunciations": word_parts,
     }
@@ -2038,7 +2091,7 @@ def build_sentence_natural(text: str, lang: str = "en") -> str:
         pron = pron.replace(a, b)
     if text[0].isupper():
         pron = pron[0].upper() + pron[1:]
-    return pron[:160]
+    return pron[:500]
 
 
 def build_pronunciation_bundle(

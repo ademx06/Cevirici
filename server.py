@@ -27,7 +27,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.09.03-v71.2"
+APP_VERSION = "2026.09.03-v71.3"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -336,8 +336,33 @@ def _translation_has_age_possession_bug(src: str, translated: str) -> bool:
     )
 
 
+def _translation_is_garbled(src: str, translated: str, lang: str) -> bool:
+    """Edebi TR kelimelerin hedef dilde saçma karşılığı (Gürcüce sökü/kelebek vb.)."""
+    if not translated:
+        return True
+    src_l = src.lower()
+    if lang == "ka":
+        if "სოკო" in translated and "çınar" in src_l:
+            return True
+        if "მწვანეები" in translated and "kelebek" in src_l:
+            return True
+        if "ჭიქა" in translated and "kovuk" in src_l:
+            return True
+        if "სასოფლო" in translated and "sihirli" in src_l:
+            return True
+        if "მცირე გოგონ" in translated:
+            return True
+        if "სიბრტყე" in translated and "çınar" in src_l:
+            return True
+    if lang == "es" and re.search(r"\bcedro", translated, re.I) and "çınar" in src_l:
+        return True
+    if lang == "zh" and "樟树" in translated and "çınar" in src_l:
+        return True
+    return False
+
+
 def _pick_translation(src: str, to_lang: str, llm_r: str | None, g_r: str | None) -> str | None:
-    """LLM'i tercih et; yazı/yaş hatası varsa Google'a düş."""
+    """LLM'i tercih et; yazı/yaş/uydurma hatası varsa Google'a düş."""
     def _ok(val: str | None) -> bool:
         if not val:
             return False
@@ -345,14 +370,15 @@ def _pick_translation(src: str, to_lang: str, llm_r: str | None, g_r: str | None
             return False
         if _translation_has_age_possession_bug(src, val):
             return False
+        if _translation_is_garbled(src, val, to_lang):
+            return False
         return True
 
     if _ok(llm_r):
         return llm_r
     if _ok(g_r):
         return g_r
-    # Yazısı doğru olanı al
-    if llm_r and _script_matches_lang(llm_r, to_lang):
+    if llm_r and _script_matches_lang(llm_r, to_lang) and not _translation_is_garbled(src, llm_r, to_lang):
         return llm_r
     if g_r and _script_matches_lang(g_r, to_lang):
         return g_r
@@ -521,18 +547,13 @@ def translate_pair_safe(
 
 
 def translate_phonetic(text: str, lang: str) -> str:
-    """Kelime dersindeki gibi Türkçe fonetik okunuş — TTS ile uyumlu, LLM yok (hızlı)."""
+    """Kelime dersindeki gibi Türkçe fonetik okunuş — TTS ile uyumlu."""
     if not text or lang == "tr":
         return ""
-    # Uzun çeviride yalnızca ilk cümle/parça — yanıtı bloklamasın
     snippet = re.sub(r"\s+", " ", text.strip())
-    if len(snippet) > 140:
-        cut = snippet[:140]
-        sp = cut.rfind(" ")
-        snippet = cut if sp < 60 else cut[:sp]
     try:
         from pronunciation_service import build_sentence_natural
-        return safe_str(build_sentence_natural(snippet, lang)).strip()[:160]
+        return safe_str(build_sentence_natural(snippet, lang)).strip()[:500]
     except Exception:
         return ""
 

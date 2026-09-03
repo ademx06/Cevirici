@@ -219,7 +219,7 @@ async function fetchPronunciation(text, lang) {
   const phrase = (text || '').trim();
   if (!phrase || lang === 'tr') return '';
   try {
-    const r = await fetch(`/api/pronounce?${new URLSearchParams({ q: phrase.slice(0, 300), lang })}`);
+    const r = await fetch(`/api/pronounce?${new URLSearchParams({ q: phrase.slice(0, 800), lang })}`);
     const d = await r.json().catch(() => ({}));
     return d.phonetic || '';
   } catch {
@@ -278,7 +278,7 @@ async function processText(text) {
     const toLang = fromLang === S.my ? S.other : S.my;
     const translated = await fetchTranslateText(trimmed, fromLang, toLang);
     S.lastFrom = fromLang;
-    const phonetic = toLang !== 'tr' ? await fetchPronunciation(translated, toLang).catch(() => '') : '';
+    const phonetic = '';
     const msg = {
       orig: trimmed,
       trans: translated,
@@ -291,6 +291,14 @@ async function processText(text) {
     render();
     setStatus('Çeviri hazır', false);
     void fetchTranslateTts(translated, toLang, 0);
+    if (toLang !== 'tr') {
+      void fetchPronunciation(translated, toLang).then((ph) => {
+        if (S.msgs[0]?.orig === trimmed && ph) {
+          S.msgs[0].phonetic = ph;
+          render();
+        }
+      }).catch(() => {});
+    }
   } catch (e) {
     showErr(e.message || 'Çeviri başarısız');
   } finally {

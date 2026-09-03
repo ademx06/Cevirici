@@ -3327,35 +3327,49 @@ def pronounce_text(text: str, lang: str = "en") -> str:
     text = safe_str(text).strip()
     if not text or lang == "tr":
         return ""
+    try:
+        from pronunciation_service import romanize_for_tr_reader
+        roma = romanize_for_tr_reader(text, lang)
+        if roma:
+            return roma[:500]
+    except Exception:
+        pass
     lang_name = LANG_NAMES.get(lang, lang)
     if llm_available():
         sys_msg = (
-            "You help Turkish speakers learn pronunciation. "
-            "Reply with ONLY simple Turkish-style phonetic spelling in Latin letters. "
-            "No IPA, no quotes, no explanation. One line max."
+            f"Convert this {lang_name} into Turkish-letter phonetics so a Turkish speaker can read it aloud. "
+            "Do NOT translate into Turkish. Do NOT explain. Only the SOUND of the given words. "
+            "One paragraph of Latin letters (Turkish alphabet). No IPA, no quotes."
         )
-        user_msg = f"{lang_name} text:\n{text[:200]}"
+        user_msg = f"{lang_name} text (phoneticize, do not translate):\n{text[:500]}"
         provider = _active_llm_provider()
         raw = None
         for prov in _llm_providers_in_order() or ([provider] if provider else []):
             if prov == "groq":
                 raw = _groq_chat(
                     [{"role": "system", "content": sys_msg}, {"role": "user", "content": user_msg}],
-                    max_tokens=80,
+                    max_tokens=min(400, 80 + len(text) // 2),
+                    timeout_sec=6,
+                    temperature=0.0,
                 )
             elif prov == "gemini":
-                raw = _gemini_chat(sys_msg, user_msg, max_tokens=80)
+                raw = _gemini_chat(sys_msg, user_msg, max_tokens=min(400, 80 + len(text) // 2))
             else:
                 raw = _openai_chat(
                     [{"role": "system", "content": sys_msg}, {"role": "user", "content": user_msg}],
-                    max_tokens=80,
+                    max_tokens=min(400, 80 + len(text) // 2),
                 )
             if raw:
                 break
         if raw:
-            line = raw.strip().strip('"').split("\n")[0].strip()
+            line = raw.strip().strip('"').replace("\n", " ").strip()
+            # Türkçeye çeviri sızıntısını reddet
+            if re.search(r"\b(küçük|kız|nefes|kuş|adım|kelebek|çınar|kitap)\b", line, re.I):
+                line = ""
+            if lang == "zh" and re.search(r"[ğüşıöç]", line) and not re.search(r"[a-z]{2,}", line, re.I):
+                line = ""
             if line and len(line) > 2:
-                return line[:120]
+                return line[:500]
     if lang == "en":
         return _simple_en_phonetic(text)
     return ""
@@ -3720,6 +3734,36 @@ _SCRIPT_HINTS = {
 }
 
 
+_LITERARY_GLOSS = (
+    "Exact meanings (do not distort):\n"
+    "- küçük kız = little girl (a child), never 'minor girl'\n"
+    "- kelebek = butterfly\n"
+    "- çınar = plane tree (Platanus / platane / plátano / Platane / ჭადარა / платан), "
+    "never cedar, camphor, mushroom, or 'plane' as flat surface\n"
+    "- kovuk = hollow / cavity in a tree, never cup/glass\n"
+    "- masal kitabı = fairy-tale storybook, never generic legend unless the source says so\n"
+    "- sihirli = magical\n"
+    "- oyuncak = toy\n"
+    "- cıvıldamak = to chirp\n"
+)
+
+_NATIVE_GLOSS = {
+    "ka": (
+        "Georgian must-use words: პატარა გოგონა (not მცირე გოგონა); "
+        "პეპელა/პეპლები (not მწვანეები); ჭადარა (not სოკო, not სიბრტყე); "
+        "ღრუ (not ჭიქა); ზღაპარი (not ლეგენდა); ჯადოსნური (not სასოფლო); "
+        "სათამაშო (toy).\n"
+    ),
+    "zh": "Chinese: 小女孩; 蝴蝶; 悬铃木/梧桐 for çınar (not 樟树 unless camphor); 树洞; 童话书; 魔法.\n",
+    "es": "Spanish: niña; mariposas; plátano / árbol plátano for çınar (not cedro); hueco; libro de cuentos; mágico.\n",
+    "de": "German: kleines Mädchen; Schmetterlinge; Platane; Baumhöhle; Märchenbuch; zauberhaft.\n",
+    "fr": "French: petite fille; papillons; platane; creux; livre de contes; magique.\n",
+    "it": "Italian: bambina / piccola ragazza; farfalle; platano; cavità; libro di fiabe; magico.\n",
+    "ru": "Russian: маленькая девочка; бабочки; платан; дупло; сказка; волшебный; игрушки.\n",
+    "ar": "Arabic: الفتاة الصغيرة; فراشات; شجرة دلب/صنار for çınar; تجويف; كتاب حكايات; سحري; ألعاب.\n",
+}
+
+
 def llm_translate(text: str, from_lang: str, to_lang: str) -> str | None:
     """Doğal çeviri — Groq hızlı model (tam metin, dilbilgisi korunur)."""
     src = safe_str(text).strip()
@@ -3734,17 +3778,20 @@ def llm_translate(text: str, from_lang: str, to_lang: str) -> str | None:
         if opener else
         "3) Keep the original narrative tone.\n"
     )
+    native = _NATIVE_GLOSS.get(to_lang, "")
     system = (
         f"You are a native {to_name} literary translator. Translate from {from_name} into fluent {to_name}.\n"
-        f"First understand the exact meaning (who, whose, age, family), then write ONLY the {to_name} text.\n"
+        f"First understand the exact meaning, then write ONLY the {to_name} text.\n"
         f"{script}\n"
+        f"{_LITERARY_GLOSS}"
+        f"{native}"
         "Rules:\n"
         "1) Keep subjects/possessives exact. Do not mix who is who.\n"
         "2) Turkish 'X'in N yaşında oğlu/kızı/çocuğu' means 'X HAD an N-year-old son/daughter/child'. "
         "NEVER say X was N years old.\n"
         "   yaramaz=mischievous/naughty; uysal=gentle; oynamak=to play games.\n"
         f"{opener_line}"
-        "4) Full sentences, natural punctuation, native word order.\n"
+        "4) Full sentences, natural punctuation, native word order. Do not drop clauses.\n"
         "5) Reply with ONLY the translation — no quotes, no English notes, no transliteration."
     )
     translate_model = (
@@ -3752,7 +3799,7 @@ def llm_translate(text: str, from_lang: str, to_lang: str) -> str | None:
         or os.environ.get("GROQ_MODEL")
         or ""
     ).strip() or None
-    max_tok = min(1400, 160 + len(src))
+    max_tok = min(1800, 220 + len(src))
     user_src = src[:3500]
     for provider in _llm_providers_in_order():
         raw = None
