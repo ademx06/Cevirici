@@ -28,6 +28,8 @@ const S = {
   stopHandled: false, usedTouch: false,
   stopTimer: null, safetyTimer: null,
   busyCount: 0,
+  transGen: 0,
+  transAbort: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -164,6 +166,19 @@ async function playB64(b64) {
   }
 }
 
+function nextTransGen() {
+  S.transGen += 1;
+  if (S.transAbort) {
+    try { S.transAbort.abort(); } catch { /* ignore */ }
+  }
+  S.transAbort = new AbortController();
+  return { gen: S.transGen, signal: S.transAbort.signal };
+}
+
+function isAbortError(e) {
+  return e && (e.name === 'AbortError' || e.message === 'The user aborted a request.');
+}
+
 async function fetchListen(blob, my, other, last) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 30000);
@@ -186,9 +201,14 @@ async function fetchListen(blob, my, other, last) {
   }
 }
 
-async function fetchProcess(blob, my, other, last) {
+async function fetchProcess(blob, my, other, last, signal) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 45000);
+  const onAbort = () => { try { ctrl.abort(); } catch { /* ignore */ } };
+  if (signal) {
+    if (signal.aborted) ctrl.abort();
+    else signal.addEventListener('abort', onAbort, { once: true });
+  }
   try {
     const r = await fetch(`/api/process?${new URLSearchParams({ my, other, last: last || '' })}`, {
       method: 'POST',
@@ -205,14 +225,29 @@ async function fetchProcess(blob, my, other, last) {
     return d;
   } finally {
     clearTimeout(timer);
+    if (signal) signal.removeEventListener('abort', onAbort);
   }
 }
 
-async function fetchTranslateText(text, from, to) {
-  const r = await fetch(`/api/translate?${new URLSearchParams({ q: text, from, to })}`);
-  const d = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(d.error || 'Çeviri başarısız');
-  return d.text || '';
+async function fetchTranslateText(text, from, to, signal) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 30000);
+  const onAbort = () => { try { ctrl.abort(); } catch { /* ignore */ } };
+  if (signal) {
+    if (signal.aborted) ctrl.abort();
+    else signal.addEventListener('abort', onAbort, { once: true });
+  }
+  try {
+    const r = await fetch(`/api/translate?${new URLSearchParams({ q: text, from, to })}`, {
+      signal: ctrl.signal,
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || 'Çeviri başarısız');
+    return d.text || '';
+  } finally {
+    clearTimeout(timer);
+    if (signal) signal.removeEventListener('abort', onAbort);
+  }
 }
 
 async function fetchPronunciation(text, lang) {
@@ -228,8 +263,10 @@ async function fetchPronunciation(text, lang) {
 }
 
 async function processAudio(blob) {
-  /* Tek istek: STT + çeviri + okunuş birlikte */
-  const data = await fetchProcess(blob, S.my, S.other, S.lastFrom);
+  const { gen, signal } = nextTransGen();
+  const t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+  const data = await fetchProcess(blob, S.my, S.other, S.lastFrom, signal);
+  if (gen !== S.transGen) return;
   S.lastFrom = data.from;
   const toLang = data.to;
   const msg = {
@@ -238,17 +275,24 @@ async function processAudio(blob) {
     from: data.from,
     to: toLang,
     audio: null,
-    phonetic: data.phonetic || '',
+    phonetic: '',
+    gen,
   };
   S.msgs.unshift(msg);
   render();
   clearInterim();
   setStatus('Çeviri hazır', false);
-  void fetchTranslateTts(data.translated, toLang, 0);
-  if (!msg.phonetic && toLang !== 'tr') {
+  if (typeof console !== 'undefined' && console.debug) {
+    const dt = ((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()) - t0;
+    console.debug('speech_end→UI_ms', Math.round(dt));
+  }
+  void fetchTranslateTts(data.translated, toLang, gen);
+  if (toLang !== 'tr') {
     void fetchPronunciation(data.translated, toLang).then((ph) => {
-      if (S.msgs[0]?.orig === data.original && ph) {
-        S.msgs[0].phonetic = ph;
+      if (gen !== S.transGen || !ph) return;
+      const m = S.msgs.find((x) => x.gen === gen);
+      if (m) {
+        m.phonetic = ph;
         render();
       }
     });
@@ -259,13 +303,12 @@ async function processAudio(blob) {
 async function processText(text) {
   const trimmed = (text || '').trim();
   if (!trimmed) return;
-  if (S.busyCount > 0) return;
+  const { gen, signal } = nextTransGen();
   S.busyCount += 1;
   setStatus('Çevriliyor…', true);
   try {
     const isLikelyTR = /[ğüşıöçĞÜŞİÖÇ]/.test(trimmed) ||
       /^(bir|ben|sen|bu|şu|ne|nasıl|merhaba|evet|hayır|tamam|güzel|neden|kitap|bugün|yarın|evet|lütfen)\b/i.test(trimmed);
-    // Dil kodunu metne göre seç (S.my'ye zorlama — taraf karışmasın)
     let fromLang;
     if (isLikelyTR && (S.my === 'tr' || S.other === 'tr')) {
       fromLang = 'tr';
@@ -276,30 +319,34 @@ async function processText(text) {
     }
     if (fromLang !== S.my && fromLang !== S.other) fromLang = S.my;
     const toLang = fromLang === S.my ? S.other : S.my;
-    const translated = await fetchTranslateText(trimmed, fromLang, toLang);
+    const translated = await fetchTranslateText(trimmed, fromLang, toLang, signal);
+    if (gen !== S.transGen) return;
     S.lastFrom = fromLang;
-    const phonetic = '';
     const msg = {
       orig: trimmed,
       trans: translated,
       from: fromLang,
       to: toLang,
       audio: null,
-      phonetic: phonetic || '',
+      phonetic: '',
+      gen,
     };
     S.msgs.unshift(msg);
     render();
     setStatus('Çeviri hazır', false);
-    void fetchTranslateTts(translated, toLang, 0);
+    void fetchTranslateTts(translated, toLang, gen);
     if (toLang !== 'tr') {
       void fetchPronunciation(translated, toLang).then((ph) => {
-        if (S.msgs[0]?.orig === trimmed && ph) {
-          S.msgs[0].phonetic = ph;
+        if (gen !== S.transGen || !ph) return;
+        const m = S.msgs.find((x) => x.gen === gen);
+        if (m) {
+          m.phonetic = ph;
           render();
         }
       }).catch(() => {});
     }
   } catch (e) {
+    if (isAbortError(e) || gen !== S.transGen) return;
     showErr(e.message || 'Çeviri başarısız');
   } finally {
     S.busyCount -= 1;
@@ -307,13 +354,15 @@ async function processText(text) {
   }
 }
 
-async function fetchTranslateTts(text, lang, msgIndex) {
+async function fetchTranslateTts(text, lang, gen) {
   const phrase = (text || '').trim().slice(0, 2500);
   if (!phrase) return;
   try {
     const r = await fetch(`/api/tts?${new URLSearchParams({ q: phrase, tl: lang })}`);
     if (!r.ok) return;
+    if (gen != null && gen !== S.transGen) return;
     const blob = await r.blob();
+    if (gen != null && gen !== S.transGen) return;
     const buf = await blob.arrayBuffer();
     const bytes = new Uint8Array(buf);
     let bin = '';
@@ -322,10 +371,12 @@ async function fetchTranslateTts(text, lang, msgIndex) {
       bin += String.fromCharCode(...bytes.subarray(i, i + chunk));
     }
     const b64 = btoa(bin);
-    if (S.msgs[msgIndex]) {
-      S.msgs[msgIndex].audio = b64;
+    const m = (gen != null) ? S.msgs.find((x) => x.gen === gen) : S.msgs[0];
+    if (m) {
+      m.audio = b64;
       render();
     }
+    if (gen != null && gen !== S.transGen) return;
     stopTts();
     const u = URL.createObjectURL(blob);
     audio.volume = 1;
@@ -360,7 +411,10 @@ const mic = MicHold.create({
     S.busyCount += 1;
     showTranslating();
     processAudio(blob)
-      .catch((e) => showErr(e.message || 'Anlaşılamadı'))
+      .catch((e) => {
+        if (isAbortError(e)) return;
+        showErr(e.message || 'Anlaşılamadı');
+      })
       .finally(() => {
         S.busyCount -= 1;
         if (!S.holdActive && !mic.isRecording() && S.busyCount === 0) resetIdle();

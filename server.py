@@ -28,7 +28,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.09.03-v71.5"
+APP_VERSION = "2026.09.03-v71.6"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -261,13 +261,33 @@ def _cache_set(cache: dict, key: tuple, val, max_size: int = 400) -> None:
     cache[key] = (time.monotonic(), val)
 
 
+def _is_short_simple_utterance(text: str) -> bool:
+    """Günlük kısa söz — hikâye / çok cümle / karmaşık yapı değil."""
+    t = re.sub(r"\s+", " ", (text or "").strip())
+    if not t:
+        return True
+    if re.search(
+        r"\b\w+(?:nın|nin|nun|nün|ın|in|un|ün)\s+\d+\s+yaşında\b",
+        t,
+        re.I,
+    ):
+        return False
+    if re.search(r"bir\s+varm[ıi][şs]\s+bir\s+yokmu[şs]", t, re.I):
+        return False
+    if re.search(r"\b(çünkü|fakat|ancak|rağmen|eğer|although|because)\b", t, re.I):
+        return False
+    sentences = [s for s in re.split(r"[.!?…]+", t) if s.strip()]
+    if len(sentences) > 1:
+        return False
+    words = t.split()
+    if len(words) > 8 or len(t) > 80:
+        return False
+    return True
+
+
 def _needs_quality_translate(text: str, from_lang: str = "tr", to_lang: str = "en") -> bool:
-    """Uzun / hikâye / TR dışı hedef — Google sahiplik ve yapı hataları yapabiliyor."""
+    """Uzun / hikâye / karmaşık — Google sahiplik ve yapı hataları yapabiliyor."""
     t = text.strip()
-    if to_lang != "en":
-        return True
-    if len(t) >= 90 or len(t.split()) >= 14:
-        return True
     if re.search(
         r"\b\w+(?:nın|nin|nun|nün|ın|in|un|ün)\s+\d+\s+yaşında\b",
         t,
@@ -276,7 +296,11 @@ def _needs_quality_translate(text: str, from_lang: str = "tr", to_lang: str = "e
         return True
     if re.search(r"bir\s+varm[ıi][şs]\s+bir\s+yokmu[şs]", t, re.I):
         return True
-    return False
+    if len(t) >= 90 or len(t.split()) >= 14:
+        return True
+    if to_lang == "en":
+        return False
+    return not _is_short_simple_utterance(t)
 
 
 def _script_matches_lang(text: str, lang: str) -> bool:
@@ -686,29 +710,30 @@ def translate_pair_safe(
             from_lang = "tr"
             to_lang = other if my == "tr" else my
 
+    first_from, first_to = from_lang, to_lang
     translated = translate_text(src, from_lang, to_lang)
 
-    # Hedef Türkçe ama sonuç hâlâ İngilizce görünüyorsa yönü düzeltip tekrar dene
-    if to_lang == "tr" and is_likely_english(translated, "tr", "en") and not is_likely_turkish(translated):
-        if is_likely_english(src, "tr", "en"):
-            from_lang, to_lang = "en", "tr"
-            translated = translate_text(src, "en", "tr")
-        elif from_lang == "tr":
-            alt = translate_text(src, "en", "tr")
-            if is_likely_turkish(alt) or not is_likely_english(alt, "tr", "en"):
-                from_lang, to_lang = "en", "tr"
-                translated = alt
+    retry_from, retry_to = from_lang, to_lang
+    if (
+        to_lang == "tr"
+        and is_likely_english(translated, "tr", "en")
+        and not is_likely_turkish(translated)
+        and from_lang == "tr"
+        and is_likely_english(src, "tr", "en")
+    ):
+        retry_from, retry_to = "en", "tr"
+    elif (
+        to_lang == "en"
+        and is_likely_turkish(translated)
+        and not is_likely_english(translated, "tr", "en")
+        and from_lang == "en"
+        and is_likely_turkish(src)
+    ):
+        retry_from, retry_to = "tr", "en"
 
-    if to_lang == "en" and is_likely_turkish(translated) and not is_likely_english(translated, "tr", "en"):
-        if is_likely_turkish(src):
-            from_lang, to_lang = "tr", "en"
-            translated = translate_text(src, "tr", "en")
-
-    # Hedef yazısı yoksa (KA/AR/RU/ZH İngilizce sızması) bir kez daha dene
-    if not _script_matches_lang(translated, to_lang):
-        alt = translate_text(src, from_lang, to_lang)
-        if alt and _script_matches_lang(alt, to_lang):
-            translated = alt
+    if (retry_from, retry_to) != (first_from, first_to):
+        translated = translate_text(src, retry_from, retry_to)
+        from_lang, to_lang = retry_from, retry_to
 
     return translated, from_lang, to_lang
 
@@ -1512,12 +1537,56 @@ def transcribe_education(
             os.unlink(wav)
 
 
-def transcribe_dual(data: bytes, my: str, other: str, last_from: str | None = None) -> tuple[str, str]:
-    """Çeviri STT — paralel auto+my+other, içerik öncelikli. Tek RTT, erken yanlış çıkış yok."""
+def _stt_early_lang(text: str, my: str, other: str) -> str | None:
+    """İlk Whisper sonucu yeterince net mi? Şüphede None → diğer çağrıları bekle."""
+    t = clean_stt_text(text)
+    if not t or is_hallucination(t):
+        return None
+    words = t.split()
+    tr_clear = is_likely_turkish(t) and not is_likely_english(t, my, other)
+    en_clear = is_likely_english(t, my, other) and not is_likely_turkish(t)
+    if tr_clear and en_clear:
+        return None
+    if len(words) <= 1:
+        if re.search(r"[ğüşıöçĞÜŞİÖÇ]", t) and "tr" in (my, other):
+            return "tr"
+        if looks_like_lang(t, "tr") and "tr" in (my, other) and not en_clear:
+            return "tr"
+        for lang in (my, other):
+            if lang in ("ka", "ru", "ar", "zh") and looks_like_lang(t, lang):
+                return lang
+        return None
+    if tr_clear and "tr" in (my, other):
+        return "tr"
+    if en_clear and "en" in (my, other):
+        return "en"
+    for lang in (my, other):
+        if lang not in ("tr", "en") and looks_like_lang(t, lang):
+            other_lang = other if lang == my else my
+            if not looks_like_lang(t, other_lang):
+                return lang
+    if looks_like_lang(t, my) and not looks_like_lang(t, other):
+        return my
+    if looks_like_lang(t, other) and not looks_like_lang(t, my):
+        return other
+    return None
+
+
+def transcribe_dual(
+    data: bytes,
+    my: str,
+    other: str,
+    last_from: str | None = None,
+    timings: dict | None = None,
+) -> tuple[str, str]:
+    """Çeviri STT — paralel auto+my+other; net sonuçta erken çıkış."""
+    t_ffmpeg = time.perf_counter()
     wav = prepare_wav(data, fast=True)
+    if timings is not None:
+        timings["ffmpeg_ms"] = int((time.perf_counter() - t_ffmpeg) * 1000)
+    t_stt = time.perf_counter()
     try:
         candidates: list[tuple[str, str, float, str]] = []
-        # ~3sn+ ses: karşı dili zorlama (uzun seste yavaş + uydurma). auto+my yeterli.
         long_audio = os.path.getsize(wav) >= 96_000
 
         def add(r: tuple[str, str, float] | None, source: str) -> None:
@@ -1538,13 +1607,34 @@ def transcribe_dual(data: bytes, my: str, other: str, last_from: str | None = No
                 f"lang_{my}": lambda: stt_for_translate(wav, my),
                 f"lang_{other}": lambda: stt_for_translate(wav, other),
             }
-        with ThreadPoolExecutor(max_workers=min(3, len(tasks))) as pool:
+
+        early: tuple[str, str] | None = None
+        pool = ThreadPoolExecutor(max_workers=min(3, len(tasks)))
+        try:
             futures = {pool.submit(fn): key for key, fn in tasks.items()}
-            for fut in as_completed(futures):
-                try:
-                    add(fut.result(timeout=4.5 if long_audio else 2.8), futures[fut])
-                except Exception:
-                    continue
+            try:
+                for fut in as_completed(futures, timeout=4.5 if long_audio else 2.8):
+                    try:
+                        add(fut.result(), futures[fut])
+                    except Exception:
+                        continue
+                    if not candidates:
+                        continue
+                    last = candidates[-1]
+                    lang = _stt_early_lang(last[0], my, other)
+                    if lang:
+                        early = (last[0], lang)
+                        break
+            except Exception:
+                pass
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
+
+        if early:
+            if timings is not None:
+                timings["stt_ms"] = int((time.perf_counter() - t_stt) * 1000)
+                timings["stt_early"] = True
+            return early
 
         if not candidates:
             for lang in (my, other):
@@ -1590,33 +1680,42 @@ def transcribe_dual(data: bytes, my: str, other: str, last_from: str | None = No
             ]
             auto = [c for c in candidates if c[3] == "auto"]
 
-            # 1) Auto net İngilizce → EN (TR zorlamasının 'nasılsın' uydurmasını ezme)
             if auto:
                 at = max(auto, key=rank)[0]
                 if is_likely_english(at, my, other) and not is_likely_turkish(at):
+                    if timings is not None:
+                        timings["stt_ms"] = int((time.perf_counter() - t_stt) * 1000)
                     return at, "en"
                 if is_likely_turkish(at) and not is_likely_english(at, my, other):
-                    # Auto TR: mümkünse lang_tr daha temiz olsun
                     if strong_tr:
+                        if timings is not None:
+                            timings["stt_ms"] = int((time.perf_counter() - t_stt) * 1000)
                         return max(strong_tr, key=rank)[0], "tr"
+                    if timings is not None:
+                        timings["stt_ms"] = int((time.perf_counter() - t_stt) * 1000)
                     return at, "tr"
 
-            # 2) Sadece bir taraf net
             if strong_tr and not strong_en:
+                if timings is not None:
+                    timings["stt_ms"] = int((time.perf_counter() - t_stt) * 1000)
                 return max(strong_tr, key=rank)[0], "tr"
             if strong_en and not strong_tr:
+                if timings is not None:
+                    timings["stt_ms"] = int((time.perf_counter() - t_stt) * 1000)
                 return max(strong_en, key=rank)[0], "en"
 
-            # 3) İkisi de net: Türkçe ortografi (auto TR değilse bile) — ama yalnız auto EN yoksa
             if strong_tr and strong_en:
                 ortho = [c for c in strong_tr if re.search(r"[ğüşıöçĞÜŞİÖÇ]", c[0])]
-                # Ortografi yalnızca auto İngilizce iddiası yoksa veya auto da Türkçeyse
                 auto_clear_en = bool(
                     auto and is_likely_english(auto[0][0], my, other) and not is_likely_turkish(auto[0][0])
                 )
                 if ortho and not auto_clear_en:
+                    if timings is not None:
+                        timings["stt_ms"] = int((time.perf_counter() - t_stt) * 1000)
                     return max(ortho, key=rank)[0], "tr"
                 pick = max(strong_tr + strong_en, key=rank)
+                if timings is not None:
+                    timings["stt_ms"] = int((time.perf_counter() - t_stt) * 1000)
                 return pick[0], ("tr" if pick in strong_tr else "en")
 
         best = max(candidates, key=rank)
@@ -1629,11 +1728,12 @@ def transcribe_dual(data: bytes, my: str, other: str, last_from: str | None = No
                 from_lang = "en"
         if from_lang not in (my, other):
             from_lang = my
+        if timings is not None:
+            timings["stt_ms"] = int((time.perf_counter() - t_stt) * 1000)
         return text, from_lang
     finally:
         if os.path.exists(wav):
             os.unlink(wav)
-
 
 
 def transcribe_audio(data: bytes, lang_code: str) -> tuple[str, str, float]:
@@ -1894,23 +1994,33 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_error(400, "empty body")
             return
         data = self.rfile.read(length)
+        t0 = time.perf_counter()
+        timings: dict = {}
+        pid = f"p{int(t0 * 1000) % 100000000}"
         try:
-            original, from_lang = transcribe_dual(data, my, other, last_from)
+            original, from_lang = transcribe_dual(data, my, other, last_from, timings)
             to_lang = other if from_lang == my else my
+            t_tr = time.perf_counter()
             translated, from_lang, to_lang = translate_pair_safe(
                 original, from_lang, to_lang, my, other,
             )
-            # Uzun çeviride fonetiği istemciye bırak — yanıtı hemen dön
-            if len(translated) > 180:
-                phonetic = ""
-            else:
-                phonetic = translate_phonetic(translated, to_lang)
+            timings["translation_ms"] = int((time.perf_counter() - t_tr) * 1000)
+            timings["process_total_ms"] = int((time.perf_counter() - t0) * 1000)
+            print(
+                f"process {pid} ffmpeg_ms={timings.get('ffmpeg_ms', '-')} "
+                f"stt_ms={timings.get('stt_ms', '-')} "
+                f"stt_early={timings.get('stt_early', False)} "
+                f"translation_ms={timings.get('translation_ms', '-')} "
+                f"process_total_ms={timings['process_total_ms']}",
+                flush=True,
+            )
+            # Fonetik istemci /api/pronounce — çeviri JSON'unu bekletme
             body = json.dumps({
                 "original": original,
                 "translated": translated,
                 "from": from_lang,
                 "to": to_lang,
-                "phonetic": phonetic,
+                "phonetic": "",
             }).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -1918,6 +2028,11 @@ class Handler(SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
         except Exception as e:
+            timings["process_total_ms"] = int((time.perf_counter() - t0) * 1000)
+            print(
+                f"process {pid} FAIL total_ms={timings.get('process_total_ms')} err={e}",
+                flush=True,
+            )
             self.send_json_error(422, self.api_error_message(e))
 
     def handle_tutor(self, params):
