@@ -55,6 +55,8 @@ def fake_translate(text: str, from_lang: str, to_lang: str) -> str:
     "parfüm": "perfume",
     "eğlence": "entertainment",
     "eglence": "entertainment",
+    "gelişim": "development",
+    "gelisim": "development",
         "sessiz": "quiet",
         "hızlı": "quickly", "hizli": "quickly",
         "kedi": "cat",
@@ -65,12 +67,12 @@ def fake_translate(text: str, from_lang: str, to_lang: str) -> str:
         "ve": "and",
         "merhaba": "hello",
         "mutlu": "happy",
-        "mutlu": "happy",
-        "çalışmak": "work",
+        "araba": "car",
         "kahve seviyorum.": "I love coffee.",
         "kahve sevmiyorum.": "I don't like coffee.",
         "kahve ister misin?": "Do you want coffee?",
         "bir kahve alabilir miyim?": "Can I have a coffee?",
+        "kahve alabilir miyim?": "Can I have a coffee?",
         "sana bir kahve alayım mı?": "Shall I get you a coffee?",
         "sabahları kahve içmezsin, öyle değil mi?": "You don't drink coffee in the morning, do you?",
         "her gün kahve içerim.": "I drink coffee every day.",
@@ -172,14 +174,56 @@ def test_car_happy_work_distinct():
     for word_tr, tw, icon in (
         ("araba", "car", "🚗"),
         ("mutlu", "happy", "😊"),
-        ("çalışmak", "work", "💼"),
+        ("çalışmak", "work", ""),  # fiillerde ikon yok
     ):
         result = generate_word_lesson(word_tr, "en", fake_translate)
         assert result["ok"], result
-        assert result.get("word_icon") == icon, f"{word_tr} icon"
+        assert result.get("word_icon") == icon, f"{word_tr} icon={result.get('word_icon')!r}"
         targets = [safe_str(e.get("target")).lower() for e in result["examples"]]
         assert not any("i love " + tw in t for t in targets), f"template on {word_tr}"
     print("TEST car/happy/work distinct OK")
+
+
+def test_gelisim_abstract_not_verb():
+    """gelişim → development (isim); fiil şablonu / alakasız ikon YASAK."""
+    from word_teaching_engine import detect_part_of_speech, detect_category
+
+    assert detect_part_of_speech("gelişim", "development") == "noun"
+    assert detect_category("gelişim", "development") == "abstract"
+    result = generate_word_lesson("gelişim", "en", fake_translate)
+    assert result["ok"], result
+    assert result.get("target_word") == "development"
+    assert result.get("word_icon") in ("🌱", "")
+    assert (result.get("word_profile") or {}).get("part_of_speech") != "verb"
+    targets = " ".join(safe_str(ex.get("target")).lower() for ex in result["examples"])
+    assert "development" in targets
+    assert "i gelişim every day" not in targets
+    assert "i development every day" not in targets
+    assert "gelişiming" not in targets
+    for ex in result["examples"]:
+        tr = safe_str(ex.get("tr")).strip()
+        assert tr and "çalışırım" not in tr.lower()
+    usage = result.get("usage") or {}
+    phrases = usage.get("common_phrases") or []
+    assert phrases, "usage phrases empty"
+    for p in phrases:
+        assert safe_str(p.get("tr")).strip(), f"phrase missing TR: {p}"
+        assert "development" in safe_str(p.get("en")).lower()
+    verbs = {v["en"] for v in (usage.get("common_verbs") or [])}
+    assert "support" in verbs or "focus on" in verbs or "promote" in verbs
+    print("TEST gelişim abstract OK:", len(result["examples"]), "phrases", len(phrases))
+
+
+def test_sentence_how_rich_can_i_have():
+    """Cümle modülü — Nasıl kuruldu detaylı (Can I / have-has)."""
+    result = analyze_sentence_for_builder("Kahve alabilir miyim?", "en", fake_translate)
+    assert result["ok"], result
+    how = result.get("how_it_is_formed_tr") or ""
+    assert len(how) >= 150, how[:80]
+    assert "can i" in how.lower() or "Can I" in how
+    assert "have" in how.lower()
+    assert result.get("word_breakdown") or result.get("important_patterns")
+    print("TEST sentence Can I have rich OK:", len(how))
 
 
 def test_no_duplicate_teaching_header():
@@ -1109,6 +1153,8 @@ if __name__ == "__main__":
     test_pronunciation_consistency()
     test_faucet_lesson()
     test_car_happy_work_distinct()
+    test_gelisim_abstract_not_verb()
+    test_sentence_how_rich_can_i_have()
     test_no_duplicate_teaching_header()
     test_pronunciation_rules()
     test_market_sentence_teaching()

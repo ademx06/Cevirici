@@ -1,7 +1,7 @@
 """Cümle Kur + Kendini Test Et — kelime/cümle üretimi, yapılandırılmış analiz, telaffuz."""
 from __future__ import annotations
 
-APP_VERSION = "2026.09.02-v67"
+APP_VERSION = "2026.09.03-v70"
 
 import difflib
 import json
@@ -36,6 +36,7 @@ from word_teaching_engine import (
     collect_lesson_quality_issues,
     detect_category,
     enforce_category_usage_profile,
+    enrich_sentence_teaching_fields,
     generate_examples_from_profile,
     is_llm_api_failure,
     merge_rule_usage_profile,
@@ -203,20 +204,32 @@ def _supplement_can_you_patterns(
     if not safe_str(parsed.get("pattern_tr")).strip():
         parsed["pattern_tr"] = "Can you + verb + object?"
     existing = parsed.get("pattern_examples") or []
-    if isinstance(existing, list) and len(existing) >= 8:
-        return
+    curated_tr = {_norm(ex["target"]): ex["tr"] for ex in CAN_YOU_PATTERN_EXAMPLES}
     seen = {_norm(safe_str(e.get("target") if isinstance(e, dict) else e)) for e in existing}
     merged: list[dict[str, str]] = []
     for item in existing:
         if isinstance(item, dict) and item.get("target"):
-            merged.append({"tr": safe_str(item.get("tr")), "target": safe_str(item["target"])})
+            key = _norm(item["target"])
+            tr = safe_str(item.get("tr")).strip() or curated_tr.get(key, "")
+            merged.append({"tr": tr, "target": safe_str(item["target"])})
         elif isinstance(item, str) and item.strip():
-            merged.append({"tr": "", "target": item.strip()})
+            key = _norm(item)
+            merged.append({"tr": curated_tr.get(key, ""), "target": item.strip()})
+    # AI 8+ örnek verse bile TR eksik/alakasız olabilir — kütüphaneyi birleştir
     for ex in CAN_YOU_PATTERN_EXAMPLES:
         key = _norm(ex["target"])
         if key not in seen:
             merged.append(dict(ex))
             seen.add(key)
+    # TR'siz kalanları düş (test + UX)
+    merged = [m for m in merged if safe_str(m.get("tr")).strip()]
+    if len(merged) < 8:
+        for ex in CAN_YOU_PATTERN_EXAMPLES:
+            key = _norm(ex["target"])
+            if key not in {_norm(m["target"]) for m in merged}:
+                merged.append(dict(ex))
+            if len(merged) >= 12:
+                break
     parsed["pattern_examples"] = merged[:12]
 
 
@@ -501,17 +514,28 @@ def _analyze_sentence_structured(
     if not parsed or not parsed.get("target_sentence"):
         parsed = rule_sentence_teaching(tr_sentence, target_lang, translate_fn)
 
+    if parsed and parsed.get("target_sentence"):
+        how0 = strip_teaching_header(safe_str(parsed.get("how_it_is_formed_tr")).strip())
+        if _is_generic_explanation(how0) and len(how0) < 80:
+            # İnce AI açıklaması — kural öğretimini tercih et / zenginleştir
+            rule = rule_sentence_teaching(tr_sentence, target_lang, translate_fn)
+            if rule and rule.get("target_sentence"):
+                # Hedefi koru, öğretimi zenginleştir
+                rule = dict(rule)
+                rule["target_sentence"] = parsed.get("target_sentence") or rule["target_sentence"]
+                parsed = rule
+
     if not parsed or not parsed.get("target_sentence"):
         return None
 
     how = strip_teaching_header(safe_str(parsed.get("how_it_is_formed_tr")).strip())
-    if _is_generic_explanation(how) and len(how) < 80:
-        return None
-
     target = safe_str(parsed["target_sentence"]).strip()
-    bundle = _pronunciation_bundle(target, target_lang)
     parsed["target_sentence"] = target
     parsed["how_it_is_formed_tr"] = how
+    parsed = enrich_sentence_teaching_fields(parsed, tr_sentence, target_lang)
+    how = strip_teaching_header(safe_str(parsed.get("how_it_is_formed_tr")).strip())
+    parsed["how_it_is_formed_tr"] = how
+    bundle = _pronunciation_bundle(target, target_lang)
     parsed["pronunciation_tr"] = bundle["pronunciation_tr"]
     parsed["ipa"] = bundle.get("ipa") or parsed.get("ipa") or ""
     parsed["word_pronunciations"] = bundle["word_pronunciations"]
@@ -537,6 +561,7 @@ def _analyze_sentence_structured(
     parsed["grammar_explanation_tr"] = how
     parsed["why_tr"] = safe_str(parsed.get("why_this_structure_tr")).strip() or how
     return parsed
+
 
 
 def analyze_sentence_for_builder(
@@ -591,6 +616,17 @@ def analyze_sentence_for_builder(
     structure = safe_str(analysis.get("important_structure_tr")).strip()
     analysis_tr = strip_teaching_header(safe_str(analysis.get("analysis_tr")).strip())
 
+    fallback = enrich_sentence_teaching_fields({
+        "meaning_summary_tr": analysis_tr[:200] if analysis_tr else "",
+        "target_sentence": natural,
+        "how_it_is_formed_tr": analysis_tr,
+        "structure_tr": structure,
+        "word_breakdown": [],
+        "important_patterns": [],
+        "new_words": [],
+        "alternatives": (analysis.get("alternatives") or [])[:3],
+    }, tr_sentence, target_lang)
+
     return {
         "ok": True,
         "tr_sentence": tr_sentence,
@@ -599,12 +635,15 @@ def analyze_sentence_for_builder(
         "pronunciation_tr": bundle["pronunciation_tr"],
         "ipa": bundle["ipa"],
         "word_pronunciations": bundle["word_pronunciations"],
-        "alternatives": (analysis.get("alternatives") or [])[:3],
-        "grammar_explanation_tr": analysis_tr,
-        "how_it_is_formed_tr": analysis_tr,
-        "structure_tr": structure,
+        "alternatives": fallback.get("alternatives") or (analysis.get("alternatives") or [])[:3],
+        "grammar_explanation_tr": fallback.get("how_it_is_formed_tr") or analysis_tr,
+        "how_it_is_formed_tr": fallback.get("how_it_is_formed_tr") or analysis_tr,
+        "structure_tr": fallback.get("structure_tr") or structure,
         "phrase_pairs": pairs,
-        "why_tr": analysis_tr,
+        "why_tr": fallback.get("why_this_structure_tr") or analysis_tr,
+        "word_breakdown": fallback.get("word_breakdown") or [],
+        "important_patterns": fallback.get("important_patterns") or [],
+        "new_words": fallback.get("new_words") or [],
         "pronunciation_chunks": [],
     }
 

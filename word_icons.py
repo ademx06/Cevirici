@@ -76,18 +76,21 @@ EMOJI_BY_WORD: dict[str, str] = {
     "okul": "🏫", "school": "🏫", "hastane": "🏥", "hospital": "🏥",
     "market": "🛒", "pazar": "🛒", "shop": "🛒", "store": "🛒", "mağaza": "🛍️", "magaza": "🛍️",
     "mısır ülke": "🇪🇬", "egypt": "🇪🇬",
-    # Duygu / fiil
+    # Duygu / soyut
     "mutlu": "😊", "happy": "😊", "üzgün": "😢", "uzgun": "😢", "sad": "😢",
     "eğlence": "🎭", "eglence": "🎭", "entertainment": "🎭",
+    "gelişim": "🌱", "gelisim": "🌱", "development": "🌱",
     "yorgun": "😴", "tired": "😴", "kızgın": "😠", "kizgin": "😠", "angry": "😠",
-    "çalışmak": "💼", "calismak": "💼", "work": "💼", "çalış": "💼", "calis": "💼",
-    "koşmak": "🏃", "kosmak": "🏃", "run": "🏃", "yürümek": "🚶", "yurumek": "🚶", "walk": "🚶",
-    "uyumak": "😴", "sleep": "😴", "okumak": "📖", "read": "📖", "yazmak": "✍️", "write": "✍️",
-    "öğrenmek": "📚", "ogrenmek": "📚", "learn": "📚", "study": "📚",
     # Müzik / spor
     "müzik": "🎵", "muzik": "🎵", "music": "🎵", "şarkı": "🎵", "sarki": "🎵", "song": "🎵",
     "futbol": "⚽", "football": "⚽", "soccer": "⚽", "basketbol": "🏀", "basketball": "🏀",
 }
+
+# Dilbilgisi kategorileri: alakasız/jenerik ikon YOK (fiil→💼 vb. kaldırıldı)
+_NO_ICON_CATEGORIES = frozenset({
+    "verb", "adverb", "pronoun", "preposition", "conjunction", "interjection",
+    "determiner",
+})
 
 CATEGORY_EMOJI: dict[str, str] = {
     "beverage": "🥤",
@@ -98,7 +101,6 @@ CATEGORY_EMOJI: dict[str, str] = {
     "plumbing": "🚰",
     "vehicle": "🚗",
     "adjective": "😊",
-    "verb": "💼",
     "place": "📍",
     "object": "📦",
     "footwear": "👟",
@@ -107,7 +109,7 @@ CATEGORY_EMOJI: dict[str, str] = {
     "weather": "🌤️",
     "clothing": "👕",
     "document": "🧾",
-    "abstract": "🎭",
+    "abstract": "🌱",
     "snack": "🍬",
     "tobacco": "🚬",
     "eyewear": "👓",
@@ -158,7 +160,8 @@ KEYWORD_EMOJI: tuple[tuple[str, ...], str] = (
     (("radyo", "radio"), "📻"),
     (("parfüm", "parfum", "perfume"), "🌸"),
     (("mutlu", "happy", "üzgün", "sad", "yorgun", "tired", "kızgın", "angry"), "😊"),
-    (("çalış", "calis", "work", "koş", "kos", "run", "yürü", "walk"), "💼"),
+    (("eğlence", "eglence", "entertainment"), "🎭"),
+    (("gelişim", "gelisim", "development", "progress"), "🌱"),
     (("ev", "home", "house", "okul", "school", "hastane", "hospital", "market", "pazar"), "📍"),
     (("bardak", "glass", "fincan", "cup", "tabak", "plate", "kase", "bowl"), "🥛"),
     (("güneş", "sun", "yağmur", "rain", "kar", "snow", "bulut", "cloud"), "🌤️"),
@@ -230,7 +233,11 @@ def _llm_resolve_emoji(word_tr: str, target_word: str) -> str:
 
 
 def lookup_emoji(word_tr: str, target_word: str, category: str = "general") -> str:
-    """Kelimeye en uygun emoji — sözlük → çıkarım → kategori → LLM → 🏷️."""
+    """Kelimeye en uygun emoji — anlamlı ikon yoksa boş (fiil/zarf vb. ikonsuz)."""
+    cat = _norm(category)
+    # Fiil / dilbilgisi: alakasız ikon yok
+    if cat in _NO_ICON_CATEGORIES and cat != "general":
+        return ""
     keys: list[str] = []
     for raw in (word_tr, target_word):
         n = _norm(raw)
@@ -255,8 +262,8 @@ def lookup_emoji(word_tr: str, target_word: str, category: str = "general") -> s
     for group, emoji in KEYWORD_EMOJI:
         if any(_term_matches(k, tw) for k in group):
             return emoji
-    # Kategori
-    cat = _norm(category)
+    if cat in _NO_ICON_CATEGORIES:
+        return ""
     if cat in CATEGORY_EMOJI:
         return CATEGORY_EMOJI[cat]
     inferred = _infer_target_emoji(target_word, word_tr)
@@ -265,4 +272,6 @@ def lookup_emoji(word_tr: str, target_word: str, category: str = "general") -> s
     llm_icon = _llm_resolve_emoji(word_tr, target_word)
     if llm_icon:
         return llm_icon
+    if not keys:
+        return ""
     return "🏷️"

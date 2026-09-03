@@ -40,8 +40,9 @@
   const GENERIC_ICONS = new Set(['📖', '📚', '📦', '']);
   const CATEGORY_ICONS = {
     beverage: '🥤', furniture: '🛋️', plumbing: '🚰', vehicle: '🚗',
-    adjective: '😊', verb: '💼', place: '📍', object: '📦', footwear: '👟',
+    adjective: '😊', place: '📍', footwear: '👟',
     food: '🍽️', fruit: '🍎', vegetable: '🥕', animal: '🐾', drinkware: '🥛',
+    abstract: '🌱', tobacco: '🚬', eyewear: '👓', snack: '🍬', document: '🧾',
   };
 
   function resolveWordIcon(wordOrData, apiIcon) {
@@ -439,12 +440,17 @@
   }
 
   function renderTeachingBlock(ex, lang, opts = {}) {
-    const how = ex.how_it_is_formed_tr || ex.explanation_tr || '';
+    const how = ex.how_it_is_formed_tr || ex.explanation_tr || buildDetailFallback(ex);
     const why = ex.why_this_structure_tr || '';
     const note = ex.important_note_tr || '';
     const label = ex.structure_label_tr || '';
     const pattern = ex.pattern_tr || '';
-    const open = opts.open ? ' open' : '';
+    // Cümle modülünde varsayılan açık — detay kaybolmasın
+    const forceOpen = opts.open !== false;
+    const open = (opts.open || (forceOpen && how)) ? ' open' : '';
+    if (!how && !why && !note && !ex.structure_tr) {
+      return '';
+    }
     return `
       <details class="mod-details mod-teach-details"${open}>
         <summary>🧠 Nasıl kuruldu? <span class="mod-teach-hint">dil bilgisi adım adım</span></summary>
@@ -699,7 +705,7 @@
         ${renderClauseBreakdown(data.clause_breakdown)}
         ${renderImportantPatterns(data.important_patterns, data.target_lang)}
         ${renderNewWordsList(data.new_words, data.target_lang)}
-        ${renderTeachingBlock(data, data.target_lang)}
+        ${renderTeachingBlock(data, data.target_lang, { open: true })}
       </article>
       <button type="button" id="saveSentenceBtn" class="mod-action-btn mod-action-save">⭐ Kaydet</button>`;
     box.querySelector('#saveSentenceBtn')?.addEventListener('click', saveCurrentSentence);

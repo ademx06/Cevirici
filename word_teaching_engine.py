@@ -358,13 +358,16 @@ CATEGORY_VERB_MEANINGS: dict[str, dict[str, str]] = {
         "pour": "dökmek",
     },
     "abstract": {
-        "enjoy": "keyif almak",
-        "love": "sevmek",
-        "hate": "nefret etmek",
+        "support": "desteklemek",
+        "promote": "teşvik etmek",
+        "encourage": "cesaretlendirmek",
+        "focus on": "odaklanmak",
+        "achieve": "elde etmek",
+        "measure": "ölçmek",
+        "show": "göstermek",
         "need": "ihtiyaç duymak",
-        "want": "istemek",
+        "enjoy": "keyif almak",
         "find": "bulmak",
-        "seek": "aramak",
     },
     "place": {
         "go": "gitmek",
@@ -566,6 +569,14 @@ CATEGORY_PHRASES: dict[str, list[dict[str, str]]] = {
     "vehicle": [
         {"en": "drive the car", "tr": "arabayı sürmek"},
         {"en": "park the car", "tr": "arabayı park etmek"},
+    ],
+    "abstract": [
+        {"en": "personal development", "tr": "kişisel gelişim"},
+        {"en": "career development", "tr": "kariyer gelişimi"},
+        {"en": "long-term progress", "tr": "uzun vadeli ilerleme"},
+        {"en": "focus on growth", "tr": "gelişime odaklanmak"},
+        {"en": "support development", "tr": "gelişimi desteklemek"},
+        {"en": "measure progress", "tr": "ilerlemeyi ölçmek"},
     ],
     "drinkware": [
         {"en": "a glass of water", "tr": "bir bardak su"},
@@ -804,6 +815,14 @@ KNOWN_CATEGORIES: dict[str, str] = {
     "şeker": "snack", "seker": "snack", "candy": "snack", "çikolata": "snack", "cikolata": "snack",
     "chocolate": "snack", "bisküvi": "snack", "biskivi": "snack", "cookie": "snack",
     "eğlence": "abstract", "eglence": "abstract", "entertainment": "abstract",
+    "gelişim": "abstract", "gelisim": "abstract", "development": "abstract",
+    "gelişme": "abstract", "gelisme": "abstract", "progress": "abstract",
+    "başarı": "abstract", "basari": "abstract", "success": "abstract",
+    "mutluluk": "abstract", "happiness": "abstract",
+    "özgürlük": "abstract", "ozgurluk": "abstract", "freedom": "abstract",
+    "güven": "abstract", "guven": "abstract", "trust": "abstract",
+    "saygı": "abstract", "saygi": "abstract", "respect": "abstract",
+    "umut": "abstract", "hope": "abstract", "korku": "abstract", "fear": "abstract",
     "bal": "food", "honey": "food",
     "koltuk": "furniture", "sofa": "furniture", "yatak": "furniture", "bed": "furniture",
     "dolap": "furniture", "wardrobe": "furniture",
@@ -846,6 +865,13 @@ KNOWN_TR_TO_EN: dict[str, str] = {
     "bal": "honey",
     "sigara": "cigarette", "tütün": "tobacco", "tutun": "tobacco",
     "eğlence": "entertainment", "eglence": "entertainment",
+    "gelişim": "development", "gelisim": "development",
+    "gelişme": "progress", "gelisme": "progress",
+    "başarı": "success", "basari": "success",
+    "mutluluk": "happiness", "özgürlük": "freedom", "ozgurluk": "freedom",
+    "güven": "trust", "guven": "trust", "saygı": "respect", "saygi": "respect",
+    "umut": "hope", "korku": "fear", "huzur": "peace", "gurur": "pride",
+    "merak": "curiosity", "sevinç": "joy", "sevinc": "joy",
     "koltuk": "sofa", "yatak": "bed", "dolap": "wardrobe", "mutfak": "kitchen",
     "okul": "school", "hastane": "hospital", "bisiklet": "bicycle",
     "çorap": "socks", "corap": "socks", "yastık": "pillow", "bıçak": "knife",
@@ -867,6 +893,14 @@ KNOWN_PART_OF_SPEECH: dict[str, str] = {
     "yemek": "verb", "eat": "verb", "içmek": "verb", "icmek": "verb", "drink": "verb",
     "okumak": "verb", "read": "verb", "yazmak": "verb", "write": "verb", "koşmak": "verb",
     "kosmak": "verb", "run": "verb", "gelmek": "verb", "come": "verb", "almak": "verb", "buy": "verb",
+    "git": "verb", "gel": "verb", "yap": "verb", "ver": "verb", "oku": "verb", "yaz": "verb",
+    "koş": "verb", "kos": "verb", "çalış": "verb", "calis": "verb",
+    # soyut isimler — fiil startswith hatasını önle
+    "gelişim": "noun", "gelisim": "noun", "development": "noun",
+    "gelişme": "noun", "gelisme": "noun", "progress": "noun",
+    "başarı": "noun", "basari": "noun", "success": "noun",
+    "eğlence": "noun", "eglence": "noun", "entertainment": "noun",
+    "mutluluk": "noun", "happiness": "noun", "özgürlük": "noun", "freedom": "noun",
     # zamir / pronoun
     "ben": "pronoun", "i": "pronoun", "sen": "pronoun", "you": "pronoun", "o": "pronoun",
     "he": "pronoun", "she": "pronoun", "it": "pronoun", "biz": "pronoun", "we": "pronoun",
@@ -903,23 +937,63 @@ POS_LABELS_TR: dict[str, str] = {
 }
 
 
+_VERB_STEMS = (
+    "git", "gel", "al", "ver", "yap", "oku", "yaz", "koş", "kos", "çalış", "calis",
+    "iç", "ic", "ye", "gör", "gor", "bil", "iste", "ol", "söyle", "soyle",
+)
+_VERB_ENDINGS = (
+    "mak", "mek", "iyor", "ıyor", "uyor", "üyor", "di", "dı", "du", "dü",
+    "ti", "tı", "tu", "tü", "miş", "mış", "muş", "müş", "acak", "ecek",
+    "ırım", "irim", "urum", "ürüm", "arım", "erim", "ır", "ir", "ur", "ür", "ar", "er",
+    "ın", "in", "un", "ün", "!",
+)
+
+
+def _looks_like_turkish_verb(wt: str) -> bool:
+    """Kısa fiil gövdesi eşleşmesi — gelişim≠gel, alışveriş≠al."""
+    if not wt:
+        return False
+    if wt.endswith(("mak", "mek")) and len(wt) > 3:
+        return True
+    for stem in _VERB_STEMS:
+        if wt == stem:
+            return True
+        if not wt.startswith(stem):
+            continue
+        rest = wt[len(stem):]
+        if not rest:
+            return True
+        # İsim türevleri: gelişim, gelişme, alışveriş, verim…
+        if rest.startswith(("işim", "isim", "işim", "işme", "isme", "ışme", "asme", "işver", "ışver", "ım", "im", "um", "üm")) and not any(
+            rest.startswith(suf) for suf in _VERB_ENDINGS
+        ):
+            continue
+        if any(rest == suf or rest.startswith(suf) for suf in _VERB_ENDINGS):
+            return True
+    return False
+
+
 def detect_part_of_speech(word_tr: str, target_word: str) -> str:
     """Kelime türünü tespit et — nesne şablonuna yanlış düşmeyi önler."""
     for w in (_norm(word_tr), _norm(target_word)):
         if w in KNOWN_PART_OF_SPEECH:
             return KNOWN_PART_OF_SPEECH[w]
     wt, tw = _norm(word_tr), _norm(target_word)
+    if _is_abstract_like(word_tr, target_word):
+        return "noun"
     if _is_adjective_like(word_tr, target_word):
         return "adjective"
     if _is_pronoun_like(word_tr, target_word):
         return "pronoun"
     if _is_adverb_like(word_tr, target_word):
         return "adverb"
-    if wt.endswith(("mak", "mek")) or tw.endswith("ing") and len(tw) > 4:
-        if wt.endswith(("mak", "mek")):
-            return "verb"
-    verb_hints = ("git", "gel", "al", "ver", "yap", "oku", "yaz", "koş", "kos", "çalış", "calis")
-    if any(wt == v or wt.startswith(v) for v in verb_hints):
+    if wt.endswith(("mak", "mek")):
+        return "verb"
+    if tw.endswith("ing") and len(tw) > 4 and tw not in ("thing", "morning", "evening", "building"):
+        # İngilizce hedef -ing fiil olabilir; Türkçe soyut isim değilse
+        if not _is_abstract_like(word_tr, target_word):
+            pass  # aşağıda stem kontrolü
+    if _looks_like_turkish_verb(wt):
         return "verb"
     if detect_category(word_tr, target_word) != "general":
         return "noun"
@@ -1392,13 +1466,25 @@ def _is_beverage_like(word_tr: str, target_word: str) -> bool:
 
 
 def _is_abstract_like(word_tr: str, target_word: str) -> bool:
-    """Soyut/sayılamayan isimler: entertainment, happiness, freedom vb."""
+    """Soyut/sayılamayan isimler: entertainment, development, happiness vb."""
     wt, tw = _norm(word_tr), _norm(target_word)
     hints = (
-        "eğlence", "eglence", "entertainment", "mutluluk", "happiness", "özgürlük", "freedom",
-        "güven", "trust", "saygı", "respect", "başarı", "success", "umut", "hope", "korku", "fear",
-        "sevinç", "joy", "huzur", "peace", "gurur", "pride", "merak", "curiosity",
+        "eğlence", "eglence", "entertainment", "mutluluk", "happiness", "özgürlük", "ozgurluk", "freedom",
+        "güven", "guven", "trust", "saygı", "saygi", "respect", "başarı", "basari", "success",
+        "umut", "hope", "korku", "fear", "sevinç", "sevinc", "joy", "huzur", "peace",
+        "gurur", "pride", "merak", "curiosity",
+        "gelişim", "gelisim", "development", "gelişme", "gelisme", "progress", "growth",
+        "eğitim", "egitim", "education", "deneyim", "experience", "bilgi", "knowledge",
+        "fırsat", "firsat", "opportunity", "motivasyon", "motivation", "ilham", "inspiration",
     )
+    return _any_category_hint(word_tr, target_word, hints) or any(
+        wt == h or tw == h for h in hints
+    )
+
+
+def _is_entertainment_abstract(word_tr: str, target_word: str) -> bool:
+    wt, tw = _norm(word_tr), _norm(target_word)
+    hints = ("eğlence", "eglence", "entertainment", "eğlence sektörü")
     return any(h in wt or h in tw for h in hints)
 
 
@@ -2145,6 +2231,41 @@ def _rule_word_profile(
             ],
             "avoid_reason_tr": "Mobilya oturulur, üzerine konur; love/drink/eat fiilleri kullanılmaz.",
         },
+        "abstract": {
+            "part_of_speech": "noun",
+            "countability": "uncountable",
+            "semantic_category": "abstract",
+            "meaning_tr": word_tr,
+            "usage_notes_tr": (
+                f"«{word_tr}» → {target_word}. Soyut bir isimdir; fiziksel nesne gibi "
+                f"buy/carry/open ile kurulmaz. personal {target_word}, support {target_word}, "
+                f"focus on {target_word}, {target_word} plan gibi eşdizimler doğaldır. "
+                f"❌ I {target_word} every day — fiil değildir."
+            ),
+            "common_verbs": ["support", "promote", "encourage", "focus on", "achieve", "measure", "show", "need"],
+            "common_collocations": [
+                f"personal {target_word}", f"career {target_word}", f"long-term {target_word}",
+                f"support {target_word}", f"focus on {target_word}", f"{target_word} plan",
+            ],
+            "common_patterns": [
+                {"en": f"Personal {target_word} is important to me.", "tr": f"Kişisel {word_tr} benim için önemli."},
+                {"en": f"We are working on a {target_word} plan.", "tr": f"{word_tr.capitalize()} planı üzerinde çalışıyoruz."},
+                {"en": f"You should focus on {target_word}.", "tr": f"{word_tr.capitalize()}e odaklanmalısın."},
+            ],
+            "article_notes_items": [
+                {"en": f"personal {target_word}", "tr": f"kişisel {word_tr}"},
+                {"en": f"{target_word} plan", "tr": f"{word_tr} planı"},
+                {"en": f"some {target_word}", "tr": f"biraz {word_tr} / biraz ilerleme"},
+            ],
+            "article_notes_tr": (
+                f"Genelde sayılamaz (uncountable): {target_word}. "
+                f"a {target_word} nadiren; personal/career {target_word} daha doğal."
+            ),
+            "avoid_patterns": [f"I {target_word} every day", f"I am {target_word}ing", f"bring the {target_word}"],
+            "avoid_reason_tr": (
+                f"«{target_word}» soyut isimdir; «çalışırım» gibi fiil çekimiyle kullanılmaz."
+            ),
+        },
         "object": {
             "part_of_speech": "noun",
             "countability": "countable",
@@ -2416,6 +2537,33 @@ def _rule_word_profile(
             },
             "avoid_patterns": ["black soda", "I love soda", "These socks are warm"],
             "avoid_reason_tr": "Gazoz için black soda doğal değil; diet soda veya cola kullan.",
+        }
+    elif category == "abstract" and _is_entertainment_abstract(wt, tw):
+        base = {
+            "part_of_speech": "noun",
+            "countability": "uncountable",
+            "semantic_category": "abstract",
+            "meaning_tr": word_tr,
+            "usage_notes_tr": (
+                f"«{word_tr}» → entertainment. Eğlence / aktivite anlamında kullanılır. "
+                "find entertainment, plan entertainment, live entertainment doğal kalıplardır."
+            ),
+            "common_verbs": ["enjoy", "find", "plan", "offer", "arrange", "prefer", "need"],
+            "common_collocations": [
+                "live entertainment", "some entertainment", "entertainment options",
+                "plan entertainment", "family entertainment",
+            ],
+            "common_patterns": [
+                {"en": "We need some entertainment for tonight.", "tr": "Bu akşam için biraz eğlence lazım."},
+                {"en": "What kind of entertainment do you prefer?", "tr": "Ne tür eğlence tercih edersin?"},
+            ],
+            "article_notes_items": [
+                {"en": "some entertainment", "tr": "biraz eğlence"},
+                {"en": "live entertainment", "tr": "canlı eğlence"},
+            ],
+            "article_notes_tr": "Genelde sayılamaz: entertainment / some entertainment",
+            "avoid_patterns": ["I entertainment every day", "bring the entertainment"],
+            "avoid_reason_tr": "Entertainment fiil değildir; planlanır, sunulur, bulunur.",
         }
     elif _is_beverage_like(wt, tw) and ("water" in tw or "maden" in wt):
         drink = _canonical_beverage_phrase(target_word)
@@ -2789,53 +2937,114 @@ def _food_pattern_examples(W: str, T: str, wt: str, tw: str) -> list[dict[str, A
 
 
 def _abstract_noun_pattern_examples(W: str, T: str, wt: str, tw: str) -> list[dict[str, Any]]:
-    """Soyut/sayılamayan isimler — entertainment, happiness vb.; mekanik şablon yok."""
+    """Soyut isimler — entertainment vs development/success ayrı kalıplar."""
+    if _is_entertainment_abstract(W, T):
+        return [
+            _pe(W, f"Bu akşam için iyi bir {W} bulmalıyız.", f"We need to find some good {T} for tonight.", "routine",
+                f"need + some good {T}",
+                f"Günlük plan: need some good {T} — doğal soyut isim kullanımı.",
+                scenario_badge="🌅 RUTİN"),
+            _pe(W, f"O mekân ilginç {W} seçenekleri sunuyor.", f"This place offers interesting {T} options.", "present_continuous",
+                f"offers + interesting {T} + options",
+                f"Şu anki durum: offers interesting {T} options — seçenek sunmak.",
+                scenario_badge="🔄 ŞU AN"),
+            _pe(W, f"{W.capitalize()} sektörü zor bir dönemden geçiyor.", f"The {T} industry is going through a difficult time.", "past",
+                f"the {T} industry + is going through",
+                f"Geçmiş/devam eden durum: the {T} industry — sektör ifadesi.",
+                scenario_badge="🕐 GEÇMİŞ"),
+            _pe(W, f"Cumartesi akşamı için {W} planlıyoruz.", f"We are planning {T} for Saturday night.", "future",
+                f"are planning + {T}",
+                f"Gelecek plan: are planning {T} for Saturday night.",
+                scenario_badge="🔮 GELECEK"),
+            _pe(W, f"Ne tür {W} tercih edersin?", f"What kind of {T} do you prefer?", "question",
+                f"What kind of {T}",
+                f"Soru: What kind of {T} do you prefer? — tercih sorma.",
+                scenario_badge="❓ SORU"),
+            _pe(W, f"Bu etkinlik {W} sunmuyor.", f"This event doesn't offer any {T}.", "negative",
+                f"doesn't offer + any {T}",
+                f"Olumsuz: doesn't offer any {T} — sunmamak.",
+                scenario_badge="⛔ OLUMSUZ"),
+            _pe(W, f"Parti için iyi {W} bul.", f"Find good {T} for the party.", "imperative",
+                f"Find + good {T}",
+                f"Emir: Find good {T} for the party."),
+            _pe(W, f"Bu akşam için {W} önerebilir misin?", f"Could you suggest {T} for tonight?", "polite_request",
+                f"suggest {T}",
+                f"Kibar rica: Could you suggest {T} for tonight?"),
+            _pe(W, f"Çocuklar için uygun {W} seçmelisin.", f"You should choose appropriate {T} for kids.", "advice",
+                f"appropriate {T}",
+                f"Tavsiye: appropriate {T} for kids — uygun seçim."),
+            _pe(W, f"Parti için {W} ayarlamam gerekiyor.", f"I need to arrange {T} for the party.", "obligation",
+                f"arrange {T}",
+                f"Gereklilik: need to arrange {T} for the party."),
+            _pe(W, f"Burada canlı {W} olabilir.", f"There might be live {T} here.", "possibility",
+                f"live {T}",
+                f"Olasılık: There might be live {T} here."),
+            _pe(W, f"Yağmur yağarsa iç mekân {W} planlarız.", f"If it rains, we'll plan indoor {T}.", "conditional",
+                f"indoor {T}",
+                f"Koşul: If it rains, we'll plan indoor {T}."),
+            _pe(W, f"A: {W.capitalize()} var mı? B: Evet, canlı müzik var.", f"A: Is there any {T}? B: Yes, there's live music.", "dialogue",
+                f"Is there any {T}",
+                f"Diyalog: Is there any {T}? — günlük soru."),
+        ]
+
+    # development / success / happiness / freedom tarzı soyut isimler
     return [
-        _pe(W, f"Bu akşam için iyi bir {W} bulmalıyız.", f"We need to find some good {T} for tonight.", "routine",
-            f"need + some good {T}",
-            f"Günlük plan: need some good {T} — doğal soyut isim kullanımı.",
+        _pe(W, f"Kişisel {W} benim için çok önemli.", f"Personal {T} is very important to me.", "routine",
+            f"Personal + {T} + is important",
+            _rich_teaching_how(
+                f"Kişisel {W}nin önemini anlatırsınız — «{T}» soyut isimdir, fiil değildir.",
+                f"Personal {T} is very important to me",
+                f"Kişisel {W} benim için çok önemli.",
+                [
+                    (f"personal {T}", f"personal {T} → kişisel {W}\n"
+                     f"❌ I {T} every day — «{T}» fiil değildir; çalışırım kalıbı kullanılmaz."),
+                    ("is important", "is important to me → benim için önemli\n"
+                     "Soyut isimler be / seem / feel ile kurulur."),
+                ],
+                mistakes=[f"I {T} every day", f"I am {T}ing now"],
+            ),
             scenario_badge="🌅 RUTİN"),
-        _pe(W, f"O mekân ilginç {W} seçenekleri sunuyor.", f"This place offers interesting {T} options.", "present_continuous",
-            f"offers + interesting {T} + options",
-            f"Şu anki durum: offers interesting {T} options — seçenek sunmak.",
+        _pe(W, f"Şu an {W} planı üzerinde çalışıyoruz.", f"We are working on a {T} plan right now.", "present_continuous",
+            f"working on + a {T} plan",
+            f"Şu an: working on a {T} plan — «{T} plan» doğal eşdizim.",
             scenario_badge="🔄 ŞU AN"),
-        _pe(W, f"{W.capitalize()} sektörü zor bir dönemden geçiyor.", f"The {T} industry is going through a difficult time.", "past",
-            f"the {T} industry + is going through",
-            f"Geçmiş/devam eden durum: the {T} industry — sektör ifadesi.",
+        _pe(W, f"Geçen yıl büyük bir {W} kaydettik.", f"We made great {T} last year.", "past",
+            f"made + great {T}",
+            f"Geçmiş: made great {T} → büyük {W} kaydetmek. make progress / show development doğal kalıplardır.",
             scenario_badge="🕐 GEÇMİŞ"),
-        _pe(W, f"Cumartesi akşamı için {W} planlıyoruz.", f"We are planning {T} for Saturday night.", "future",
-            f"are planning + {T}",
-            f"Gelecek plan: are planning {T} for Saturday night.",
+        _pe(W, f"Gelecek yıl {W}e daha çok yatırım yapacağız.", f"We will invest more in {T} next year.", "future",
+            f"invest more in + {T}",
+            f"Gelecek: invest in {T} → {W}e yatırım yapmak.",
             scenario_badge="🔮 GELECEK"),
-        _pe(W, f"Ne tür {W} tercih edersin?", f"What kind of {T} do you prefer?", "question",
-            f"What kind of {T}",
-            f"Soru: What kind of {T} do you prefer? — tercih sorma.",
+        _pe(W, f"{W.capitalize()} neden bu kadar önemli?", f"Why is {T} so important?", "question",
+            f"Why is + {T}",
+            f"Soru: Why is {T}…? — soyut isimde be fiili kullanılır.",
             scenario_badge="❓ SORU"),
-        _pe(W, f"Bu etkinlik {W} sunmuyor.", f"This event doesn't offer any {T}.", "negative",
-            f"doesn't offer + any {T}",
-            f"Olumsuz: doesn't offer any {T} — sunmamak.",
+        _pe(W, f"Bu yaklaşım {W} sağlamıyor.", f"This approach doesn't support {T}.", "negative",
+            f"doesn't support + {T}",
+            f"Olumsuz: doesn't support {T} — {W}i desteklememek.",
             scenario_badge="⛔ OLUMSUZ"),
-        _pe(W, f"Parti için iyi {W} bul.", f"Find good {T} for the party.", "imperative",
-            f"Find + good {T}",
-            f"Emir: Find good {T} for the party."),
-        _pe(W, f"Bu akşam için {W} önerebilir misin?", f"Could you suggest {T} for tonight?", "polite_request",
-            f"suggest {T}",
-            f"Kibar rica: Could you suggest {T} for tonight?"),
-        _pe(W, f"Çocuklar için uygun {W} seçmelisin.", f"You should choose appropriate {T} for kids.", "advice",
-            f"appropriate {T}",
-            f"Tavsiye: appropriate {T} for kids — uygun seçim."),
-        _pe(W, f"Parti için {W} ayarlamam gerekiyor.", f"I need to arrange {T} for the party.", "obligation",
-            f"arrange {T}",
-            f"Gereklilik: need to arrange {T} for the party."),
-        _pe(W, f"Burada canlı {W} olabilir.", f"There might be live {T} here.", "possibility",
-            f"live {T}",
-            f"Olasılık: There might be live {T} here."),
-        _pe(W, f"Yağmur yağarsa iç mekân {W} planlarız.", f"If it rains, we'll plan indoor {T}.", "conditional",
-            f"indoor {T}",
-            f"Koşul: If it rains, we'll plan indoor {T}."),
-        _pe(W, f"A: {W.capitalize()} var mı? B: Evet, canlı müzik var.", f"A: Is there any {T}? B: Yes, there's live music.", "dialogue",
-            f"Is there any {T}",
-            f"Diyalog: Is there any {T}? — günlük soru."),
+        _pe(W, f"{W.capitalize()}e odaklan.", f"Focus on {T}.", "imperative",
+            f"Focus on + {T}",
+            f"Emir: Focus on {T} → {W}e odaklan."),
+        _pe(W, f"{W.capitalize()} konusunda bana yardımcı olabilir misin?", f"Could you help me with {T}?", "polite_request",
+            f"help me with + {T}",
+            f"Kibar rica: Could you help me with {T}?"),
+        _pe(W, f"Uzun vadeli {W}e odaklanmalısın.", f"You should focus on long-term {T}.", "advice",
+            f"focus on + long-term {T}",
+            f"Tavsiye: long-term {T} → uzun vadeli {W}."),
+        _pe(W, f"{W.capitalize()} planını güncellemem gerekiyor.", f"I need to update my {T} plan.", "obligation",
+            f"need to update + {T} plan",
+            f"Gereklilik: need to + fiil; {T} plan → {W} planı."),
+        _pe(W, f"Bu proje {W} sağlayabilir.", f"This project might support {T}.", "possibility",
+            f"might support + {T}",
+            f"Olasılık: might support {T}."),
+        _pe(W, f"Hedeflerin netse {W} hızlanır.", f"If your goals are clear, {T} speeds up.", "conditional",
+            f"If + goals are clear, + {T}",
+            f"Koşul: If …, {T} speeds up."),
+        _pe(W, f"A: {W.capitalize()} nasıl ölçülür? B: Küçük hedeflerle.", f"A: How do you measure {T}? B: With small goals.", "dialogue",
+            f"measure + {T}",
+            f"Diyalog: measure {T} → {W}i ölçmek."),
     ]
 
 
@@ -4136,21 +4345,53 @@ def _interjection_pattern_examples(W: str, T: str) -> list[dict[str, Any]]:
 
 
 def _verb_pattern_examples(W: str, T: str) -> list[dict[str, Any]]:
+    """Fiil örnekleri — Türkçe cümlede fiil gövdesi, İngilizcede T kullanılır."""
+    tw = _en_target_word(T)
+    stem = W
+    low = _norm(W)
+    if low.endswith(("mak", "mek")) and len(W) > 3:
+        stem = W[:-3]
+    ing = f"{tw[:-1]}ing" if tw.endswith("e") and len(tw) > 2 else f"{tw}ing"
     return [
-        _pe(W, f"Her gün çalışırım.", f"I {T} every day.", "basic", f"I + {T} + every day", f"1️⃣ Temel kullanım\nGeniş zaman: I + fiil(yalın)"),
-        _pe(W, f"Şu an çalışıyorum.", f"I am {T}ing now.", "present", f"I + am + {T}ing", f"1️⃣ Şimdiki zaman\nam + fiil-ing → şu anda …-yor"),
-        _pe(W, f"Dün geç çalıştım.", f"I {T}ed late yesterday.", "past", f"I + {T}ed", f"1️⃣ Geçmiş zaman\nfiil + -ed → geçmiş zaman"),
-        _pe(W, f"Yarın çalışacağım.", f"I will {T} tomorrow.", "future", f"I + will + {T}", f"1️⃣ Gelecek zaman\nwill + fiil → …-eceğim"),
-        _pe(W, f"Burada çalışıyor musun?", f"Do you {T} here?", "question", f"Do + you + {T}", f"1️⃣ Soru cümlesi\nDo + özne + fiil?"),
-        _pe(W, f"Pazar günleri çalışmam.", f"I don't {T} on Sundays.", "negative", f"I + don't + {T}", f"1️⃣ Olumsuz cümle\ndon't + fiil(yalın)"),
-        _pe(W, f"Çalış!", f"{T.capitalize()}!", "imperative", f"{T.capitalize()}", f"1️⃣ Emir kipi\nFiil ile başlar, özne yok"),
-        _pe(W, f"Biraz çalışabilir misin?", f"Could you {T} a bit?", "polite_request", f"Could + you + {T}", f"1️⃣ Rica cümlesi\nCould you…? → …-ebilir misin?"),
-        _pe(W, f"Daha çok çalışmalısın.", f"You should {T} harder.", "advice", f"You + should + {T}", f"1️⃣ Tavsiye cümlesi\nshould → …-melisin"),
-        _pe(W, f"Bugün çalışmam lazım.", f"I need to {T} today.", "obligation", f"I + need to + {T}", f"1️⃣ Zorunluluk cümlesi\nneed to + fiil"),
-        _pe(W, f"Belki yarın çalışırım.", f"I might {T} tomorrow.", "possibility", f"I + might + {T}", f"1️⃣ İhtimal cümlesi\nmight → belki / -ebilir"),
-        _pe(W, f"Vaktin olursa çalış.", f"If you have time, {T}.", "conditional", f"If + you + have time, + {T}", f"1️⃣ Koşul cümlesi\nIf you have time → vaktin olursa"),
-        _pe(W, f"A: Çalışıyor musun? B: Evet.", f"A: Are you {T}ing? B: Yes, I am.", "dialogue", f"A: Are you {T}ing? B: Yes", f"1️⃣ Günlük diyalog"),
+        _pe(W, f"Her gün {stem}irim.", f"I {tw} every day.", "basic",
+            f"I + {tw} + every day",
+            _rich_teaching_how(
+                f"Geniş zamanda «{stem}» eylemini anlatırsınız.",
+                f"I {tw} every day",
+                f"Her gün {stem}irim.",
+                [
+                    (f"I {tw}", f"I + fiil(yalın) → geniş zaman\nHe/She/It {tw}s → 3. tekil -s alır."),
+                    ("every day", "every day → her gün (rutin)"),
+                ],
+                mistakes=[f"I {tw}s every day", f"I am {tw} every day"],
+            )),
+        _pe(W, f"Şu an {stem}iyorum.", f"I am {ing} now.", "present",
+            f"I + am + {ing}",
+            f"1️⃣ Şimdiki zaman\nam + fiil-ing → şu anda …-yor"),
+        _pe(W, f"Dün {stem}dim.", f"I {tw}ed yesterday.", "past",
+            f"I + {tw}ed", f"1️⃣ Geçmiş zaman\nfiil + -ed (düzensizlerde ayrı geçmiş biçim)"),
+        _pe(W, f"Yarın {stem}eceğim.", f"I will {tw} tomorrow.", "future",
+            f"I + will + {tw}", f"1️⃣ Gelecek zaman\nwill + fiil → …-eceğim"),
+        _pe(W, f"Burada {stem}iyor musun?", f"Do you {tw} here?", "question",
+            f"Do + you + {tw}", f"1️⃣ Soru cümlesi\nDo + özne + fiil(yalın)?"),
+        _pe(W, f"Pazar günleri {stem}mem.", f"I don't {tw} on Sundays.", "negative",
+            f"I + don't + {tw}", f"1️⃣ Olumsuz\ndon't + fiil(yalın)"),
+        _pe(W, f"{stem.capitalize()}!", f"{tw.capitalize()}!", "imperative",
+            f"{tw.capitalize()}", f"1️⃣ Emir kipi\nFiil ile başlar, özne yok"),
+        _pe(W, f"Biraz {stem}ebilir misin?", f"Could you {tw} a bit?", "polite_request",
+            f"Could + you + {tw}", f"1️⃣ Rica\nCould you…? → …-ebilir misin?"),
+        _pe(W, f"Daha çok {stem}melisin.", f"You should {tw} harder.", "advice",
+            f"You + should + {tw}", f"1️⃣ Tavsiye\nshould → …-melisin"),
+        _pe(W, f"Bugün {stem}mem lazım.", f"I need to {tw} today.", "obligation",
+            f"I + need to + {tw}", f"1️⃣ Zorunluluk\nneed to + fiil"),
+        _pe(W, f"Belki yarın {stem}irim.", f"I might {tw} tomorrow.", "possibility",
+            f"I + might + {tw}", f"1️⃣ İhtimal\nmight → belki / -ebilir"),
+        _pe(W, f"Vaktin olursa {stem}.", f"If you have time, {tw}.", "conditional",
+            f"If + you + have time, + {tw}", f"1️⃣ Koşul\nIf you have time → vaktin olursa"),
+        _pe(W, f"A: {stem.capitalize()}iyor musun? B: Evet.", f"A: Are you {ing}? B: Yes, I am.", "dialogue",
+            f"A: Are you {ing}? B: Yes", f"1️⃣ Günlük diyalog"),
     ]
+
 
 
 def _market_pattern_examples(W: str, T: str) -> list[dict[str, Any]]:
@@ -5539,6 +5780,57 @@ def _enrich_usage_entry(en: str, tr: str, target_lang: str) -> dict[str, str]:
     return {"en": en, "tr": tr, "pronunciation_tr": pron, "ipa": ipa}
 
 
+def _word_specific_usage_phrases(word_tr: str, target_word: str) -> list[dict[str, str]]:
+    """Kelimeye özel yaygın ifadeler — TR + EN; sabit/jenerik liste yerine."""
+    curated = get_word_usage_phrases(word_tr, target_word)
+    if curated:
+        return curated
+    T = _en_target_word(target_word)
+    W = safe_str(word_tr).strip() or T
+    wt, tw = _norm(word_tr), _norm(T)
+    if not T:
+        return []
+    if _is_entertainment_abstract(wt, tw):
+        return [
+            {"en": "live entertainment", "tr": "canlı eğlence"},
+            {"en": "entertainment options", "tr": "eğlence seçenekleri"},
+            {"en": "plan entertainment", "tr": "eğlence planlamak"},
+            {"en": "family entertainment", "tr": "aile eğlencesi"},
+            {"en": "find some entertainment", "tr": "biraz eğlence bulmak"},
+            {"en": "What kind of entertainment?", "tr": "Ne tür eğlence?"},
+        ]
+    if _is_abstract_like(wt, tw) or detect_category(word_tr, target_word) == "abstract":
+        return [
+            {"en": f"personal {T}", "tr": f"kişisel {W}"},
+            {"en": f"career {T}", "tr": f"kariyer {W}i"},
+            {"en": f"long-term {T}", "tr": f"uzun vadeli {W}"},
+            {"en": f"focus on {T}", "tr": f"{W}e odaklanmak"},
+            {"en": f"support {T}", "tr": f"{W}i desteklemek"},
+            {"en": f"{T} plan", "tr": f"{W} planı"},
+            {"en": f"measure {T}", "tr": f"{W}i ölçmek"},
+        ]
+    cat = detect_category(word_tr, target_word)
+    if cat in CATEGORY_PHRASES and CATEGORY_PHRASES[cat]:
+        # Kategori ifadelerinde hedef kelime geçmeyenleri ele; kelimeye özel üret
+        out: list[dict[str, str]] = []
+        for item in CATEGORY_PHRASES[cat]:
+            en = safe_str(item.get("en")).strip()
+            tr = safe_str(item.get("tr")).strip()
+            if not en or not tr:
+                continue
+            if tw and tw.split()[0] in en.lower():
+                out.append({"en": en, "tr": tr})
+        if out:
+            return out[:6]
+    # Genel ama kelimeye bağlı eşdizimler
+    return [
+        {"en": f"my {T}", "tr": _possessive_tr(W)},
+        {"en": f"a new {T}", "tr": f"yeni bir {W}"},
+        {"en": f"look for {T}", "tr": f"{W} aramak"},
+        {"en": f"need {T}", "tr": f"{W} lazım / {W}e ihtiyaç"},
+    ]
+
+
 def build_usage_from_profile(
     profile: dict[str, Any],
     target_lang: str,
@@ -5546,18 +5838,26 @@ def build_usage_from_profile(
     word_tr: str = "",
 ) -> dict[str, Any]:
     pos = profile.get("part_of_speech", "noun")
-    pos_tr = {"noun": "isim", "verb": "fiil", "adjective": "sıfat", "adverb": "zarf"}.get(pos, pos)
+    pos_tr = {
+        "noun": "isim", "verb": "fiil", "adjective": "sıfat", "adverb": "zarf",
+        "pronoun": "zamir", "preposition": "edat", "conjunction": "bağlaç",
+        "interjection": "ünlem",
+    }.get(pos, pos)
     count = profile.get("countability", "")
     count_tr = {
         "countable": "sayılabilir",
         "uncountable": "sayılamaz",
         "both": "bağlama göre sayılabilir/sayılamaz",
+        "n/a": "—",
     }.get(count, count or "—")
     coll = profile.get("common_collocations") or []
     patterns = profile.get("common_patterns") or []
-    category = profile.get("semantic_category") or "general"
+    category = profile.get("semantic_category") or detect_category(word_tr, target_word) or "general"
 
     verbs = _natural_verbs_for_category(category, profile.get("common_verbs") or [])
+    # Fiil dersinde «yaygın fiiller» listesi hedef fiilin kendisi olabilir — boş bırak
+    if pos == "verb" or category == "verb":
+        verbs = []
     verbs_enriched = []
     for v in verbs[:8]:
         key = safe_str(v).strip()
@@ -5577,19 +5877,38 @@ def build_usage_from_profile(
 
     phrase_src: list[dict[str, str]] = []
     wt_label = word_tr or profile.get("meaning_tr") or ""
-    word_phrases = get_word_usage_phrases(wt_label, target_word)
-    if word_phrases:
-        phrase_src = word_phrases
-    elif coll:
+    # 1) Lexicon kuratör ifadeleri
+    curated = get_word_usage_phrases(wt_label, target_word)
+    if curated:
+        phrase_src = curated
+    # 2) Profil collocation'ları (PHRASES_TR / lookup ile TR)
+    if not phrase_src and coll:
+        tw = _en_target_word(target_word)
         for c in coll[:8]:
             en = safe_str(c).strip()
             if not en:
                 continue
             tr = phrase_lookup.get(en.lower(), "") or _phrase_meaning_tr(en)
+            if not tr and tw and word_tr and tw.split()[0] in en.lower():
+                tr = en.lower().replace(tw, word_tr)
+                if tr == en.lower():
+                    tr = f"{word_tr}: {en}"
             if tr:
                 phrase_src.append({"en": en, "tr": tr})
+    # 3) Kelimeye özel üretilmiş ifadeler (abstract vb.)
+    if not phrase_src:
+        phrase_src = _word_specific_usage_phrases(wt_label, target_word)
+    # 4) Kategori ifadeleri (hedef kelime geçenler)
     if not phrase_src and category in CATEGORY_PHRASES:
-        phrase_src = [p for p in CATEGORY_PHRASES.get(category, []) if isinstance(p, dict) and p.get("tr")]
+        tw = _en_target_word(target_word)
+        for p in CATEGORY_PHRASES.get(category, []):
+            if not isinstance(p, dict) or not p.get("tr"):
+                continue
+            en = safe_str(p.get("en")).strip()
+            if tw and tw.split()[0] not in en.lower() and category not in ("furniture", "footwear", "eyewear", "tobacco", "clothing", "beverage", "drinkware", "vehicle"):
+                continue
+            phrase_src.append(p)
+
     phrases_enriched: list[dict[str, str]] = []
     for item in phrase_src[:6]:
         en = safe_str(item.get("en") if isinstance(item, dict) else item).strip()
@@ -5598,6 +5917,8 @@ def build_usage_from_profile(
         tr = safe_str(item.get("tr") if isinstance(item, dict) else "").strip()
         if not tr:
             tr = _phrase_meaning_tr(en)
+        if not tr and word_tr:
+            tr = f"{word_tr} ifadesi"
         if not tr:
             continue
         phrases_enriched.append(_enrich_usage_entry(en, tr, target_lang))
@@ -5634,6 +5955,8 @@ def build_usage_from_profile(
                 continue
             if not tr:
                 tr = pattern_tr_map.get(_norm(en), "") or _phrase_meaning_tr(en)
+            if not tr and word_tr:
+                tr = f"«{word_tr}» örneği"
             patterns_enriched.append(_enrich_usage_entry(en, tr, target_lang))
 
     alt_terms: list[dict[str, str]] = []
@@ -5669,7 +5992,9 @@ def build_usage_from_profile(
         "countability_tr": count_tr,
         "meaning_tr": profile.get("meaning_tr", ""),
         "usage_notes_tr": profile.get("usage_notes_tr", ""),
-        "collocations_tr": ", ".join(coll[:6]) if coll else None,
+        "collocations_tr": ", ".join(
+            safe_str(c) for c in coll[:6] if safe_str(c).strip()
+        ) or None,
         "common_verbs": verbs_enriched,
         "common_verbs_tr": verbs_line,
         "common_phrases": phrases_enriched,
@@ -5686,6 +6011,215 @@ def build_usage_from_profile(
             "Türkçe kelime sırasını birebir kopyalama; her kelimenin doğal fiillerini kullan."
         ),
     }
+
+
+
+def build_detailed_sentence_how(tr_sentence: str, target: str, target_lang: str = "en") -> str:
+    """Cümle için adım adım zengin dil bilgisi açıklaması — Can I / have-has / need to vb."""
+    t = safe_str(target).strip()
+    tr = safe_str(tr_sentence).strip()
+    low = f" {t.lower()} "
+    parts: list[str] = [
+        f"1️⃣ Genel anlam\n«{tr}» → «{t}»",
+        f"2️⃣ Ana yapı\n{t}",
+    ]
+    n = 3
+
+    def add(title: str, body: str) -> None:
+        nonlocal n
+        parts.append(f"{n}️⃣ {title}\n{body}")
+        n += 1
+
+    if re.search(r"\bcan i\b", low):
+        add(
+            "Can I + fiil?",
+            "Can I …? → …ebilir miyim? (izin / rica)\n"
+            "Kalıp: Can + özne (I) + fiil(yalın)\n"
+            "❌ Can I to go? — to kullanılmaz\n"
+            "❌ I can? go — soru için Can başa gelir",
+        )
+    elif re.search(r"\bcan you\b", low):
+        add(
+            "Can you + fiil?",
+            "Can you …? → …ebilir misin?\n"
+            "Kalıp: Can + you + fiil(yalın) + nesne\n"
+            "❌ Can you to open…? — to yok\n"
+            "Daha kibar: Could you …?",
+        )
+    elif re.search(r"\bcould (you|i)\b", low):
+        add(
+            "Could + özne + fiil",
+            "Could → Can'den daha kibar rica\n"
+            "Could you help me? → Bana yardım edebilir misin?\n"
+            "Could I have …? → … alabilir miyim?",
+        )
+
+    if re.search(r"\bneed to\b", low):
+        add(
+            "need to + fiil",
+            "need to → …mem/…man gerekiyor\n"
+            "need'ten sonra to + fiil(yalın) gelir\n"
+            "❌ I need go — to eksik\n"
+            "✅ I need to go",
+        )
+
+    if re.search(r"\bhave\b", low) or re.search(r"\bhas\b", low):
+        add(
+            "have / has farkı",
+            "have → I / you / we / they ile\n"
+            "has → he / she / it ile (3. tekil)\n"
+            "❌ He have a car → ✅ He has a car\n"
+            "❌ I has … → ✅ I have …\n"
+            "Soru: Do you have…? / Does he have…?\n"
+            "❌ Have you a…? (eski/UK) — günlük ABD: Do you have…?",
+        )
+
+    if re.search(r"\bwant to\b", low):
+        add(
+            "want to + fiil",
+            "want to → …mak istiyorum\n"
+            "want'tan sonra to + fiil\n"
+            "❌ I want go → ✅ I want to go",
+        )
+
+    if re.search(r"\b(a|an|the)\b", low):
+        add(
+            "a / an / the",
+            "a/an → belirsiz (bir …)\n"
+            "an → a/e/i/o/u sesiyle başlayan kelimeden önce\n"
+            "the → belirli (bildiğimiz …)\n"
+            "❌ a apple → ✅ an apple",
+        )
+
+    if re.search(r"\b(am|is|are)\s+\w+ing\b", low):
+        add(
+            "şimdiki zaman (am/is/are + -ing)",
+            "am/is/are + fiil-ing → şu anda …-yor\n"
+            "I am going / He is going / They are going\n"
+            "❌ I going → am eksik",
+        )
+
+    if re.search(r"\bwill\b", low):
+        add(
+            "will + fiil (gelecek)",
+            "will + fiil(yalın) → …eceğim\n"
+            "❌ I will to go → to yok\n"
+            "✅ I will go",
+        )
+
+    if "because" in low:
+        add(
+            "because (sebep)",
+            "because → çünkü\n"
+            "Ana cümle + because + sebep cümlesi\n"
+            "because'tan sonra tam cümle gelir (özne + fiil)",
+        )
+
+    if re.search(r"\b(don't|doesn't|do not|does not)\b", low):
+        add(
+            "olumsuz (don't / doesn't)",
+            "don't → I/you/we/they\ndoesn't → he/she/it\n"
+            "Sonra fiil yalın gelir: doesn't go (❌ doesn't goes)",
+        )
+
+    add(
+        "Kelime sırası ve yeni kelimeler",
+        "İngilizce: Özne + Fiil + Nesne/Tümleç\n"
+        "Türkçe ekleri İngilizcede ayrı kelimelerle (to, at, for) kurulur.\n"
+        "Yeni öğrendiğin kelimeleri bu kalıba yerleştirerek çeşitlendir:\n"
+        "ör. Can I have a coffee? → Can I have a tea?",
+    )
+    return "\n\n".join(parts)
+
+
+def enrich_sentence_teaching_fields(parsed: dict[str, Any], tr_sentence: str, target_lang: str) -> dict[str, Any]:
+    """İnce/eksik how_it_is_formed_tr alanını her zaman zenginleştir — AI başarısız olsa bile."""
+    out = dict(parsed)
+    target = safe_str(out.get("target_sentence")).strip()
+    how = safe_str(out.get("how_it_is_formed_tr")).strip()
+    rich = build_detailed_sentence_how(tr_sentence, target, target_lang)
+    if len(how) < 120 or how.count("1️⃣") < 2:
+        if how and how not in rich and "1️⃣" in how:
+            out["how_it_is_formed_tr"] = how.rstrip() + "\n\n" + rich
+        else:
+            out["how_it_is_formed_tr"] = rich if len(rich) >= len(how) else how
+    if not out.get("word_breakdown") and target and target_lang == "en":
+        tokens = re.findall(r"[A-Za-z']+", target)
+        gloss = {
+            "i": ("özne", "ben"), "you": ("özne", "sen/siz"), "we": ("özne", "biz"),
+            "he": ("özne", "o"), "she": ("özne", "o"), "it": ("özne", "o/o şey"),
+            "they": ("özne", "onlar"), "can": ("yardımcı fiil", "ebilmek / izin"),
+            "could": ("yardımcı fiil", "ebilir (kibar)"), "need": ("fiil", "gerekmek"),
+            "to": ("edat/infinitive", "-mek için / -e"), "have": ("fiil", "sahip olmak / almak"),
+            "has": ("fiil", "sahip (3. tekil)"), "want": ("fiil", "istemek"),
+            "the": ("artikel", "belirli"), "a": ("artikel", "bir"), "an": ("artikel", "bir"),
+            "because": ("bağlaç", "çünkü"), "and": ("bağlaç", "ve"), "but": ("bağlaç", "ama"),
+            "do": ("yardımcı", "soru/olumsuz"), "does": ("yardımcı", "3. tekil soru"),
+            "don't": ("olumsuz", "…mem/…maz"), "doesn't": ("olumsuz", "…mez"),
+            "will": ("gelecek", "…ecek"), "should": ("tavsiye", "…meli"),
+            "am": ("be", "im"), "is": ("be", "dir"), "are": ("be", "siniz/ler"),
+            "my": ("iyelik", "benim"), "your": ("iyelik", "senin"),
+            "please": ("nezaket", "lütfen"), "me": ("nesne", "bana/beni"),
+            "go": ("fiil", "gitmek"), "get": ("fiil", "almak/varmak"),
+            "open": ("fiil", "açmak"), "help": ("fiil", "yardım etmek"),
+        }
+        wb = []
+        for tok in tokens[:14]:
+            g = gloss.get(tok.lower())
+            if g:
+                wb.append({"token": tok, "role_tr": g[0], "meaning_tr": g[1]})
+            else:
+                wb.append({"token": tok, "role_tr": "kelime", "meaning_tr": ""})
+        out["word_breakdown"] = wb
+    if not out.get("why_this_structure_tr"):
+        out["why_this_structure_tr"] = (
+            "Bu yapı günlük İngilizcede doğal ve öğreticidir; "
+            "kalıbı ezberleyip yeni kelimelerle çeşitlendirebilirsin."
+        )
+    if not out.get("important_patterns"):
+        pats = []
+        low = f" {target.lower()} "
+        if re.search(r"\bcan (i|you)\b", low):
+            pats.append({
+                "pattern_tr": "Can + özne + fiil?",
+                "explanation_tr": "İzin veya rica sorusu. Fiil yalın gelir.",
+                "examples": [
+                    {"target": "Can I help you?", "tr": "Size yardımcı olabilir miyim?"},
+                    {"target": "Can you open the door?", "tr": "Kapıyı açabilir misin?"},
+                ],
+            })
+        if re.search(r"\bhave\b|\bhas\b", low):
+            pats.append({
+                "pattern_tr": "have / has",
+                "explanation_tr": "I/you/we/they → have; he/she/it → has.",
+                "examples": [
+                    {"target": "I have a question.", "tr": "Bir sorum var."},
+                    {"target": "She has a car.", "tr": "Onun bir arabası var."},
+                ],
+            })
+        if re.search(r"\bneed to\b", low):
+            pats.append({
+                "pattern_tr": "need to + fiil",
+                "explanation_tr": "Zorunluluk / gereklilik.",
+                "examples": [{"target": "I need to study.", "tr": "Çalışmam gerekiyor."}],
+            })
+        if pats:
+            out["important_patterns"] = pats
+    if not out.get("new_words") and target:
+        skip = {"i", "you", "we", "he", "she", "it", "they", "a", "an", "the", "to", "and", "or", "but"}
+        words = []
+        for tok in re.findall(r"[A-Za-z']+", target):
+            if tok.lower() in skip:
+                continue
+            words.append({"word": tok, "meaning_tr": ""})
+            if len(words) >= 5:
+                break
+        out["new_words"] = words
+    if not out.get("structure_tr") and target:
+        out["structure_tr"] = " + ".join(re.findall(r"[A-Za-z']+", target)[:10])
+    if not out.get("meaning_summary_tr"):
+        out["meaning_summary_tr"] = f"Bu cümle İngilizcede şöyle kurulur: «{target}»"
+    return out
 
 
 def rule_sentence_teaching(
@@ -5797,20 +6331,17 @@ def rule_sentence_teaching(
         try:
             target = translate_fn(tr_sentence, "tr", target_lang)
             if target:
-                return {
-                    "meaning_summary_tr": f"Bu cümle {lang_name} dilinde şöyle ifade edilir.",
+                parsed = {
+                    "meaning_summary_tr": f"Bu cümle {lang_name} dilinde şöyle ifade edilir: «{target}»",
                     "target_sentence": target,
                     "alternatives": [],
-                    "how_it_is_formed_tr": (
-                        f"Türkçe: «{tr_sentence}»\n"
-                        f"{lang_name}: «{target}»\n\n"
-                        "Kelime sırası ve yapı hedef dilin kurallarına göre kurulmuştur."
-                    ),
-                    "structure_tr": "",
+                    "how_it_is_formed_tr": build_detailed_sentence_how(tr_sentence, target, target_lang),
+                    "structure_tr": " + ".join(re.findall(r"[A-Za-z']+", target)[:10]),
                     "word_breakdown": [],
                     "important_patterns": [],
                     "new_words": [],
                 }
+                return enrich_sentence_teaching_fields(parsed, tr_sentence, target_lang)
         except Exception:
             pass
     return None
