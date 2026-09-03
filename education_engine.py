@@ -3692,37 +3692,67 @@ def _llm_json_word_lesson(system: str, user: str, max_tokens: int = 2400) -> dic
 
 
 def llm_translate(text: str, from_lang: str, to_lang: str) -> str | None:
-    """Doğal çeviri — Groq hızlı model (JSON yerine düz metin)."""
+    """Doğal çeviri — Groq hızlı model (tam metin, dilbilgisi korunur)."""
     src = safe_str(text).strip()
     if not src or not llm_available():
         return None
     from_name = LANG_NAMES.get(from_lang, from_lang)
     to_name = LANG_NAMES.get(to_lang, to_lang)
     system = (
-        f"You are a professional translator. Translate from {from_name} to {to_name}.\n"
-        "Natural, conversational phrasing. Preserve meaning and tone.\n"
-        "Reply with ONLY the translation — no quotes, no explanation."
+        f"You are a professional literary translator from {from_name} to {to_name}.\n"
+        "Rules:\n"
+        "1) Preserve exact who-did-what: subjects, possessives, ages, family relations.\n"
+        "2) Turkish 'X'in N yaşında oğlu/kızı/çocuğu' = 'X had an N-year-old son/daughter/child' "
+        "— NEVER translate as 'X was N years old'.\n"
+        "3) 'Bir varmış bir yokmuş' → fairy-tale opener (e.g. Once upon a time).\n"
+        "4) Keep natural punctuation and full sentences.\n"
+        "5) Reply with ONLY the translation — no quotes, no notes."
     )
-    translate_model = os.environ.get("GROQ_TRANSLATE_MODEL", "llama-3.1-8b-instant")
+    # llama-3.1-8b-instant çoğu hesapta yok; çalışan GROQ_MODEL'i kullan
+    translate_model = (
+        os.environ.get("GROQ_TRANSLATE_MODEL")
+        or os.environ.get("GROQ_MODEL")
+        or ""
+    ).strip() or None
+    max_tok = min(1400, 120 + len(src))
+    user_src = src[:3500]
     for provider in _llm_providers_in_order():
+        raw = None
         if provider == "groq":
+            kwargs = {
+                "max_tokens": max_tok,
+                "timeout_sec": 12,
+            }
+            if translate_model:
+                kwargs["model"] = translate_model
             raw = _groq_chat(
-                [{"role": "system", "content": system}, {"role": "user", "content": src[:800]}],
-                max_tokens=min(480, 60 + len(src) // 2),
-                timeout_sec=10,
-                model=translate_model,
+                [{"role": "system", "content": system}, {"role": "user", "content": user_src}],
+                **kwargs,
             )
+            # Model reddedilirse varsayılan model ile bir kez daha dene
+            if not raw and translate_model:
+                raw = _groq_chat(
+                    [{"role": "system", "content": system}, {"role": "user", "content": user_src}],
+                    max_tokens=max_tok,
+                    timeout_sec=12,
+                )
         elif provider == "gemini":
-            raw = _gemini_chat(system, src[:800], max_tokens=min(480, 60 + len(src) // 2))
+            raw = _gemini_chat(system, user_src, max_tokens=max_tok)
         else:
             raw = _openai_chat(
-                [{"role": "system", "content": system}, {"role": "user", "content": src[:800]}],
-                max_tokens=min(480, 60 + len(src) // 2),
+                [{"role": "system", "content": system}, {"role": "user", "content": user_src}],
+                max_tokens=max_tok,
             )
         if raw:
-            line = raw.strip().strip('"').strip("'").split("\n")[0].strip()
-            if line and len(line) >= 1:
-                return line
+            out = raw.strip().strip('"').strip("'")
+            # Düşünce/etiket sızıntısını temizle
+            out = re.sub(r"^translation\s*:\s*", "", out, flags=re.I).strip()
+            if out.startswith("```"):
+                out = re.sub(r"^```\w*\n?", "", out)
+                out = re.sub(r"\n?```$", "", out).strip()
+            # Eski hata: yalnızca ilk satır alınıyordu — çok cümleli çeviriyi kesme
+            if out and len(out) >= 1 and out.lower() != src.lower():
+                return out
     return None
 
 

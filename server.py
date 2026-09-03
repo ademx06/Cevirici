@@ -27,7 +27,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.09.03-v71.0"
+APP_VERSION = "2026.09.03-v71.1"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -252,8 +252,43 @@ def _cache_set(cache: dict, key: tuple, val, max_size: int = 400) -> None:
     cache[key] = (time.monotonic(), val)
 
 
+def _needs_quality_translate(text: str) -> bool:
+    """Uzun / hikâye metinleri — Google sahiplik/yaş hataları yapabiliyor."""
+    t = text.strip()
+    if len(t) >= 90 or len(t.split()) >= 14:
+        return True
+    # Klasik tuzak: "X'in N yaşında oğlu"
+    if re.search(
+        r"\b\w+(?:nın|nin|nun|nün|ın|in|un|ün)\s+\d+\s+yaşında\b",
+        t,
+        re.I,
+    ):
+        return True
+    if re.search(r"bir\s+varm[ıi][şs]\s+bir\s+yokmu[şs]", t, re.I):
+        return True
+    return False
+
+
+def _translation_has_age_possession_bug(src: str, translated: str) -> bool:
+    """'X'in N yaşında oğlu' → 'X was N years old' hatasını yakala."""
+    if not src or not translated:
+        return False
+    if not re.search(r"\b\w+(?:nın|nin|nun|nün|ın|in|un|ün)\s+\d+\s+yaşında\s+(?:bir\s+)?(?:oğlu|kızı|çocuğu|oglu|kizi|cocugu)\b", src, re.I):
+        return False
+    # Hedefte kişi yaşlı gibi çevrilmişse şüpheli
+    return bool(
+        re.search(
+            r"\b(?:was|is|were|are)\s+\d+\s+years?\s+old\b|"
+            r"\b\d+\s+წლის\s+(?:იყო|არის)\b|"
+            r"\b(?:war|ist)\s+\d+\s+Jahre\b",
+            translated,
+            re.I,
+        )
+    )
+
+
 def smart_translate_text(text: str, from_lang: str, to_lang: str) -> str:
-    """Hızlı + doğru çeviri — Google önce (tüm diller), LLM yedek. Uzun metin parçalı."""
+    """Profesyonel çeviri: kısa metin Google (hız), uzun/hikâye LLM+Google paralel (doğruluk)."""
     if from_lang == to_lang:
         return text
     src = text.strip()
@@ -265,9 +300,49 @@ def smart_translate_text(text: str, from_lang: str, to_lang: str) -> str:
         return cached
 
     result: str | None = None
+    quality = _needs_quality_translate(src) and llm_available()
 
-    # Her dil çifti: Google önce (KA dahil LLM beklemesin)
-    result = google_translate_fast(src, from_lang, to_lang)
+    if quality:
+        # Paralel: LLM (doğru) + Google (hızlı yedek) — ikisini birden bekle, LLM'i tercih et
+        llm_r: str | None = None
+        g_r: str | None = None
+
+        def _llm() -> str | None:
+            try:
+                return llm_translate(src, from_lang, to_lang)
+            except Exception:
+                return None
+
+        def _google() -> str | None:
+            try:
+                return google_translate_fast(src, from_lang, to_lang)
+            except Exception:
+                return None
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            f_llm = pool.submit(_llm)
+            f_g = pool.submit(_google)
+            try:
+                llm_r = f_llm.result(timeout=2.8)
+            except Exception:
+                llm_r = None
+            try:
+                g_r = f_g.result(timeout=2.8)
+            except Exception:
+                g_r = None
+
+        if llm_r and not _translation_has_age_possession_bug(src, llm_r):
+            result = llm_r
+        elif g_r and not _translation_has_age_possession_bug(src, g_r):
+            result = g_r
+        else:
+            result = llm_r or g_r
+    else:
+        result = google_translate_fast(src, from_lang, to_lang)
+        if result and _translation_has_age_possession_bug(src, result) and llm_available():
+            alt = llm_translate(src, from_lang, to_lang)
+            if alt:
+                result = alt
 
     if not result:
         try:
@@ -277,8 +352,7 @@ def smart_translate_text(text: str, from_lang: str, to_lang: str) -> str:
 
     if not result and llm_available():
         try:
-            # LLM yalnız yedek; uzun metinde kısalt
-            result = llm_translate(src[:1200], from_lang, to_lang)
+            result = llm_translate(src, from_lang, to_lang)
         except Exception:
             result = None
 
