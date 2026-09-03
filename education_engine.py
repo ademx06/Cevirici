@@ -45,6 +45,7 @@ def _load_dotenv() -> None:
 _load_dotenv()
 
 LANG_NAMES = {
+    "tr": "Turkish",
     "en": "English", "de": "German", "fr": "French", "es": "Spanish",
     "ru": "Russian", "ka": "Georgian", "it": "Italian", "ar": "Arabic", "zh": "Chinese",
 }
@@ -3537,13 +3538,14 @@ def _groq_chat(
     *,
     timeout_sec: int | None = None,
     model: str | None = None,
+    temperature: float | None = None,
 ) -> str | None:
     if not groq_api_key_valid():
         return None
     body: dict[str, Any] = {
         "model": model or os.environ.get("GROQ_MODEL", "qwen/qwen3.8-27b"),
         "messages": messages,
-        "temperature": 0.55,
+        "temperature": 0.55 if temperature is None else temperature,
         "max_tokens": max_tokens,
     }
     if json_mode:
@@ -3691,6 +3693,33 @@ def _llm_json_word_lesson(system: str, user: str, max_tokens: int = 2400) -> dic
     return None
 
 
+_FAIRY_OPENERS = {
+    "en": "Once upon a time",
+    "de": "Es war einmal",
+    "fr": "Il était une fois",
+    "es": "Érase una vez",
+    "it": "C'era una volta",
+    "ru": "Жили-были",
+    "ka": "ერთხელ იყო",
+    "ar": "كان يا ما كان",
+    "zh": "从前",
+    "tr": "Bir varmış bir yokmuş",
+}
+
+_SCRIPT_HINTS = {
+    "ka": "Write 100% in Georgian Mkhedruli script. No Latin letters except names if needed.",
+    "ar": "Write 100% in Arabic script.",
+    "ru": "Write 100% in Russian Cyrillic.",
+    "zh": "Write 100% in Simplified Chinese characters.",
+    "de": "Write natural native German (not English).",
+    "fr": "Write natural native French (not English).",
+    "es": "Write natural native Spanish (not English).",
+    "it": "Write natural native Italian (not English).",
+    "en": "Write natural native English.",
+    "tr": "Write natural native Turkish.",
+}
+
+
 def llm_translate(text: str, from_lang: str, to_lang: str) -> str | None:
     """Doğal çeviri — Groq hızlı model (tam metin, dilbilgisi korunur)."""
     src = safe_str(text).strip()
@@ -3698,30 +3727,40 @@ def llm_translate(text: str, from_lang: str, to_lang: str) -> str | None:
         return None
     from_name = LANG_NAMES.get(from_lang, from_lang)
     to_name = LANG_NAMES.get(to_lang, to_lang)
-    system = (
-        f"You are a professional literary translator from {from_name} to {to_name}.\n"
-        "Rules:\n"
-        "1) Preserve exact who-did-what: subjects, possessives, ages, family relations.\n"
-        "2) Turkish 'X'in N yaşında oğlu/kızı/çocuğu' = 'X had an N-year-old son/daughter/child' "
-        "— NEVER translate as 'X was N years old'.\n"
-        "3) 'Bir varmış bir yokmuş' → fairy-tale opener (e.g. Once upon a time).\n"
-        "4) Keep natural punctuation and full sentences.\n"
-        "5) Reply with ONLY the translation — no quotes, no notes."
+    opener = _FAIRY_OPENERS.get(to_lang, "")
+    script = _SCRIPT_HINTS.get(to_lang, f"Write only in {to_name}.")
+    opener_line = (
+        f"3) Fairy-tale opener 'Bir varmış bir yokmuş' → {opener}.\n"
+        if opener else
+        "3) Keep the original narrative tone.\n"
     )
-    # llama-3.1-8b-instant çoğu hesapta yok; çalışan GROQ_MODEL'i kullan
+    system = (
+        f"You are a native {to_name} literary translator. Translate from {from_name} into fluent {to_name}.\n"
+        f"First understand the exact meaning (who, whose, age, family), then write ONLY the {to_name} text.\n"
+        f"{script}\n"
+        "Rules:\n"
+        "1) Keep subjects/possessives exact. Do not mix who is who.\n"
+        "2) Turkish 'X'in N yaşında oğlu/kızı/çocuğu' means 'X HAD an N-year-old son/daughter/child'. "
+        "NEVER say X was N years old.\n"
+        "   yaramaz=mischievous/naughty; uysal=gentle; oynamak=to play games.\n"
+        f"{opener_line}"
+        "4) Full sentences, natural punctuation, native word order.\n"
+        "5) Reply with ONLY the translation — no quotes, no English notes, no transliteration."
+    )
     translate_model = (
         os.environ.get("GROQ_TRANSLATE_MODEL")
         or os.environ.get("GROQ_MODEL")
         or ""
     ).strip() or None
-    max_tok = min(1400, 120 + len(src))
+    max_tok = min(1400, 160 + len(src))
     user_src = src[:3500]
     for provider in _llm_providers_in_order():
         raw = None
         if provider == "groq":
             kwargs = {
                 "max_tokens": max_tok,
-                "timeout_sec": 12,
+                "timeout_sec": 8,
+                "temperature": 0.05,
             }
             if translate_model:
                 kwargs["model"] = translate_model
@@ -3729,12 +3768,12 @@ def llm_translate(text: str, from_lang: str, to_lang: str) -> str | None:
                 [{"role": "system", "content": system}, {"role": "user", "content": user_src}],
                 **kwargs,
             )
-            # Model reddedilirse varsayılan model ile bir kez daha dene
             if not raw and translate_model:
                 raw = _groq_chat(
                     [{"role": "system", "content": system}, {"role": "user", "content": user_src}],
                     max_tokens=max_tok,
-                    timeout_sec=12,
+                    timeout_sec=8,
+                    temperature=0.05,
                 )
         elif provider == "gemini":
             raw = _gemini_chat(system, user_src, max_tokens=max_tok)
@@ -3745,12 +3784,10 @@ def llm_translate(text: str, from_lang: str, to_lang: str) -> str | None:
             )
         if raw:
             out = raw.strip().strip('"').strip("'")
-            # Düşünce/etiket sızıntısını temizle
             out = re.sub(r"^translation\s*:\s*", "", out, flags=re.I).strip()
             if out.startswith("```"):
                 out = re.sub(r"^```\w*\n?", "", out)
                 out = re.sub(r"\n?```$", "", out).strip()
-            # Eski hata: yalnızca ilk satır alınıyordu — çok cümleli çeviriyi kesme
             if out and len(out) >= 1 and out.lower() != src.lower():
                 return out
     return None

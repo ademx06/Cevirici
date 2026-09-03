@@ -27,7 +27,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.09.03-v71.1"
+APP_VERSION = "2026.09.03-v71.2"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -129,9 +129,17 @@ def synthesize(text: str, lang: str, slow: bool = False) -> bytes:
     return edge_tts(text, lang, rate="+18%")
 
 
+GOOGLE_TL = {
+    "tr": "tr", "en": "en", "de": "de", "fr": "fr", "es": "es",
+    "ka": "ka", "ar": "ar", "ru": "ru", "it": "it", "zh": "zh-CN",
+}
+
+
 def google_translate(text: str, from_lang: str, to_lang: str) -> str | None:
+    sl = GOOGLE_TL.get(from_lang, from_lang)
+    tl = GOOGLE_TL.get(to_lang, to_lang)
     url = (
-        f"https://translate.google.com/m?sl={quote(from_lang)}&tl={quote(to_lang)}"
+        f"https://translate.google.com/m?sl={quote(sl)}&tl={quote(tl)}"
         f"&q={quote(text)}"
     )
     try:
@@ -252,12 +260,13 @@ def _cache_set(cache: dict, key: tuple, val, max_size: int = 400) -> None:
     cache[key] = (time.monotonic(), val)
 
 
-def _needs_quality_translate(text: str) -> bool:
-    """Uzun / hikâye metinleri — Google sahiplik/yaş hataları yapabiliyor."""
+def _needs_quality_translate(text: str, from_lang: str = "tr", to_lang: str = "en") -> bool:
+    """Uzun / hikâye / TR dışı hedef — Google sahiplik ve yapı hataları yapabiliyor."""
     t = text.strip()
+    if to_lang != "en":
+        return True
     if len(t) >= 90 or len(t.split()) >= 14:
         return True
-    # Klasik tuzak: "X'in N yaşında oğlu"
     if re.search(
         r"\b\w+(?:nın|nin|nun|nün|ın|in|un|ün)\s+\d+\s+yaşında\b",
         t,
@@ -269,26 +278,89 @@ def _needs_quality_translate(text: str) -> bool:
     return False
 
 
+def _script_matches_lang(text: str, lang: str) -> bool:
+    """Hedef dilin yazısı yoksa çeviri geçersiz (zh→İngilizce sızıntısı)."""
+    t = (text or "").strip()
+    if not t:
+        return False
+    if lang == "ka":
+        return bool(re.search(r"[\u10A0-\u10FF]", t))
+    if lang == "ar":
+        return bool(re.search(r"[\u0600-\u06FF]", t))
+    if lang == "ru":
+        return bool(re.search(r"[\u0400-\u04FF]", t))
+    if lang == "zh":
+        return bool(re.search(r"[\u4e00-\u9fff]", t))
+    if lang in ("de", "fr", "es", "it", "en", "tr"):
+        if re.search(r"[\u10A0-\u10FF\u0600-\u06FF\u0400-\u04FF\u4e00-\u9fff]", t):
+            return False
+        return True
+    return True
+
+
 def _translation_has_age_possession_bug(src: str, translated: str) -> bool:
-    """'X'in N yaşında oğlu' → 'X was N years old' hatasını yakala."""
+    """'X'in N yaşında oğlu' → 'X N yaşındaydı' hatasını yakala."""
     if not src or not translated:
         return False
-    if not re.search(r"\b\w+(?:nın|nin|nun|nün|ın|in|un|ün)\s+\d+\s+yaşında\s+(?:bir\s+)?(?:oğlu|kızı|çocuğu|oglu|kizi|cocugu)\b", src, re.I):
+    if not re.search(
+        r"\b\w+(?:nın|nin|nun|nün|ın|in|un|ün)\s+\d+\s+yaşında\s+(?:bir\s+)?(?:oğlu|kızı|çocuğu|oglu|kizi|cocugu)\b",
+        src,
+        re.I,
+    ):
         return False
-    # Hedefte kişi yaşlı gibi çevrilmişse şüpheli
     return bool(
         re.search(
             r"\b(?:was|is|were|are)\s+\d+\s+years?\s+old\b|"
+            r"\b(?:avait|avait|a)\s+\d+\s+ans\b(?!\s+(?:et|,|\.|fils|fille|enfant|garçon))|"
+            r"\b(?:had|has)\s+\d+\s+años\b|"
+            r"\b(?:aveva|ha)\s+\d+\s+anni\b|"
+            r"\b(?:war|ist)\s+\d+\s+Jahre(?:\s+alt)?\b|"
+            r"\bбыло\s+\d+\s+года\b|"
             r"\b\d+\s+წლის\s+(?:იყო|არის)\b|"
-            r"\b(?:war|ist)\s+\d+\s+Jahre\b",
+            r"\bكان\s+(?:هذا\s+)?(?:الرجل|الرجل)\s+يبلغ\b|"
+            r"\b(?:男人|这(?:个)?人).{0,6}(?:岁|歲)\b",
+            translated,
+            re.I,
+        )
+    ) and not bool(
+        re.search(
+            r"\b(?:had|has)\s+(?:a\s+)?\d+[- ]year[- ]old|"
+            r"fils de \d+|hijo de \d+|figlio di \d+|"
+            r"\d+-jährigen Sohn|\d+ Jahre alten Sohn|"
+            r"четырёхлетн|четырехлетн|"
+            r"ოთხი წლის|ოთხწლ|"
+            r"ابن.{0,12}الرابعة|四岁",
             translated,
             re.I,
         )
     )
 
 
+def _pick_translation(src: str, to_lang: str, llm_r: str | None, g_r: str | None) -> str | None:
+    """LLM'i tercih et; yazı/yaş hatası varsa Google'a düş."""
+    def _ok(val: str | None) -> bool:
+        if not val:
+            return False
+        if not _script_matches_lang(val, to_lang):
+            return False
+        if _translation_has_age_possession_bug(src, val):
+            return False
+        return True
+
+    if _ok(llm_r):
+        return llm_r
+    if _ok(g_r):
+        return g_r
+    # Yazısı doğru olanı al
+    if llm_r and _script_matches_lang(llm_r, to_lang):
+        return llm_r
+    if g_r and _script_matches_lang(g_r, to_lang):
+        return g_r
+    return llm_r or g_r
+
+
 def smart_translate_text(text: str, from_lang: str, to_lang: str) -> str:
-    """Profesyonel çeviri: kısa metin Google (hız), uzun/hikâye LLM+Google paralel (doğruluk)."""
+    """Profesyonel çeviri: TR→EN kısa = Google (hız); diğer diller / hikâye = LLM+Google paralel."""
     if from_lang == to_lang:
         return text
     src = text.strip()
@@ -300,10 +372,9 @@ def smart_translate_text(text: str, from_lang: str, to_lang: str) -> str:
         return cached
 
     result: str | None = None
-    quality = _needs_quality_translate(src) and llm_available()
+    quality = _needs_quality_translate(src, from_lang, to_lang) and llm_available()
 
     if quality:
-        # Paralel: LLM (doğru) + Google (hızlı yedek) — ikisini birden bekle, LLM'i tercih et
         llm_r: str | None = None
         g_r: str | None = None
 
@@ -319,30 +390,53 @@ def smart_translate_text(text: str, from_lang: str, to_lang: str) -> str:
             except Exception:
                 return None
 
-        with ThreadPoolExecutor(max_workers=2) as pool:
+        pool = ThreadPoolExecutor(max_workers=2)
+        try:
             f_llm = pool.submit(_llm)
             f_g = pool.submit(_google)
+            llm_r = g_r = None
             try:
-                llm_r = f_llm.result(timeout=2.8)
+                for fut in as_completed((f_llm, f_g), timeout=2.8):
+                    try:
+                        val = fut.result()
+                    except Exception:
+                        val = None
+                    if fut is f_llm:
+                        llm_r = val
+                        picked = _pick_translation(src, to_lang, llm_r, None)
+                        if picked:
+                            result = picked
+                            break
+                    else:
+                        g_r = val
             except Exception:
-                llm_r = None
-            try:
-                g_r = f_g.result(timeout=2.8)
-            except Exception:
-                g_r = None
-
-        if llm_r and not _translation_has_age_possession_bug(src, llm_r):
-            result = llm_r
-        elif g_r and not _translation_has_age_possession_bug(src, g_r):
-            result = g_r
-        else:
-            result = llm_r or g_r
+                pass
+            if result is None:
+                if llm_r is None:
+                    try:
+                        llm_r = f_llm.result(timeout=0.05)
+                    except Exception:
+                        llm_r = None
+                if g_r is None:
+                    try:
+                        g_r = f_g.result(timeout=0.05)
+                    except Exception:
+                        g_r = None
+                result = _pick_translation(src, to_lang, llm_r, g_r)
+        finally:
+            pool.shutdown(wait=False, cancel_futures=False)
     else:
         result = google_translate_fast(src, from_lang, to_lang)
-        if result and _translation_has_age_possession_bug(src, result) and llm_available():
+        if result and (
+            _translation_has_age_possession_bug(src, result)
+            or not _script_matches_lang(result, to_lang)
+        ) and llm_available():
             alt = llm_translate(src, from_lang, to_lang)
-            if alt:
+            if alt and _script_matches_lang(alt, to_lang):
                 result = alt
+
+    if result and not _script_matches_lang(result, to_lang):
+        result = None
 
     if not result:
         try:
@@ -350,11 +444,13 @@ def smart_translate_text(text: str, from_lang: str, to_lang: str) -> str:
         except Exception:
             result = None
 
-    if not result and llm_available():
+    if (not result or not _script_matches_lang(result, to_lang)) and llm_available():
         try:
-            result = llm_translate(src, from_lang, to_lang)
+            alt = llm_translate(src, from_lang, to_lang)
+            if alt and _script_matches_lang(alt, to_lang):
+                result = alt
         except Exception:
-            result = None
+            pass
 
     if not result:
         raise ValueError("translation failed")
@@ -384,6 +480,18 @@ def translate_pair_safe(
             from_lang, to_lang = "en", "tr"
         elif is_likely_turkish(src) and not is_likely_english(src, "tr", "en"):
             from_lang, to_lang = "tr", "en"
+    else:
+        my_like = looks_like_lang(src, my) or (my == "tr" and is_likely_turkish(src))
+        other_like = looks_like_lang(src, other) or (
+            other == "en" and is_likely_english(src, "tr", "en")
+        )
+        if my_like and not other_like:
+            from_lang, to_lang = my, other
+        elif other_like and not my_like:
+            from_lang, to_lang = other, my
+        elif "tr" in (my, other) and is_likely_turkish(src) and not other_like:
+            from_lang = "tr"
+            to_lang = other if my == "tr" else my
 
     translated = translate_text(src, from_lang, to_lang)
 
@@ -393,17 +501,21 @@ def translate_pair_safe(
             from_lang, to_lang = "en", "tr"
             translated = translate_text(src, "en", "tr")
         elif from_lang == "tr":
-            # Belki STT İngilizce yazdı ama tr sandık
             alt = translate_text(src, "en", "tr")
             if is_likely_turkish(alt) or not is_likely_english(alt, "tr", "en"):
                 from_lang, to_lang = "en", "tr"
                 translated = alt
 
-    # Hedef İngilizce ama sonuç Türkçe kaldıysa
     if to_lang == "en" and is_likely_turkish(translated) and not is_likely_english(translated, "tr", "en"):
         if is_likely_turkish(src):
             from_lang, to_lang = "tr", "en"
             translated = translate_text(src, "tr", "en")
+
+    # Hedef yazısı yoksa (KA/AR/RU/ZH İngilizce sızması) bir kez daha dene
+    if not _script_matches_lang(translated, to_lang):
+        alt = translate_text(src, from_lang, to_lang)
+        if alt and _script_matches_lang(alt, to_lang):
+            translated = alt
 
     return translated, from_lang, to_lang
 
