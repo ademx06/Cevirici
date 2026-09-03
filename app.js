@@ -16,8 +16,8 @@ audio.setAttribute('playsinline', 'true');
 audio.setAttribute('webkit-playsinline', 'true');
 document.body.appendChild(audio);
 
-const TAIL_MS = 350;
-const MIN_HOLD_MS = 150;
+const TAIL_MS = 180;
+const MIN_HOLD_MS = 180;
 
 const S = {
   my: 'tr', other: 'en', msgs: [],

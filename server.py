@@ -360,7 +360,7 @@ def prepare_wav(data: bytes, *, fast: bool = False) -> str:
         inp = tmp.name
     wav = inp + ".wav"
     if fast:
-        filters = ("volume=2.2,apad=pad_dur=0.5", "volume=2.2", None)
+        filters = ("volume=2.2", None)
     else:
         filters = (
             "highpass=f=80,lowpass=f=7500,apad=pad_dur=1.2,dynaudnorm,volume=3.5",
@@ -676,7 +676,7 @@ def stt_for_lang(
 
 
 def stt_for_translate(wav: str, lang: str) -> tuple[str, str, float] | None:
-    """Çeviri modu — Groq Whisper önce (doğru telaffuz), Google yedek, local whisper son şans."""
+    """Çeviri modu — Groq Whisper önce, Google yedek. Hızlı: local whisper yok."""
     groq = groq_stt(wav, lang, translate_mode=True)
     if groq and groq[0].strip() and not is_hallucination(groq[0]):
         return groq
@@ -687,11 +687,6 @@ def stt_for_translate(wav: str, lang: str) -> tuple[str, str, float] | None:
         if is_hallucination(text):
             return None
         return text, lang, score_text(text, lang) + 28
-
-    if not DISABLE_WHISPER:
-        w = whisper_stt(wav, lang)
-        if w and w[0].strip() and not is_hallucination(w[0]):
-            return w
     return None
 
 
@@ -1032,12 +1027,14 @@ def transcribe_dual(data: bytes, my: str, other: str, last_from: str | None = No
 
         if predicted:
             add(stt_for_translate(wav, predicted), f"pred_{predicted}")
-            # Sıra tahmini doğruysa ek STT çağrılarını atla (büyük hız kazancı)
             if candidates:
                 text, stt_lang, _score, _src = candidates[0]
                 guessed = detect_speech_lang(text, my, other, stt_lang, last_from)
+                # Kısa tek kelime ASCII → her iki dili de dene (head→at sorunu)
+                is_short_ascii = len(text.split()) <= 2 and is_ascii_latin(text)
                 strong = (
                     guessed == predicted
+                    and not is_short_ascii
                     and (
                         (predicted == "en" and is_likely_english(text, my, other) and not is_likely_turkish(text))
                         or (predicted == "tr" and is_likely_turkish(text) and not is_likely_english(text, my, other))
@@ -1045,6 +1042,10 @@ def transcribe_dual(data: bytes, my: str, other: str, last_from: str | None = No
                 )
                 if strong:
                     return text, guessed
+                # Kısa ASCII kelime: diğer dili de dene (hızlı — tek ek çağrı)
+                if is_short_ascii and predicted != other:
+                    alt_r = stt_for_translate(wav, other)
+                    add(alt_r, f"alt_{other}")
 
         tasks = {
             "auto": lambda: groq_stt_auto(wav),
@@ -1066,14 +1067,6 @@ def transcribe_dual(data: bytes, my: str, other: str, last_from: str | None = No
             for lang in (my, other):
                 r = stt_for_lang(wav, lang, allow_whisper=not DISABLE_WHISPER)
                 add(r, f"fallback_{lang}")
-
-        # Son şans: auto dil ile whisper dene (kısa kelimeler için)
-        if not candidates:
-            try:
-                r = whisper_stt(wav, "auto")
-                add(r, "fallback_whisper_auto")
-            except Exception:
-                pass
 
         if not candidates:
             raise ValueError("speech not recognized")
@@ -1106,7 +1099,22 @@ def transcribe_dual(data: bytes, my: str, other: str, last_from: str | None = No
         best = max(candidates, key=rank)
         text = best[0]
         from_lang = detect_speech_lang(text, my, other, best[1], last_from)
-        # Metin içeriğine göre dili kilitle — İngilizce konuşma Türkçe balona düşmesin
+
+        # Kısa tek kelime: birden fazla aday varsa EN versiyonunu tercih et
+        # (head→at sorunu: Groq TR modda İngilizce kelimeyi Türkçe'ye çevirip döndürüyor)
+        if {my, other} == {"tr", "en"} and len(text.split()) <= 2:
+            en_cands = [c for c in candidates if c[1] == "en" or is_likely_english(c[0], my, other)]
+            tr_cands = [c for c in candidates if c[1] == "tr" or is_likely_turkish(c[0])]
+            if en_cands and tr_cands:
+                en_text = en_cands[0][0]
+                tr_text = tr_cands[0][0]
+                # İki farklı kelime → muhtemelen biri çeviri diğeri orijinal
+                if en_text.lower().strip() != tr_text.lower().strip():
+                    # ASCII tek kelime EN'e daha çok güven
+                    if is_ascii_latin(en_text) and not is_likely_turkish(en_text):
+                        text = en_text
+                        from_lang = "en"
+
         if {my, other} == {"tr", "en"}:
             if is_likely_english(text, my, other) and not is_likely_turkish(text):
                 from_lang = "en"
