@@ -62,7 +62,8 @@ def test_1_i_go_book():
     r = process_turn("I go book.", "en", "en", [], default_profile(), translate_fn=fake_translate)
     body = _body(r)
     assert "buy a book" in body or "buy a book" in (r.get("teacher_en") or "").lower()
-    assert r.get("type") in ("intent_guess", "rule_teach", "correction")
+    assert r.get("type") in ("intent_teach", "intent_guess", "rule_teach", "correction")
+    assert "evet mi" not in body
     print("TEST 1 I go book OK")
 
 
@@ -71,8 +72,6 @@ def test_2_bare_yardim():
     body = _body(r)
     assert "türkçe" in body
     assert r.get("type") == "help"
-    assert (r.get("profile") or {}).get("pendingPracticePhrase") in (None, "", "Sure! Write what you want to say in Turkish — I'll teach you how to say it in English.") or True
-    # Hedef cümle boş olmalı — coach modu
     pending = (r.get("profile") or {}).get("pendingPracticePhrase")
     assert not pending or "türkçe" in body
     print("TEST 2 yardım OK")
@@ -85,7 +84,7 @@ def test_3_yardim_turkish():
     )
     body = _body(r)
     assert "tired" in body or "want to go home" in body
-    assert "söyle" in body or "dene" in body or "tekrar" in body
+    assert "söyle" in body or "dene" in body or "tekrar" in body or "devam" in body
     pending = (r.get("profile") or {}).get("pendingPracticePhrase") or ""
     assert "tired" in pending.lower() or "want" in pending.lower() or "home" in pending.lower()
     print("TEST 3 yardım+tr OK")
@@ -96,15 +95,17 @@ def test_4_i_go_yesterday_and_memory():
     r = process_turn("I go yesterday.", "en", "en", [], p, translate_fn=fake_translate)
     assert "went" in (r.get("teacher_en") or "").lower()
     p = r["profile"]
+    # Yeni davranış: doğrudan öğret (evet beklemeden) + hata kaydı
     if p.get("pendingIntentConfirm"):
         r = process_turn("evet", "tr", "en", [], p, translate_fn=fake_translate)
         p = r["profile"]
-        body = _body(r)
-        assert "went" in body
-        assert "söyle" in body or "dene" in body
-        errs = p.get("grammarErrors") or []
-        assert any(e.get("category") == "past_tense" for e in errs if isinstance(e, dict))
-        assert p.get("repeatedMistakes") is not None
+    body = _body(r)
+    assert "went" in body
+    errs = p.get("grammarErrors") or []
+    assert any(
+        (isinstance(e, dict) and e.get("category") == "past_tense")
+        for e in errs
+    ) or p.get("repeatedMistakes")
     print("TEST 4 I go yesterday + memory OK")
 
 
