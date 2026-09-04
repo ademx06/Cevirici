@@ -1,7 +1,7 @@
 """Cümle Kur + Kendini Test Et — kelime/cümle üretimi, yapılandırılmış analiz, telaffuz."""
 from __future__ import annotations
 
-APP_VERSION = "2026.09.03-v71.7"
+APP_VERSION = "2026.09.04-v71.8"
 
 import difflib
 import json
@@ -575,6 +575,33 @@ def analyze_sentence_for_builder(
 
     structured = _analyze_sentence_structured(tr_sentence, target_lang, translate_fn)
     if structured:
+        # Kelime kelime Türkçe anlam boşluklarını doldur
+        wb = structured.get("word_breakdown") or []
+        if isinstance(wb, list) and target_lang == "en":
+            from pronunciation_service import batch_word_meanings_tr, word_meaning_tr, word_role_tr
+            need = []
+            for p in wb:
+                if not isinstance(p, dict):
+                    continue
+                tok = safe_str(p.get("token")).strip()
+                if not tok:
+                    continue
+                if not safe_str(p.get("meaning_tr")).strip():
+                    mean = word_meaning_tr(tok)
+                    if mean:
+                        p["meaning_tr"] = mean
+                    else:
+                        need.append(tok.lower())
+                if not safe_str(p.get("role_tr")).strip():
+                    p["role_tr"] = word_role_tr(tok) or p.get("role_tr") or ""
+            if need:
+                filled = batch_word_meanings_tr(need)
+                for p in wb:
+                    if not isinstance(p, dict):
+                        continue
+                    if not safe_str(p.get("meaning_tr")).strip():
+                        p["meaning_tr"] = filled.get(safe_str(p.get("token")).lower(), "")
+            structured["word_breakdown"] = wb
         chunks = structured.get("pronunciation_chunks") or []
         if not chunks and structured.get("target_sentence"):
             target = structured["target_sentence"]

@@ -174,9 +174,9 @@
         const meta = byToken[key] || {};
         return {
           token: w.word,
-          pronunciation_tr: w.pronunciation_tr,
-          ipa: w.ipa,
-          meaning_tr: meta.meaning_tr || '',
+          pronunciation_tr: w.pronunciation_tr || meta.pronunciation_tr || '',
+          ipa: w.ipa || meta.ipa || '',
+          meaning_tr: meta.meaning_tr || w.meaning_tr || '',
           role_tr: meta.role_tr || '',
         };
       });
@@ -779,6 +779,7 @@
         return;
       }
       setUi('Hazır — dinle ve kaydet', false);
+      if ($('wordInput')) $('wordInput').value = '';
       renderWordLesson(data, word);
     } catch (err) {
       $('wordResult').innerHTML = `<div class="mod-error-card"><p>${esc(ApiClient.connectionErrorMessage(err))}</p><button type="button" class="mod-retry-btn" id="retryWordBtn">🔄 Tekrar dene</button></div>`;
@@ -817,6 +818,7 @@
         return;
       }
       setUi('Hazır — dinle ve kaydet', false);
+      if ($('sentenceInput')) $('sentenceInput').value = '';
       renderSentenceResult(data);
     } catch (err) {
       $('sentenceResult').innerHTML = '';

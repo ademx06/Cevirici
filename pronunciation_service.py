@@ -1459,6 +1459,44 @@ EN_WORD_MEANINGS: dict[str, str] = {
     "her": "onun (kadın)",
     "our": "bizim",
     "their": "onların",
+    "which": "hangi",
+    "bus": "otobüs",
+    "while": "iken / sırasında",
+    "during": "sırasında",
+    "through": "içinden / boyunca",
+    "against": "karşı",
+    "without": "olmadan",
+    "between": "arasında",
+    "among": "arasında",
+    "until": "-e kadar",
+    "since": "-den beri",
+    "almost": "neredeyse",
+    "already": "zaten",
+    "still": "hâlâ",
+    "even": "bile",
+    "really": "gerçekten",
+    "quite": "oldukça",
+    "enough": "yeterince",
+    "each": "her biri",
+    "both": "ikisi de",
+    "few": "birkaç",
+    "many": "birçok",
+    "most": "çoğu",
+    "own": "kendi",
+    "same": "aynı",
+    "such": "böyle",
+    "these": "bunlar",
+    "those": "şunlar",
+    "something": "bir şey",
+    "anything": "herhangi bir şey",
+    "nothing": "hiçbir şey",
+    "everything": "her şey",
+    "someone": "birisi",
+    "anyone": "herhangi biri",
+    "everyone": "herkes",
+    "somewhere": "bir yerde",
+    "anywhere": "herhangi bir yerde",
+    "everywhere": "her yerde",
     "the": "belirli artikel (the)",
     "a": "bir (belirsiz artikel)",
     "an": "bir (sesli harf öncesi)",
@@ -2417,6 +2455,66 @@ def word_meaning_tr(word: str) -> str:
             if suf == "ing" and (low[:-3] + "e") in EN_WORD_MEANINGS:
                 return EN_WORD_MEANINGS[low[:-3] + "e"]
     return ""
+
+
+_MEANING_BATCH_CACHE: dict[str, str] = {}
+
+
+def batch_word_meanings_tr(words: list[str]) -> dict[str, str]:
+    """Eksik Türkçe anlamları tek Google çağrısıyla doldur — LLM yok, hızlı."""
+    from html import unescape
+    from urllib.error import URLError
+    from urllib.parse import quote
+    from urllib.request import Request, urlopen
+
+    out: dict[str, str] = {}
+    need: list[str] = []
+    seen: set[str] = set()
+    for raw in words:
+        low = safe_str(raw).strip().lower()
+        if not low or low in seen:
+            continue
+        seen.add(low)
+        known = word_meaning_tr(low)
+        if known:
+            out[low] = known
+            continue
+        if low in _MEANING_BATCH_CACHE:
+            out[low] = _MEANING_BATCH_CACHE[low]
+            continue
+        need.append(low)
+    if not need:
+        return out
+    # En fazla 24 kelime — satır satır çevir
+    chunk = need[:24]
+    payload = "\n".join(chunk)
+    try:
+        url = (
+            "https://translate.google.com/m?sl=en&tl=tr"
+            f"&q={quote(payload)}"
+        )
+        req = Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urlopen(req, timeout=3.5) as resp:
+            page = resp.read().decode("utf-8", errors="ignore")
+        match = re.search(r'class="result-container">([^<]+)', page)
+        if not match:
+            match = re.search(r'<div class="t0">([^<]+)', page)
+        if match:
+            lines = unescape(match.group(1)).replace("\r", "").split("\n")
+            lines = [ln.strip() for ln in lines if ln.strip()]
+            if len(lines) == len(chunk):
+                for w, tr in zip(chunk, lines):
+                    if tr and tr.lower() != w:
+                        _MEANING_BATCH_CACHE[w] = tr
+                        out[w] = tr
+            elif len(lines) == 1 and len(chunk) == 1:
+                tr = lines[0]
+                if tr and tr.lower() != chunk[0]:
+                    _MEANING_BATCH_CACHE[chunk[0]] = tr
+                    out[chunk[0]] = tr
+    except (URLError, TimeoutError, OSError, ValueError):
+        pass
+    return out
 
 
 def word_role_tr(word: str) -> str:

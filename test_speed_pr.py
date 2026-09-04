@@ -48,8 +48,10 @@ def test_long_and_story_still_quality():
         "Küçük kız, nefesini tutarak mavi kuşa doğru bir adım attı. "
         "Kuş kaçmak yerine başını eğdi."
     )
-    assert _needs_quality_translate(story, "tr", "en")
+    # EN: uzun konuşma yazı gibi hızlı (Google); yalnızca masal/yaş kalıbında LLM
+    assert not _needs_quality_translate(story, "tr", "en")
     assert _needs_quality_translate(story, "tr", "ka")
+    assert _needs_quality_translate("Bir varmış bir yokmuş uzak bir ülkede", "tr", "en")
     assert _needs_quality_translate("Bir varmış bir yokmuş uzak bir ülkede", "tr", "ka")
     assert _needs_quality_translate("Ali'nin 4 yaşında oğlu var", "tr", "en")
 

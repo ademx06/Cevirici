@@ -21,8 +21,8 @@ ENGLISH_VARIANT = "en-US"
 
 # AI birincil kelime dersi — ChatGPT gibi: önce AI, başarısızsa retry; şablon yedek YOK
 DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
-WORD_LESSON_MAX_TOKENS = 3200
-WORD_LESSON_FAST_MAX_TOKENS = 2400
+WORD_LESSON_MAX_TOKENS = 2800
+WORD_LESSON_FAST_MAX_TOKENS = 2000
 AI_LESSON_MAX_ATTEMPTS = 1
 
 WORD_LESSON_FAST_PROMPT = """Sen profesyonel ESL öğretmenisin — Cümle Kur kartı hazırla.
@@ -4703,23 +4703,47 @@ def _fill_word_breakdown(ex: dict[str, Any], lang: str = "en") -> dict[str, Any]
     target = safe_str(ex.get("target")).strip()
     if not target or lang != "en":
         return ex
+    # AI'nın verdiği anlamları koru — sözlük boşsa üzerine yazma
+    existing: dict[str, dict[str, str]] = {}
+    for p in ex.get("word_breakdown") or []:
+        if not isinstance(p, dict):
+            continue
+        tok = safe_str(p.get("token")).strip()
+        if not tok:
+            continue
+        existing[tok.lower()] = {
+            "meaning_tr": safe_str(p.get("meaning_tr")).strip(),
+            "role_tr": safe_str(p.get("role_tr")).strip(),
+        }
     bundle = build_pronunciation_bundle(target, lang)
     wb: list[dict[str, str]] = []
+    missing: list[str] = []
     for w in bundle.get("word_pronunciations") or []:
         tok = safe_str(w.get("word")).strip()
         if not tok:
             continue
         low = tok.lower()
         info = get_word(lang, tok)
+        prev = existing.get(low) or {}
         pron = safe_str(w.get("pronunciation_tr") or info.get("pronunciation_tr"))
         ipa = safe_str(w.get("ipa") or info.get("ipa", ""))
+        meaning = word_meaning_tr(low) or prev.get("meaning_tr", "")
+        role = prev.get("role_tr") or word_role_tr(low)
+        if not meaning:
+            missing.append(low)
         wb.append({
             "token": tok,
             "pronunciation_tr": pron,
             "ipa": ipa,
-            "meaning_tr": word_meaning_tr(low),
-            "role_tr": word_role_tr(low),
+            "meaning_tr": meaning,
+            "role_tr": role,
         })
+    if missing:
+        from pronunciation_service import batch_word_meanings_tr
+        filled = batch_word_meanings_tr(missing)
+        for row in wb:
+            if not row.get("meaning_tr"):
+                row["meaning_tr"] = filled.get(row["token"].lower(), "")
     ex["word_breakdown"] = wb
     # Telaffuz her örnekte dolu olsun — Dinle ile uyumlu
     if bundle.get("pronunciation_tr"):
@@ -6230,11 +6254,25 @@ def enrich_sentence_teaching_fields(parsed: dict[str, Any], tr_sentence: str, ta
         }
         wb = []
         for tok in tokens[:14]:
-            g = gloss.get(tok.lower())
+            low = tok.lower()
+            g = gloss.get(low)
             if g:
                 wb.append({"token": tok, "role_tr": g[0], "meaning_tr": g[1]})
             else:
-                wb.append({"token": tok, "role_tr": "kelime", "meaning_tr": ""})
+                mean = word_meaning_tr(low)
+                wb.append({
+                    "token": tok,
+                    "role_tr": word_role_tr(low) or "kelime",
+                    "meaning_tr": mean,
+                })
+        # Sözlükte olmayanlar — tek toplu Google çevirisi (hızlı)
+        need = [safe_str(r.get("token")).lower() for r in wb if not safe_str(r.get("meaning_tr")).strip()]
+        if need:
+            from pronunciation_service import batch_word_meanings_tr
+            filled = batch_word_meanings_tr(need)
+            for row in wb:
+                if not safe_str(row.get("meaning_tr")).strip():
+                    row["meaning_tr"] = filled.get(safe_str(row.get("token")).lower(), "")
         out["word_breakdown"] = wb
     if not out.get("why_this_structure_tr"):
         out["why_this_structure_tr"] = (

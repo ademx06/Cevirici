@@ -229,6 +229,50 @@ async function fetchProcess(blob, my, other, last, signal) {
   }
 }
 
+function looksLikeLangClient(text, lang) {
+  const t = (text || '').trim();
+  if (!t) return false;
+  if (lang === 'tr') {
+    if (/[ğüşıöçĞÜŞİÖÇ]/.test(t)) return true;
+    return /\b(neler|yapıyor|nasıl|merhaba|nasılsın|teşekkür|evet|hayır|tamam|güzel|ben|sen|ne|neden|günaydın|lütfen|bugün|yarın)\b/i.test(t);
+  }
+  if (lang === 'en') {
+    return /\b(what|how|are|you|doing|hello|thanks|thank|yes|no|good|please|fine|where|when|who|why|the|this|that|is|was|were|i'm|i|a|an|book|today|want|need|have|did|don't|very|hello|hi|bye|sorry|okay|ok)\b/i.test(t)
+      || (/^[a-zA-Z0-9',.\-!? ]+$/.test(t) && t.split(/\s+/).length <= 3 && !/[ğüşıöçĞÜŞİÖÇ]/.test(t));
+  }
+  if (lang === 'ka') return /[\u10A0-\u10FF]/.test(t);
+  if (lang === 'ru') return /[\u0400-\u04FF]/.test(t);
+  if (lang === 'ar') return /[\u0600-\u06FF]/.test(t);
+  if (lang === 'zh') return /[\u4e00-\u9fff]/.test(t);
+  if (lang === 'de') return /[äöüÄÖÜß]/.test(t) || /\b(hallo|guten|danke|bitte|ja|nein|wie|geht|ich|sie|und|nicht|heute|morgen|bitte|schön)\b/i.test(t);
+  if (lang === 'fr') return /[àâçéèêëîïôùûüœæ]/i.test(t) || /\b(bonjour|merci|oui|non|comment|je|vous|avec|pour|aujourd)\b/i.test(t);
+  if (lang === 'es') return /[áéíóúñ¿¡]/i.test(t) || /\b(hola|gracias|buenos|sí|si|no|cómo|como|usted|por|favor)\b/i.test(t);
+  if (lang === 'it') return /[àèéìòù]/i.test(t) || /\b(ciao|grazie|buongiorno|si|no|come|per|favore|oggi)\b/i.test(t);
+  return false;
+}
+
+function detectTextFromLang(text, my, other) {
+  const t = (text || '').trim();
+  if (!t) return my;
+  const myLike = looksLikeLangClient(t, my);
+  const otherLike = looksLikeLangClient(t, other);
+  if (otherLike && !myLike) return other;
+  if (myLike && !otherLike) return my;
+  if (otherLike && myLike) {
+    // Yazı farklıysa karşı dil öncelikli (kullanıcı karşı tarafa yazıyor)
+    if (my === 'tr' && otherLike) return other;
+    return my;
+  }
+  // Script / Latin: Türkçe belirteç yoksa ve other Latin dilse other
+  if (my === 'tr' && !/[ğüşıöçĞÜŞİÖÇ]/.test(t) && !looksLikeLangClient(t, 'tr')) {
+    if (['ka', 'ru', 'ar', 'zh'].includes(other) && looksLikeLangClient(t, other)) return other;
+    if (['en', 'de', 'fr', 'es', 'it'].includes(other) && /^[a-zA-ZÀ-ÿ0-9',.\-!? ¿¡äöüßœæç\s]+$/i.test(t)) {
+      if (looksLikeLangClient(t, other) || (other === 'en' && /^[a-zA-Z0-9',.\-!? ]+$/.test(t))) return other;
+    }
+  }
+  return my;
+}
+
 async function fetchTranslateText(text, from, to, signal) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 30000);
@@ -238,12 +282,14 @@ async function fetchTranslateText(text, from, to, signal) {
     else signal.addEventListener('abort', onAbort, { once: true });
   }
   try {
-    const r = await fetch(`/api/translate?${new URLSearchParams({ q: text, from, to })}`, {
+    const r = await fetch(`/api/translate?${new URLSearchParams({
+      q: text, from, to, my: S.my, other: S.other,
+    })}`, {
       signal: ctrl.signal,
     });
     const d = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(d.error || 'Çeviri başarısız');
-    return d.text || '';
+    return { text: d.text || '', from: d.from || from, to: d.to || to };
   } finally {
     clearTimeout(timer);
     if (signal) signal.removeEventListener('abort', onAbort);
@@ -307,26 +353,20 @@ async function processText(text) {
   S.busyCount += 1;
   setStatus('Çevriliyor…', true);
   try {
-    const isLikelyTR = /[ğüşıöçĞÜŞİÖÇ]/.test(trimmed) ||
-      /^(bir|ben|sen|bu|şu|ne|nasıl|merhaba|evet|hayır|tamam|güzel|neden|kitap|bugün|yarın|evet|lütfen)\b/i.test(trimmed);
-    let fromLang;
-    if (isLikelyTR && (S.my === 'tr' || S.other === 'tr')) {
-      fromLang = 'tr';
-    } else if (/^[a-zA-Z0-9',.\-!? ]+$/.test(trimmed) && (S.my === 'en' || S.other === 'en')) {
-      fromLang = 'en';
-    } else {
-      fromLang = S.my;
-    }
+    let fromLang = detectTextFromLang(trimmed, S.my, S.other);
     if (fromLang !== S.my && fromLang !== S.other) fromLang = S.my;
     const toLang = fromLang === S.my ? S.other : S.my;
-    const translated = await fetchTranslateText(trimmed, fromLang, toLang, signal);
+    const result = await fetchTranslateText(trimmed, fromLang, toLang, signal);
     if (gen !== S.transGen) return;
+    fromLang = result.from === S.my || result.from === S.other ? result.from : fromLang;
+    const finalTo = fromLang === S.my ? S.other : S.my;
+    const translated = result.text;
     S.lastFrom = fromLang;
     const msg = {
       orig: trimmed,
       trans: translated,
       from: fromLang,
-      to: toLang,
+      to: finalTo,
       audio: null,
       phonetic: '',
       gen,
@@ -334,9 +374,9 @@ async function processText(text) {
     S.msgs.unshift(msg);
     render();
     setStatus('Çeviri hazır', false);
-    void fetchTranslateTts(translated, toLang, gen);
-    if (toLang !== 'tr') {
-      void fetchPronunciation(translated, toLang).then((ph) => {
+    void fetchTranslateTts(translated, finalTo, gen);
+    if (finalTo !== 'tr') {
+      void fetchPronunciation(translated, finalTo).then((ph) => {
         if (gen !== S.transGen || !ph) return;
         const m = S.msgs.find((x) => x.gen === gen);
         if (m) {

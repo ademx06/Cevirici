@@ -28,7 +28,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.09.03-v71.7"
+APP_VERSION = "2026.09.04-v71.8"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -286,7 +286,7 @@ def _is_short_simple_utterance(text: str) -> bool:
 
 
 def _needs_quality_translate(text: str, from_lang: str = "tr", to_lang: str = "en") -> bool:
-    """Uzun / hikâye / karmaşık — Google sahiplik ve yapı hataları yapabiliyor."""
+    """Hikâye / sahiplik riski — uzunluk tek başına LLM bekleme sebebi değil (ses hızı)."""
     t = text.strip()
     if re.search(
         r"\b\w+(?:nın|nin|nun|nün|ın|in|un|ün)\s+\d+\s+yaşında\b",
@@ -296,10 +296,11 @@ def _needs_quality_translate(text: str, from_lang: str = "tr", to_lang: str = "e
         return True
     if re.search(r"bir\s+varm[ıi][şs]\s+bir\s+yokmu[şs]", t, re.I):
         return True
-    if len(t) >= 90 or len(t.split()) >= 14:
-        return True
+    # EN hedef: yazı gibi hızlı Google; yalnızca bilinen hata kalıplarında LLM
     if to_lang == "en":
         return False
+    if len(t) >= 90 or len(t.split()) >= 14:
+        return True
     return not _is_short_simple_utterance(t)
 
 
@@ -1192,15 +1193,27 @@ def looks_like_lang(text: str, lang: str) -> bool:
     if lang == "ru":
         return bool(re.search(r"[\u0400-\u04FF]", t))
     if lang == "de":
-        return bool(re.search(r"\b(hallo|guten|danke|bitte|ja|nein)\b", t, re.I))
+        if re.search(r"[äöüÄÖÜß]", t):
+            return True
+        return bool(re.search(
+            r"\b(hallo|guten|danke|bitte|ja|nein|wie|geht|ich|sie|und|nicht|heute|morgen|schön|bitte)\b",
+            t,
+            re.I,
+        ))
     if lang == "fr":
-        return bool(re.search(r"\b(bonjour|merci|oui|non|comment)\b", t, re.I))
+        if re.search(r"[àâçéèêëîïôùûüœæÀÂÇÉÈÊËÎÏÔÙÛÜŒÆ]", t):
+            return True
+        return bool(re.search(r"\b(bonjour|merci|oui|non|comment|je|vous|avec|pour|aujourd)\b", t, re.I))
     if lang == "es":
-        return bool(re.search(r"\b(hola|gracias|buenos|sí|si|no)\b", t, re.I))
+        if re.search(r"[áéíóúñ¿¡ÁÉÍÓÚÑ]", t):
+            return True
+        return bool(re.search(r"\b(hola|gracias|buenos|sí|si|no|cómo|como|usted|por|favor)\b", t, re.I))
     if lang == "ar":
         return bool(re.search(r"[\u0600-\u06FF]", t))
     if lang == "it":
-        return bool(re.search(r"\b(ciao|grazie|buongiorno|si|no)\b", t, re.I))
+        if re.search(r"[àèéìòùÀÈÉÌÒÙ]", t):
+            return True
+        return bool(re.search(r"\b(ciao|grazie|buongiorno|si|no|come|per|favore|oggi)\b", t, re.I))
     if lang == "zh":
         return bool(re.search(r"[\u4e00-\u9fff]", t))
     return False
@@ -1676,9 +1689,9 @@ def transcribe_dual(
                 candidates.append((text, r[1], r[2], source))
 
         if long_audio:
+            # Uzun konuşma: tek hızlı auto STT — yazı hızına yaklaş
             tasks = {
                 "auto": lambda: groq_stt_auto(wav),
-                f"lang_{my}": lambda: stt_for_translate(wav, my),
             }
         else:
             tasks = {
@@ -1692,7 +1705,7 @@ def transcribe_dual(
         try:
             futures = {pool.submit(fn): key for key, fn in tasks.items()}
             try:
-                for fut in as_completed(futures, timeout=4.5 if long_audio else 2.8):
+                for fut in as_completed(futures, timeout=2.8 if long_audio else 2.8):
                     try:
                         add(fut.result(), futures[fut])
                     except Exception:
@@ -2468,12 +2481,21 @@ class Handler(SimpleHTTPRequestHandler):
         text = (params.get("q") or [""])[0].strip()
         from_lang = (params.get("from") or ["tr"])[0]
         to_lang = (params.get("to") or ["en"])[0]
+        my = (params.get("my") or [from_lang])[0]
+        other = (params.get("other") or [to_lang])[0]
         if not text:
             self.send_json_error(400, "Metin gerekli")
             return
         try:
-            translated = translate_text(text, from_lang, to_lang)
-            body = json.dumps({"text": translated}).encode()
+            # Yazı çevirisinde yönü metne göre düzelt — karşı dil Türkçe tarafa yazılmasın
+            translated, from_lang, to_lang = translate_pair_safe(
+                text, from_lang, to_lang, my, other,
+            )
+            body = json.dumps({
+                "text": translated,
+                "from": from_lang,
+                "to": to_lang,
+            }).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
