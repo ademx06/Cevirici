@@ -3790,8 +3790,46 @@ _NATIVE_GLOSS = {
 }
 
 
+_PRO_TRANSLATE_RULES = """
+PROFESSIONAL TRANSLATION RULES (ALL LANGUAGE PAIRS):
+
+A) NEVER translate word-by-word. First analyze meaning, context, tense, subject, objects,
+   pronouns, and communicative intent; then rewrite naturally in the target language.
+
+B) PRONOUNS / SUBJECT BINDING:
+   Resolve he/she/it/they/them/his/her/their/this/that/these/those against prior context.
+   If the subject is a girl/woman, she/her MUST stay female in the target language.
+   Never swap persons across sentences.
+
+C) TENSE / ASPECT:
+   Detect tense from full clause meaning, not isolated word forms.
+   Examples (EN→TR style): began to fly→uçmaya başladı; was flying→uçuyordu;
+   had flown→uçmuştu; felt→hissetti; was feeling→hissediyordu.
+   Apply the equivalent correct tense for ANY target language.
+
+D) CONTEXT: Prefer paragraph-level consistency for names, animals, places, directions,
+   time, verbs, and adjectives. Ambiguous words → context-best sense only.
+
+E) NATURAL TARGET LANGUAGE: Use native word order, morphology, articles/case, gender,
+   plurals, prepositions/postpositions, conjunctions, and idioms. Do not force source order.
+
+F) FIDELITY: Add nothing. Remove nothing important. Do not change persons, objects, tense,
+   polarity (pos/neg), question vs statement, or imperative force.
+
+G) PROPER NAMES: Keep clear proper names. Place names may be localized only when natural
+   (Emerald Valley→Zümrüt Vadisi) without inventing a different place.
+
+H) IDIOMS: Prefer natural equivalent idioms over literal calques.
+
+I) PUNCTUATION / PARAGRAPHS: Preserve sentence type marks and paragraph breaks when possible.
+
+J) OUTPUT: Reply with ONLY the translation in the target script/language —
+   no quotes, notes, transliteration, or explanations.
+"""
+
+
 def llm_translate(text: str, from_lang: str, to_lang: str) -> str | None:
-    """Anlamı koruyan çeviri — yaratıcı rewrite yok."""
+    """Anlam + bağlam koruyan doğal çeviri — kelime kelime yasak; tüm dil çiftleri."""
     src = safe_str(text).strip()
     if not src or not llm_available():
         return None
@@ -3800,9 +3838,9 @@ def llm_translate(text: str, from_lang: str, to_lang: str) -> str | None:
     opener = _FAIRY_OPENERS.get(to_lang, "")
     script = _SCRIPT_HINTS.get(to_lang, f"Write only in {to_name}.")
     opener_line = (
-        f"3) Fairy-tale opener 'Bir varmış bir yokmuş' → {opener} (only if the source has that opener).\n"
+        f"Fairy-tale opener 'Bir varmış bir yokmuş' → {opener} (only if the source has that opener).\n"
         if opener else
-        "3) Keep the original narrative tone; do not embellish.\n"
+        "Keep the original narrative tone; do not embellish.\n"
     )
     native = _NATIVE_GLOSS.get(to_lang, "")
     ka_extra = ""
@@ -3814,33 +3852,39 @@ def llm_translate(text: str, from_lang: str, to_lang: str) -> str | None:
         )
     system = (
         f"You are a professional meaning-preserving translator into {to_name} (from {from_name}).\n"
-        f"NOT a creative rewriter. Prefer exact meaning over prettier wording.\n"
+        f"You translate for ALL supported languages with the same quality bar.\n"
         f"{script}\n"
+        f"{_PRO_TRANSLATE_RULES}\n"
         f"{_LITERARY_GLOSS}"
         f"{native}"
         f"{ka_extra}"
-        "Rules:\n"
+        "Extra hard rules:\n"
         "1) Keep subjects/possessives exact. Do not mix who is who.\n"
         "2) Turkish 'X'in N yaşında oğlu/kızı/çocuğu' means 'X HAD an N-year-old son/daughter/child'. "
         "NEVER say X was N years old.\n"
         "   yaramaz=mischievous/naughty; uysal=gentle; oynamak=to play games.\n"
-        f"{opener_line}"
+        f"3) {opener_line}"
         "4) Full sentences, natural punctuation, native word order. Do not drop clauses.\n"
-        "5) Reply with ONLY the translation — no quotes, no notes, no transliteration, no explanations."
+        "5) Bad EN→TR calque example to AVOID: "
+        "'he felt freer than ever' ≠ 'o hiç olmadığı kadar daha özgür hissetti'; "
+        "correct natural TR: 'Kendini hiç olmadığı kadar özgür hissediyordu.' "
+        "(bind pronoun + tense + natural phrasing).\n"
+        "6) Reply with ONLY the translation."
     )
     translate_model = (
         os.environ.get("GROQ_TRANSLATE_MODEL")
         or os.environ.get("GROQ_MODEL")
         or ""
     ).strip() or None
-    max_tok = min(1800, 220 + len(src))
-    user_src = src[:3500]
+    max_tok = min(2200, 280 + len(src))
+    timeout = min(28, max(10, 8 + len(src) // 60))
+    user_src = src[:4500]
     for provider in _llm_providers_in_order():
         raw = None
         if provider == "groq":
             kwargs = {
                 "max_tokens": max_tok,
-                "timeout_sec": 8,
+                "timeout_sec": timeout,
                 "temperature": 0.05,
             }
             if translate_model:
@@ -3853,7 +3897,7 @@ def llm_translate(text: str, from_lang: str, to_lang: str) -> str | None:
                 raw = _groq_chat(
                     [{"role": "system", "content": system}, {"role": "user", "content": user_src}],
                     max_tokens=max_tok,
-                    timeout_sec=8,
+                    timeout_sec=timeout,
                     temperature=0.05,
                 )
         elif provider == "gemini":
@@ -3864,12 +3908,95 @@ def llm_translate(text: str, from_lang: str, to_lang: str) -> str | None:
                 max_tokens=max_tok,
             )
         if raw:
-            out = raw.strip().strip('"').strip("'")
-            out = re.sub(r"^translation\s*:\s*", "", out, flags=re.I).strip()
-            if out.startswith("```"):
-                out = re.sub(r"^```\w*\n?", "", out)
-                out = re.sub(r"\n?```$", "", out).strip()
-            if out and len(out) >= 1 and out.lower() != src.lower():
+            out = _clean_llm_translation_output(raw, src)
+            if out:
+                return out
+    return None
+
+
+def _clean_llm_translation_output(raw: str, src: str) -> str | None:
+    out = safe_str(raw).strip().strip('"').strip("'")
+    out = re.sub(r"^translation\s*:\s*", "", out, flags=re.I).strip()
+    if out.startswith("```"):
+        out = re.sub(r"^```\w*\n?", "", out)
+        out = re.sub(r"\n?```$", "", out).strip()
+    if out and len(out) >= 1 and out.lower() != safe_str(src).lower():
+        return out
+    return None
+
+
+def llm_verify_and_fix_translation(
+    src: str,
+    draft: str,
+    from_lang: str,
+    to_lang: str,
+) -> str | None:
+    """Çeviri sonrası kalite kontrolü — hata varsa düzeltir; yoksa taslağı korur."""
+    source = safe_str(src).strip()
+    draft_t = safe_str(draft).strip()
+    if not source or not draft_t or not llm_available():
+        return None
+    from_name = LANG_NAMES.get(from_lang, from_lang)
+    to_name = LANG_NAMES.get(to_lang, to_lang)
+    script = _SCRIPT_HINTS.get(to_lang, f"Write only in {to_name}.")
+    native = _NATIVE_GLOSS.get(to_lang, "")
+    system = (
+        f"You are a bilingual translation QA editor for {from_name} → {to_name}.\n"
+        f"{script}\n"
+        "Check DRAFT against SOURCE using ALL of these questions:\n"
+        "1) Is every meaning preserved?\n"
+        "2) Is each subject bound to the correct person?\n"
+        "3) Are pronouns correct (gender/number/reference)?\n"
+        "4) Are tenses/aspects correct?\n"
+        "5) Are verbs correct?\n"
+        "6) Singular/plural correct?\n"
+        "7) Gender morphology correct when required?\n"
+        "8) Proper names preserved appropriately?\n"
+        "9) Idioms natural?\n"
+        "10) Does it sound like a native wrote it (not word-by-word)?\n"
+        "11) Any added info? 12) Any removed info?\n"
+        "13) Would a native accept this as natural?\n"
+        f"{_LITERARY_GLOSS}"
+        f"{native}"
+        "If DRAFT already passes, reply with the DRAFT text unchanged.\n"
+        "If any issue, reply with ONLY the full corrected translation.\n"
+        "No quotes, no bullet points, no explanations."
+    )
+    user_msg = (
+        f"SOURCE ({from_name}):\n{source[:4000]}\n\n"
+        f"DRAFT ({to_name}):\n{draft_t[:4000]}"
+    )
+    max_tok = min(2200, 280 + len(source))
+    timeout = min(22, max(8, 6 + len(source) // 80))
+    translate_model = (
+        os.environ.get("GROQ_TRANSLATE_MODEL")
+        or os.environ.get("GROQ_MODEL")
+        or ""
+    ).strip() or None
+    for provider in _llm_providers_in_order():
+        raw = None
+        if provider == "groq":
+            kwargs = {
+                "max_tokens": max_tok,
+                "timeout_sec": timeout,
+                "temperature": 0.0,
+            }
+            if translate_model:
+                kwargs["model"] = translate_model
+            raw = _groq_chat(
+                [{"role": "system", "content": system}, {"role": "user", "content": user_msg}],
+                **kwargs,
+            )
+        elif provider == "gemini":
+            raw = _gemini_chat(system, user_msg, max_tokens=max_tok)
+        else:
+            raw = _openai_chat(
+                [{"role": "system", "content": system}, {"role": "user", "content": user_msg}],
+                max_tokens=max_tok,
+            )
+        if raw:
+            out = _clean_llm_translation_output(raw, source)
+            if out:
                 return out
     return None
 

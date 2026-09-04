@@ -18,7 +18,7 @@ from education_engine import (
     process_turn, greeting, session_report, daily_lesson, default_profile,
     finalize_session, weekly_progress, merge_profile, llm_available, ai_provider_info,
     pronounce_text, safe_str, llm_translate, groq_api_key_status,
-    llm_rewrite_georgian,
+    llm_rewrite_georgian, llm_verify_and_fix_translation,
 )
 from builder_engine import (
     generate_word_lesson,
@@ -28,7 +28,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.09.04-v71.9"
+APP_VERSION = "2026.09.04-v72.0"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -286,7 +286,7 @@ def _is_short_simple_utterance(text: str) -> bool:
 
 
 def _needs_quality_translate(text: str, from_lang: str = "tr", to_lang: str = "en") -> bool:
-    """Hikâye / sahiplik riski — uzunluk tek başına LLM bekleme sebebi değil (ses hızı)."""
+    """Uzun / çok cümle / anlatı / zamir bağlamı — tüm dil çiftlerinde LLM kalite yolu."""
     t = text.strip()
     if re.search(
         r"\b\w+(?:nın|nin|nun|nün|ın|in|un|ün)\s+\d+\s+yaşında\b",
@@ -296,12 +296,83 @@ def _needs_quality_translate(text: str, from_lang: str = "tr", to_lang: str = "e
         return True
     if re.search(r"bir\s+varm[ıi][şs]\s+bir\s+yokmu[şs]", t, re.I):
         return True
-    # EN hedef: yazı gibi hızlı Google; yalnızca bilinen hata kalıplarında LLM
-    if to_lang == "en":
-        return False
-    if len(t) >= 90 or len(t.split()) >= 14:
+    sentences = [s for s in re.split(r"[.!?…]+", t) if s.strip()]
+    if len(sentences) > 1:
         return True
-    return not _is_short_simple_utterance(t)
+    words = t.split()
+    if len(words) >= 14 or len(t) >= 90:
+        return True
+    # Anlatı / zamir bağlama riski (kısa sohbet hariç)
+    if len(words) >= 8 and re.search(
+        r"\b(she|he|they|her|his|their|them|felt|began|was|were|had|girl|boy|"
+        r"o|onun|kendini|hissetti|hissediyordu|başladı)\b",
+        t,
+        re.I,
+    ):
+        return True
+    # Kısa günlük ifade → Google hızı (tüm diller)
+    if _is_short_simple_utterance(t):
+        return False
+    # Orta uzunluk / karmaşık yapı → kalite (EN hedef dahil)
+    return True
+
+
+def _looks_like_literal_calque(src: str, translated: str, to_lang: str) -> bool:
+    """Kelime-kelime / yapay çeviri izleri — QC tetikle."""
+    if not translated:
+        return True
+    src_l = (src or "").lower()
+    tr = translated
+    if to_lang == "tr":
+        if re.search(r"hiç olmadığı kadar daha\b", tr, re.I):
+            return True
+        if re.search(r"\bo\s+hiç olmadığı kadar\b", tr, re.I) and re.search(
+            r"\bfelt\b|\bfreer\b|\bfree\b", src_l
+        ):
+            return True
+        if re.search(r"\b(daha özgür hissetti|özgür hissetti)\b", tr, re.I) and re.search(
+            r"\bfelt freer|freer than ever\b", src_l
+        ):
+            return True
+    # Genel: kaynak ile birebir aynı kelime sırası şüphesi (aynı token sayısı + Latin kalıntı)
+    if to_lang in ("tr", "ka", "ru", "ar", "zh") and re.search(
+        r"\b(the|and|of|to|was|were|felt|than|ever)\b", tr, re.I
+    ):
+        return True
+    return False
+
+
+def _should_run_translate_qc(src: str, translated: str, from_lang: str, to_lang: str) -> bool:
+    if not translated or not llm_available():
+        return False
+    if _needs_quality_translate(src, from_lang, to_lang):
+        return True
+    if _looks_like_literal_calque(src, translated, to_lang):
+        return True
+    if _translation_has_age_possession_bug(src, translated):
+        return True
+    if _translation_is_garbled(src, translated, to_lang):
+        return True
+    return False
+
+
+def _apply_translate_qc(src: str, result: str, from_lang: str, to_lang: str) -> str:
+    """Çeviri sonrası ikinci kontrol — kullanıcıya göstermeden düzelt."""
+    if not result or not _should_run_translate_qc(src, result, from_lang, to_lang):
+        return result
+    try:
+        fixed = llm_verify_and_fix_translation(src, result, from_lang, to_lang)
+    except Exception:
+        fixed = None
+    if not fixed:
+        return result
+    if not _script_matches_lang(fixed, to_lang):
+        return result
+    if _translation_has_age_possession_bug(src, fixed):
+        return result
+    if _translation_is_garbled(src, fixed, to_lang):
+        return result
+    return fixed
 
 
 def _script_matches_lang(text: str, lang: str) -> bool:
@@ -651,7 +722,7 @@ def _translate_georgian_native(src: str, from_lang: str) -> str | None:
 
 
 def smart_translate_text(text: str, from_lang: str, to_lang: str) -> str:
-    """Profesyonel çeviri: TR→EN kısa = Google (hız); diğer diller / hikâye = LLM+Google paralel."""
+    """Profesyonel çeviri: kısa sohbet = Google; uzun/anlatı = LLM+QC (tüm diller)."""
     if from_lang == to_lang:
         return text
     src = text.strip()
@@ -664,6 +735,7 @@ def smart_translate_text(text: str, from_lang: str, to_lang: str) -> str:
 
     result: str | None = None
     quality = _needs_quality_translate(src, from_lang, to_lang) and llm_available()
+    quality_wait = min(14.0, max(3.5, 2.5 + len(src) / 120.0))
 
     if quality:
         if to_lang == "ka":
@@ -690,7 +762,7 @@ def smart_translate_text(text: str, from_lang: str, to_lang: str) -> str:
                 f_g = pool.submit(_google)
                 llm_r = g_r = None
                 try:
-                    for fut in as_completed((f_llm, f_g), timeout=2.8):
+                    for fut in as_completed((f_llm, f_g), timeout=quality_wait):
                         try:
                             val = fut.result()
                         except Exception:
@@ -724,6 +796,7 @@ def smart_translate_text(text: str, from_lang: str, to_lang: str) -> str:
         if result and (
             _translation_has_age_possession_bug(src, result)
             or not _script_matches_lang(result, to_lang)
+            or _looks_like_literal_calque(src, result, to_lang)
         ) and llm_available():
             alt = llm_translate(src, from_lang, to_lang)
             if alt and _script_matches_lang(alt, to_lang):
@@ -749,6 +822,11 @@ def smart_translate_text(text: str, from_lang: str, to_lang: str) -> str:
     if not result:
         raise ValueError("translation failed")
 
+    if to_lang == "ka":
+        result = _polish_georgian(src, result)
+
+    # Çeviri sonrası kalite kontrolü (kullanıcıya göstermeden)
+    result = _apply_translate_qc(src, result, from_lang, to_lang)
     if to_lang == "ka":
         result = _polish_georgian(src, result)
 
@@ -819,9 +897,10 @@ def translate_pair_safe(
 
 
 def translate_phonetic(text: str, lang: str) -> str:
-    """Kelime dersindeki gibi Türkçe fonetik okunuş — TTS ile uyumlu."""
+    """Hedef dil metninin Türkçe okunuşu — çeviri metni değil, yalnızca hedef dil sesi."""
     if not text or lang == "tr":
         return ""
+    # Telaffuz ASLA Türkçe anlam üzerinden üretilmez; verilen metin hedef dil olmalıdır.
     snippet = re.sub(r"\s+", " ", text.strip())
     try:
         from pronunciation_service import build_sentence_natural

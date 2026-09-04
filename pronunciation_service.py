@@ -2179,6 +2179,19 @@ def _article_pron(next_word: str) -> str:
     return "e"
 
 
+def _the_pron(next_word: str) -> str:
+    """the — sonraki sesli/ünsüz: ði≈di / ðə≈dı (yazılışa göre mekanik 'dı' değil)."""
+    if not next_word:
+        return "dı"
+    low = next_word.lower()
+    # Sessiz h + ünlü (hour, honest) → di; a/e/i/o/u başı → di
+    if low[:1] in "aeiou":
+        return "di"
+    if low.startswith(("hour", "honest", "honor", "honour", "heir")):
+        return "di"
+    return "dı"
+
+
 def register_word(
     lang: str,
     word: str,
@@ -2304,6 +2317,10 @@ def build_sentence(
             pron = _article_pron(tokens[i + 1])
         elif low == "an" and i + 1 < len(tokens):
             pron = "en"
+        elif low == "the" and i + 1 < len(tokens):
+            pron = _the_pron(tokens[i + 1])
+        elif low == "the":
+            pron = "dı"
         else:
             info = get_word(lang, tok)
             pron = info["pronunciation_tr"]
@@ -2311,7 +2328,7 @@ def build_sentence(
         info = get_word(lang, tok)
         word_parts.append({
             "word": tok,
-            "pronunciation_tr": pron if low in ("a", "an") else info["pronunciation_tr"],
+            "pronunciation_tr": pron if low in ("a", "an", "the") else info["pronunciation_tr"],
             "ipa": info.get("ipa") or EN_IPA.get(low, ""),
         })
         ipa_val = info.get("ipa") or EN_IPA.get(low, "")

@@ -1,8 +1,9 @@
-"""Hız PR birim testleri — STT early-exit kuralları ve kısa Google-first."""
+"""Hız PR birim testleri — STT early-exit kuralları ve çeviri kalite yolu."""
 from server import (
     _stt_early_lang,
     _is_short_simple_utterance,
     _needs_quality_translate,
+    _looks_like_literal_calque,
 )
 
 
@@ -48,12 +49,31 @@ def test_long_and_story_still_quality():
         "Küçük kız, nefesini tutarak mavi kuşa doğru bir adım attı. "
         "Kuş kaçmak yerine başını eğdi."
     )
-    # EN: uzun konuşma yazı gibi hızlı (Google); yalnızca masal/yaş kalıbında LLM
-    assert not _needs_quality_translate(story, "tr", "en")
+    # Çok cümle / anlatı → tüm dillerde kalite (EN dahil)
+    assert _needs_quality_translate(story, "tr", "en")
     assert _needs_quality_translate(story, "tr", "ka")
     assert _needs_quality_translate("Bir varmış bir yokmuş uzak bir ülkede", "tr", "en")
     assert _needs_quality_translate("Bir varmış bir yokmuş uzak bir ülkede", "tr", "ka")
     assert _needs_quality_translate("Ali'nin 4 yaşında oğlu var", "tr", "en")
+    # Zamir + anlatı cümlesi
+    assert _needs_quality_translate(
+        "The girl spread her arms out; she felt freer than ever.",
+        "en",
+        "tr",
+    )
+
+
+def test_literal_calque_detector():
+    assert _looks_like_literal_calque(
+        "he felt freer than ever",
+        "o hiç olmadığı kadar daha özgür hissetti",
+        "tr",
+    )
+    assert not _looks_like_literal_calque(
+        "he felt freer than ever",
+        "Kendini hiç olmadığı kadar özgür hissediyordu.",
+        "tr",
+    )
 
 
 if __name__ == "__main__":
@@ -64,4 +84,5 @@ if __name__ == "__main__":
     test_stt_early_empty_and_hallucination()
     test_short_simple_google_first()
     test_long_and_story_still_quality()
+    test_literal_calque_detector()
     print("speed-pr unit tests passed")
