@@ -609,24 +609,32 @@ function render() {
     const teacherEn = safeStr(m.teacherEn || m.teacher || '');
     const teacherTr = safeStr(m.teacherTr || m.explain || '');
     const corrLevel = Number(m.correctionLevel) || 1;
-    let corr = (corrLevel >= 2 && m.correctionDetail) ? renderCorrectionCard(m.correctionDetail) : '';
-    if (!corr && m.correction && corrLevel >= 2) {
+    // intent_teach / help: içerik teacher_en içinde — çift kart gösterme
+    const skipCorrCard = ['intent_teach', 'intent_soft_confirm', 'help', 'dont_know_help', 'conversation', 'greeting', 'natural_teach'].includes(safeStr(m.type));
+    let corr = (!skipCorrCard && corrLevel >= 2 && m.correctionDetail) ? renderCorrectionCard(m.correctionDetail) : '';
+    if (!corr && !skipCorrCard && m.correction && corrLevel >= 2) {
       corr = renderCorrectionCard({
         userSaid: m.userSaid,
         correctEn: m.correction,
         explainTr: m.explain,
       });
     }
-    const isTeaching = corrLevel >= 2 || !!corr;
-    const hideEnBlock = m.type === 'help' || m.type === 'intent_guess' || m.type === 'intent_retry';
+    const isTeaching = !!corr;
+    const hideEnBlock = false;
     const vocab = m.newWord && m.newWord.word
       ? `<div class="chat-vocab">📚 <strong>${esc(safeStr(m.newWord.word))}</strong> = ${esc(safeStr(m.newWord.meaningTr))}</div>` : '';
     const enBlock = teacherEn && !hideEnBlock
       ? `<div class="chat-lang-block chat-en ${isTeaching ? 'chat-en-compact' : ''}"><span>${lg.flag} ${isTeaching ? 'Devam (EN)' : lg.name}</span><p>${esc(teacherEn).replace(/\n/g, '<br>')}</p>${m.phoneticEn ? `<p class="chat-phonetic">🔊 ${esc(m.phoneticEn)}</p>` : ''}</div>`
       : '';
-    const trBlock = teacherTr && !isTeaching
-      ? `<div class="chat-lang-block chat-tr"><span>🇹🇷 Türkçe</span><p>${esc(teacherTr).replace(/\n/g, '<br>')}</p>${hideEnBlock && m.phoneticEn ? `<p class="chat-phonetic">🔊 ${esc(m.phoneticEn)}</p>` : ''}</div>`
-      : '';
+    // Türkçe destek: teaching card yoksa veya kısa destek olarak göster; EN ile aynı uzun metni tekrarlama
+    const trLooksDuplicate = teacherTr && teacherEn && teacherTr.length > 40 && (
+      teacherEn.includes(teacherTr.slice(0, 30)) || teacherTr.includes((m.correction || '').toString().slice(0, 20))
+    );
+    const trBlock = teacherTr && !isTeaching && !trLooksDuplicate
+      ? `<div class="chat-lang-block chat-tr"><span>🇹🇷 Türkçe</span><p>${esc(teacherTr).replace(/\n/g, '<br>')}</p></div>`
+      : (teacherTr && !isTeaching && teacherTr.length <= 220
+        ? `<div class="chat-lang-block chat-tr"><span>🇹🇷 Türkçe</span><p>${esc(teacherTr).replace(/\n/g, '<br>')}</p></div>`
+        : '');
     const replayBtn = shouldShowReplay({ correction_level: m.correctionLevel, speak_tr: m.speakTr, type: m.type, teacher_en: m.teacherEn, teacher_tr: m.teacherTr })
       ? `<button type="button" class="replay-btn chat-replay" data-idx="${i}">🔊 Dinle</button>`
       : '';
