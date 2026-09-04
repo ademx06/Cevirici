@@ -610,7 +610,7 @@ function render() {
     const teacherTr = safeStr(m.teacherTr || m.explain || '');
     const corrLevel = Number(m.correctionLevel) || 1;
     // intent_teach / help: içerik teacher_en içinde — çift kart gösterme
-    const skipCorrCard = ['intent_teach', 'intent_soft_confirm', 'help', 'dont_know_help', 'conversation', 'greeting', 'natural_teach'].includes(safeStr(m.type));
+    const skipCorrCard = ['intent_teach', 'intent_soft_confirm', 'help', 'dont_know_help', 'conversation', 'greeting', 'natural_teach', 'scaffold_hint', 'scaffold_produce', 'scaffold_transfer', 'scaffold_success'].includes(safeStr(m.type));
     let corr = (!skipCorrCard && corrLevel >= 2 && m.correctionDetail) ? renderCorrectionCard(m.correctionDetail) : '';
     if (!corr && !skipCorrCard && m.correction && corrLevel >= 2) {
       corr = renderCorrectionCard({
@@ -844,6 +844,13 @@ function compactProfileForApi() {
     pendingIntentUserSaid: p.pendingIntentUserSaid ? safeStr(p.pendingIntentUserSaid) : null,
     pendingIntentReason: p.pendingIntentReason ? safeStr(p.pendingIntentReason) : null,
     awaitingTargetPhrase: p.awaitingTargetPhrase ? safeStr(p.awaitingTargetPhrase) : null,
+    scaffoldMode: p.scaffoldMode ? safeStr(p.scaffoldMode) : null,
+    scaffoldPattern: p.scaffoldPattern ? safeStr(p.scaffoldPattern) : null,
+    scaffoldTarget: p.scaffoldTarget ? safeStr(p.scaffoldTarget) : null,
+    scaffoldTransferEn: p.scaffoldTransferEn ? safeStr(p.scaffoldTransferEn) : null,
+    scaffoldTransferTr: p.scaffoldTransferTr ? safeStr(p.scaffoldTransferTr) : null,
+    scaffoldTransferHint: p.scaffoldTransferHint ? safeStr(p.scaffoldTransferHint) : null,
+    scaffoldHintAnswer: p.scaffoldHintAnswer ? safeStr(p.scaffoldHintAnswer) : null,
     lastTeacherText: safeStr(p.lastTeacherText).slice(0, 400),
     lessonStep: Number(p.lessonStep) || 0,
     microStep: Number(p.microStep) || 0,

@@ -53,22 +53,18 @@ LANG_NAMES = {
 LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"]
 SRS_INTERVALS_DAYS = [1, 3, 7, 14, 30]
 
-SYSTEM_PROMPT = """You are a personal English teacher AND conversation partner for a Turkish-speaking student.
-You are NOT a chatbot, NOT a translator, NOT a quiz bot.
+SYSTEM_PROMPT = """You are a personal English teacher AND conversation partner for a near-beginner Turkish student.
+Priority skill: SENTENCE BUILDING (not vocabulary dumps).
 
-Every turn: UNDERSTAND INTENT → (if needed) CORRECT + TINY TEACH → CONTINUE THE CONVERSATION.
+Loop: UNDERSTAND → MICRO-TEACH ONE PATTERN → BUILD TOGETHER → USER PRODUCES → USER TRANSFERS TO A NEW SENTENCE → CONTINUE TALK.
 
-Natural teacher rules:
-- React to WHAT they said first (Oh really? / Nice! / Tired? Sounds like a long day).
-- Correct inside the conversation — never stop at "Now say this" as the only next step.
-- After a fix, ask a natural follow-up ABOUT THEIR TOPIC (What kind of book? Why are you tired?).
-- Do NOT ask "Evet mi? / Yes or no?" when meaning is clear — teach and continue.
-- Ask confirmation ONLY when meaning is genuinely ambiguous.
-- Adaptive length: correct sentence → short reply + follow-up. Big error → short why + continue. "anlamadım" → simpler.
-- Never shame. Never dump a grammar lecture every turn.
-- Preserve proper names (Samet, Mehmet, Ankara) — never invent translations like "sameness".
-- Short answers like "Tired." can be natural after "How are you?" — don't mark as Wrong; optionally offer "I'm tired." gently.
-- USER should talk more than you. Wait for their reply."""
+Rules:
+- Hint before dumping the full answer when possible (especially he/she/it).
+- Teach ONE pattern at a time: I am + verb-ing / I want to + verb / he-she-it / past simple.
+- After they say the corrected sentence, ask them to make a NEW similar sentence (transfer).
+- Correct sentences: praise briefly and continue chatting — no grammar lecture.
+- Keep questions simple for beginners (avoid heavy vocab).
+- Preserve proper names. Never shame. USER talks more than you."""
 
 AI_TUTOR_JSON_PROMPT = """You are a PROFESSIONAL personal {lang_name} TEACHER + conversation partner for a Turkish-speaking student.
 Level: {level}. Warm, patient, human. NOT a chatbot. NOT a translator. NOT a quiz master.
@@ -93,8 +89,8 @@ STUDENT JUST SAID ({input_lang}):
 
 {stt_note}
 
-NATURAL TEACHER LOOP:
-UNDERSTAND → REACT → (fix if needed) → TINY EXPLAIN → FOLLOW-UP ABOUT THEIR TOPIC
+BEGINNER SENTENCE-BUILDING LOOP:
+UNDERSTAND → MICRO-TEACH ONE PATTERN → BUILD TOGETHER → PRODUCE → TRANSFER (new similar sentence) → CONTINUE
 
 Evaluate:
 1. MEANING first — what did they try to say?
@@ -103,6 +99,12 @@ Evaluate:
 
 {micro_chain_block}
 
+CRITICAL STYLE:
+- Prefer scaffolding: hint → pattern → correct sentence → then a NEW similar sentence (transfer).
+- Example: "I am read a book" → praise I am → **I am + verb-ing** → **I am reading a book.** → then "Ben televizyon izliyorum" (watch).
+- Example: "He is a happy story" → He=person / story≠person → hint he or it? → **It is a happy story.**
+- ONE pattern per turn. Correct answer → short praise + simple follow-up.
+- Keep follow-up questions SIMPLE for beginners.
 STYLE (critical — avoid robot phrases):
 - Avoid overusing: "Great!", "Excellent!", "Now let's learn something new", "Try saying it", "Now practice".
 - Prefer: Oh really? / That's interesting / What kind of…? / Why…? / I understand what you mean / You're very close / One small change.
@@ -358,6 +360,16 @@ EN_RULES: list[tuple[re.Pattern, str, str, str, str]] = [
      "be_verb", "We need 'I'm' before adjectives.", "'Tired' sıfatından önce 'I'm' gerekir."),
     (re.compile(r"\bi am go\b", re.I), "I am going.", "present_continuous",
      "Use 'am going' for now.", "Şu an için 'am going' kullanılır."),
+    (re.compile(r"\bi am read(?:\s+a\s+book)?\b", re.I), "I am reading a book.", "present_continuous",
+     "After am use verb-ing: reading.", "am'den sonra reading (verb-ing)."),
+    (re.compile(r"\bi am (watch|eat|work|play|drink|write|listen)\b", re.I), "I am working.", "present_continuous",
+     "After am use verb-ing.", "am + fiil-ing."),
+    (re.compile(r"\bhe is (?:a |an )?(?:happy )?story\b", re.I), "It is a happy story.", "he_it",
+     "He = person. Story is not a person → It.", "He = insan. Story → It."),
+    (re.compile(r"\bhe is (?:a |an )?book\b", re.I), "It is a book.", "he_it",
+     "Book is not a person → It.", "Book kişi değil → It."),
+    (re.compile(r"\bshe is (?:a |an )?(?:happy )?story\b", re.I), "It is a happy story.", "he_it",
+     "She = woman. Story → It.", "She = kadın. Story → It."),
     (re.compile(r"\bi go to work yesterday\b", re.I), "I went to work yesterday.", "past_tense",
      "'Go' is irregular: go → went.", "'Go' düzensiz fiil: went."),
     (re.compile(r"\bi goed\b", re.I), "I went", "past_tense", "'Goed' is wrong. Past of 'go' is 'went'.",
@@ -610,6 +622,13 @@ def default_profile(lang: str = "en") -> dict[str, Any]:
         "lastMasteredPhrase": "",
         "sentenceBuildBase": "",
         "awaitingTargetPhrase": "",
+        "scaffoldMode": None,
+        "scaffoldPattern": None,
+        "scaffoldTarget": None,
+        "scaffoldTransferEn": None,
+        "scaffoldTransferTr": None,
+        "scaffoldTransferHint": None,
+        "scaffoldHintAnswer": None,
     }
 
 
@@ -647,6 +666,8 @@ def merge_profile(profile: dict | None, delta: dict | None) -> dict:
         "pendingIntentConfirm", "pendingIntentUserSaid", "pendingIntentReason",
         "lessonStep", "masteredLessonTopics", "taughtPatterns",
         "microStep", "lastMasteredPhrase", "sentenceBuildBase", "awaitingTargetPhrase",
+        "scaffoldMode", "scaffoldPattern", "scaffoldTarget",
+        "scaffoldTransferEn", "scaffoldTransferTr", "scaffoldTransferHint", "scaffoldHintAnswer",
     )
     for key in scalar_keys:
         if key in delta:
@@ -913,22 +934,26 @@ def check_english(text: str) -> tuple[int, str | None, str | None, str | None, s
     am_m = re.search(r"\bi am (\w+)\b", ul)
     if am_m:
         v = am_m.group(1).lower()
+        # "I am + base verb" → present continuous for beginners
         am_fixes: dict[str, tuple[str, str, str]] = {
-            "run": ("I went for a run today.", "'I am run' is wrong — say 'I ran' or 'I went for a run'.",
-                    "'I am run' yanlış. Koştum demek için: I ran today."),
+            "read": ("I am reading a book.", "'I am read' → reading (verb-ing).",
+                     "'I am read' → I am reading a book."),
+            "go": ("I am going.", "'I am go' → I am going.", "'I am go' → I am going."),
+            "work": ("I am working.", "'I am work' → I am working.", "'I am work' → I am working."),
+            "watch": ("I am watching TV.", "'I am watch' → I am watching.", "'I am watch' → I am watching."),
+            "eat": ("I am eating.", "'I am eat' → I am eating.", "'I am eat' → I am eating."),
+            "walk": ("I am walking.", "'I am walk' → I am walking.", "'I am walk' → I am walking."),
+            "play": ("I am playing.", "'I am play' → I am playing.", "'I am play' → I am playing."),
+            "swim": ("I am swimming.", "'I am swim' → I am swimming.", "'I am swim' → I am swimming."),
+            "run": ("I am running.", "'I am run' → I am running.", "'I am run' → I am running."),
+            "drink": ("I am drinking coffee.", "'I am drink' → I am drinking.", "'I am drink' → I am drinking."),
+            "write": ("I am writing.", "'I am write' → I am writing.", "'I am write' → I am writing."),
             "ran": ("I ran today.", "Don't say 'I am ran' — just 'I ran today'.", "'I am ran' yanlış — I ran today de."),
-            "go": ("I went to work today.", "'I am go' is wrong — past tense: I went.", "'I am go' yanlış — I went de."),
-            "read": ("I read a book today.", "'I am read' is wrong — say 'I read a book'.", "'I am read' yanlış — I read a book de."),
-            "walk": ("I walked today.", "Use past tense: I walked.", "Geçmiş: I walked today."),
-            "play": ("I played today.", "Use past tense: I played.", "Geçmiş: I played today."),
-            "eat": ("I ate today.", "Use past tense: I ate.", "Geçmiş: I ate today."),
-            "work": ("I worked today.", "Use past tense: I worked.", "Geçmiş: I worked today."),
-            "swim": ("I swam today.", "Use past tense: I swam.", "Geçmiş: I swam today — swim→swam."),
-            "watch": ("I watched TV today.", "Use past tense: I watched.", "Geçmiş: I watched TV today."),
         }
         if v in am_fixes and not v.endswith("ing"):
             c, en, tr = am_fixes[v]
-            return 3, c, "learner_grammar", en, tr
+            cat = "learner_grammar" if v == "ran" else "present_continuous"
+            return 3, c, cat, en, tr
     if re.search(r"\bi (run|walk|play|eat|swim)\b", ul) and "went" not in ul and "am" not in ul:
         short_fixes = {
             "run": ("I ran today.", "Use past tense 'ran' for completed actions.", "Geçmiş: I ran today."),
@@ -1897,6 +1922,374 @@ def _try_rule_greeting_fix(
         translate_fn=translate_fn,
         target_lang=target_lang,
     )
+
+
+def _clear_scaffold() -> dict[str, Any]:
+    return {
+        "scaffoldMode": None,
+        "scaffoldPattern": None,
+        "scaffoldTarget": None,
+        "scaffoldTransferEn": None,
+        "scaffoldTransferTr": None,
+        "scaffoldTransferHint": None,
+        "scaffoldHintAnswer": None,
+    }
+
+
+def _detect_sentence_scaffold(user_text: str) -> dict[str, Any] | None:
+    """Başlangıç cümle-kurma iskeleleri — tek kalıp, transfer pratik."""
+    t = user_text.strip()
+    ul = re.sub(r"[.!?]+$", "", t.lower()).strip()
+
+    # He/She + story/book → he_it (önce ipucu)
+    if re.search(r"\b(he|she) is (?:a |an )?(?:happy )?story\b", ul):
+        happy = "happy " if "happy" in ul else ""
+        return {
+            "pattern": "he_it",
+            "mode": "hint",
+            "target": f"It is a {happy}story.".replace("  ", " "),
+            "hint_answer": "it",
+            "transfer_en": "It is a book.",
+            "transfer_tr": "Bu bir kitap.",
+            "transfer_hint": "book = kitap",
+            "wrong": t,
+        }
+    if re.search(r"\b(he|she) is (?:a |an )?book\b", ul):
+        return {
+            "pattern": "he_it",
+            "mode": "hint",
+            "target": "It is a book.",
+            "hint_answer": "it",
+            "transfer_en": "It is a story.",
+            "transfer_tr": "Bu bir hikâye.",
+            "transfer_hint": "story = hikâye",
+            "wrong": t,
+        }
+
+    # I am + base verb (+ object)
+    m = re.search(r"\bi am (\w+)(?:\s+(.+))?$", ul)
+    if m:
+        verb = m.group(1)
+        rest = (m.group(2) or "").strip()
+        if verb.endswith("ing") or verb in ("a", "an", "the", "very", "so", "not", "happy", "tired", "busy", "fine", "good"):
+            return None
+        irregular = {"run": "running", "swim": "swimming", "write": "writing", "sit": "sitting", "get": "getting"}
+        if verb in irregular:
+            ing = irregular[verb]
+        elif verb.endswith("e") and verb not in ("be", "see"):
+            ing = verb[:-1] + "ing"
+        else:
+            ing = verb + "ing"
+        obj = rest if rest else ("a book" if verb == "read" else ("TV" if verb == "watch" else ("coffee" if verb == "drink" else "")))
+        target = f"I am {ing}" + (f" {obj}" if obj else "") + "."
+        # Transfer prompts
+        transfers = {
+            "read": ("I am watching TV.", "Ben televizyon izliyorum.", "watch = izlemek"),
+            "watch": ("I am reading a book.", "Ben kitap okuyorum.", "read = okumak"),
+            "work": ("I am eating.", "Ben yemek yiyorum.", "eat = yemek yemek"),
+            "eat": ("I am working.", "Ben çalışıyorum.", "work = çalışmak"),
+            "go": ("I am working.", "Ben çalışıyorum.", "work = çalışmak"),
+            "play": ("I am reading a book.", "Ben kitap okuyorum.", "read = okumak"),
+            "drink": ("I am eating.", "Ben yemek yiyorum.", "eat = yemek"),
+            "run": ("I am walking.", "Ben yürüyorum.", "walk = yürümek"),
+            "write": ("I am reading a book.", "Ben kitap okuyorum.", "read = okumak"),
+            "swim": ("I am running.", "Ben koşuyorum.", "run = koşmak"),
+        }
+        ten, ttr, th = transfers.get(verb, ("I am working.", "Ben çalışıyorum.", "work = çalışmak"))
+        return {
+            "pattern": "present_continuous",
+            "mode": "produce",
+            "target": target,
+            "base_verb": verb,
+            "ing": ing,
+            "object": obj,
+            "transfer_en": ten,
+            "transfer_tr": ttr,
+            "transfer_hint": th,
+            "wrong": t,
+        }
+
+    # I am work (without full match above already covered)
+    return None
+
+
+def _scaffold_pack(
+    profile: dict,
+    session_delta: dict,
+    teacher_en: str,
+    teacher_tr: str,
+    correct: str | None,
+    level: int,
+    msg_type: str,
+    user_text: str,
+    translate_fn: Callable[[str, str, str], str] | None,
+    target_lang: str,
+    delta_extra: dict[str, Any],
+    speak: str | None = None,
+) -> dict[str, Any]:
+    delta = {**session_delta, **delta_extra, "lastTeacherText": teacher_en}
+    merged = merge_profile(profile, delta)
+    return _pack(
+        merged, delta, teacher_en, teacher_tr, correct, level, msg_type,
+        waiting=True, user_text=user_text, teacher_en=teacher_en,
+        speak_text=speak or correct or teacher_en,
+        speak_tr="", speak_tr_first=False,
+        phonetic_en=pronounce_text((correct or speak or teacher_en).split("\n")[0], target_lang),
+        correction_detail=None,
+        translate_fn=translate_fn, target_lang=target_lang,
+    )
+
+
+def _start_sentence_scaffold(
+    user_text: str,
+    target_lang: str,
+    profile: dict,
+    session_delta: dict,
+    translate_fn: Callable[[str, str, str], str] | None,
+) -> dict[str, Any] | None:
+    if target_lang != "en":
+        return None
+    info = _detect_sentence_scaffold(user_text)
+    if not info:
+        return None
+
+    pattern = info["pattern"]
+    profile_patch = _record_mistake(profile, info["wrong"], info["target"], pattern)
+
+    if pattern == "he_it" and info["mode"] == "hint":
+        teacher_en = (
+            "Good try 🙂\n\n"
+            "**He** = a man (erkek kişi)\n"
+            "**She** = a woman (kadın kişi)\n"
+            "**It** = not a person (insan olmayan şey)\n\n"
+            "Is a story a person?\n"
+            "So do we say **he** or **it**?"
+        )
+        teacher_tr = (
+            "He = erkek kişi · She = kadın kişi · It = insan olmayan şey.\n"
+            "Hikâye bir insan mı? O zaman **he** mi **it** mi?"
+        )
+        delta_extra = {
+            **profile_patch,
+            "scaffoldMode": "hint",
+            "scaffoldPattern": pattern,
+            "scaffoldTarget": info["target"],
+            "scaffoldHintAnswer": info["hint_answer"],
+            "scaffoldTransferEn": info["transfer_en"],
+            "scaffoldTransferTr": info["transfer_tr"],
+            "scaffoldTransferHint": info["transfer_hint"],
+            "pendingPracticePhrase": None,
+            "awaitingTargetPhrase": None,
+            "totalCorrections": profile.get("totalCorrections", 0) + 1,
+            "sessionCorrections": profile.get("sessionCorrections", 0) + 1,
+        }
+        taught = list(profile.get("taughtPatterns") or [])
+        if "he / she / it" not in taught:
+            taught.append("he / she / it")
+        delta_extra["taughtPatterns"] = taught[-15:]
+        return _scaffold_pack(
+            profile, session_delta, teacher_en, teacher_tr, info["target"], 2, "scaffold_hint",
+            user_text, translate_fn, target_lang, delta_extra, speak="it",
+        )
+
+    # present_continuous produce
+    verb = info.get("base_verb", "")
+    ing = info.get("ing", "")
+    target = info["target"]
+    teacher_en = (
+        f"Nice start — you used **I am**. 👍\n\n"
+        f"Pattern: **I am + verb-ing**\n"
+        f"{verb} → **{ing}**\n\n"
+        f"So:\n**{target}**\n\n"
+        f"Chunks: I = ben · am = yardımcı · {ing} = …yorum · "
+        f"{(info.get('object') or '').strip() or '…'}\n\n"
+        f"Now you say the full sentence:\n**{target}**"
+    )
+    teacher_tr = (
+        f"Güzel başlangıç: **I am** doğru.\n"
+        f"Kalıp: **I am + fiil-ing**\n"
+        f"{verb} → **{ing}**\n"
+        f"Şimdi sen kur: **{target}**"
+    )
+    taught = list(profile.get("taughtPatterns") or [])
+    if "I am + verb-ing" not in taught:
+        taught.append("I am + verb-ing")
+    delta_extra = {
+        **profile_patch,
+        "scaffoldMode": "produce",
+        "scaffoldPattern": pattern,
+        "scaffoldTarget": target,
+        "scaffoldTransferEn": info["transfer_en"],
+        "scaffoldTransferTr": info["transfer_tr"],
+        "scaffoldTransferHint": info["transfer_hint"],
+        "scaffoldHintAnswer": None,
+        "pendingPracticePhrase": target,
+        "pendingPracticeTr": "şu an yapıyorum (I am + verb-ing)",
+        "awaitingTargetPhrase": target,
+        "taughtPatterns": taught[-15:],
+        "sentenceBuildBase": target,
+        "totalCorrections": profile.get("totalCorrections", 0) + 1,
+        "sessionCorrections": profile.get("sessionCorrections", 0) + 1,
+    }
+    return _scaffold_pack(
+        profile, session_delta, teacher_en, teacher_tr, target, 3, "scaffold_produce",
+        user_text, translate_fn, target_lang, delta_extra, speak=target,
+    )
+
+
+def _continue_sentence_scaffold(
+    user_text: str,
+    target_lang: str,
+    profile: dict,
+    session_delta: dict,
+    translate_fn: Callable[[str, str, str], str] | None,
+) -> dict[str, Any] | None:
+    mode = safe_str(profile.get("scaffoldMode")).strip()
+    if not mode:
+        return None
+    target = safe_str(profile.get("scaffoldTarget")).strip()
+    pattern = safe_str(profile.get("scaffoldPattern")).strip()
+    transfer_en = safe_str(profile.get("scaffoldTransferEn")).strip()
+    transfer_tr = safe_str(profile.get("scaffoldTransferTr")).strip()
+    transfer_hint = safe_str(profile.get("scaffoldTransferHint")).strip()
+    hint_ans = safe_str(profile.get("scaffoldHintAnswer")).strip().lower()
+    ul = user_text.strip().lower()
+
+    if mode == "hint":
+        # Accept it / it is / A etc.
+        said_it = bool(re.search(r"\bit\b", ul)) or ul in ("it", "b", "2")
+        said_he = bool(re.search(r"\bhe\b", ul)) and not said_it
+        if said_it or (hint_ans == "it" and ul in ("it", "b", "2", "it.")):
+            teacher_en = (
+                "Yes — **it**! 😊\n\n"
+                f"Now say the full sentence:\n**{target}**"
+            )
+            teacher_tr = f"Doğru: **it**.\nŞimdi tüm cümleyi kur: **{target}**"
+            delta_extra = {
+                "scaffoldMode": "produce",
+                "pendingPracticePhrase": target,
+                "awaitingTargetPhrase": target,
+                "pendingPracticeTr": "he/she/it",
+            }
+            return _scaffold_pack(
+                profile, session_delta, teacher_en, teacher_tr, target, 2, "scaffold_produce",
+                user_text, translate_fn, target_lang, delta_extra, speak=target,
+            )
+        if said_he:
+            teacher_en = (
+                "Almost — **he** is for a man.\n"
+                "A story is not a person.\n"
+                "Try again: **he** or **it**?"
+            )
+            teacher_tr = "He = erkek kişi. Story kişi değil. Tekrar: **he** mi **it** mi?"
+            return _scaffold_pack(
+                profile, session_delta, teacher_en, teacher_tr, target, 2, "scaffold_hint",
+                user_text, translate_fn, target_lang, {}, speak="it",
+            )
+        teacher_en = "No problem 🙂 Is a story a person? So: **he** or **it**?"
+        teacher_tr = "Hikâye insan mı? O zaman **he** mi **it** mi?"
+        return _scaffold_pack(
+            profile, session_delta, teacher_en, teacher_tr, target, 1, "scaffold_hint",
+            user_text, translate_fn, target_lang, {}, speak="it",
+        )
+
+    if mode == "produce":
+        if target and _practice_phrase_match(user_text, target):
+            # Transfer: yeni cümle
+            teacher_en = (
+                f"Perfect! You built it yourself: **{target}** 🎉\n\n"
+                f"Same pattern again.\n"
+                f"Say: «{transfer_tr}»\n"
+                f"**{transfer_hint}**\n\n"
+                f"Your turn — make the sentence."
+            )
+            teacher_tr = (
+                f"Harika! Cümleyi sen kurdun.\n"
+                f"Aynı kalıpla şimdi:\n«{transfer_tr}»\n"
+                f"{transfer_hint}\n"
+                f"Sen dene."
+            )
+            delta_extra = {
+                "scaffoldMode": "transfer",
+                "scaffoldTarget": transfer_en,
+                "pendingPracticePhrase": transfer_en,
+                "awaitingTargetPhrase": transfer_en,
+                "pendingPracticeTr": transfer_tr,
+                "correctSentences": profile.get("correctSentences", 0) + 1,
+                "lastMasteredPhrase": target[:120],
+            }
+            taught = list(profile.get("taughtPatterns") or [])
+            if pattern == "present_continuous" and "I am + verb-ing" not in taught:
+                taught.append("I am + verb-ing")
+            delta_extra["taughtPatterns"] = taught[-15:]
+            return _scaffold_pack(
+                profile, session_delta, teacher_en, teacher_tr, transfer_en, 1, "scaffold_transfer",
+                user_text, translate_fn, target_lang, delta_extra, speak=transfer_en,
+            )
+        # Wrong produce — short remicro teach
+        teacher_en = (
+            f"You're close. Remember the pattern.\n"
+            f"**{target}**\n\n"
+            f"Try the full sentence again."
+        )
+        teacher_tr = f"Neredeyse. Kalıbı hatırla:\n**{target}**\nTekrar dene."
+        return _scaffold_pack(
+            profile, session_delta, teacher_en, teacher_tr, target, 2, "scaffold_produce",
+            user_text, translate_fn, target_lang,
+            {"pendingPracticePhrase": target, "awaitingTargetPhrase": target},
+            speak=target,
+        )
+
+    if mode == "transfer":
+        goal = transfer_en or target
+        if goal and _practice_phrase_match(user_text, goal):
+            follow = "Do you like stories?" if "story" in goal.lower() or "book" in goal.lower() else "What are you doing now?"
+            if pattern == "present_continuous":
+                follow = "Nice! What are you doing now?"
+            teacher_en = (
+                f"Excellent! You can use the pattern now. 🎉\n"
+                f"**{goal}**\n\n"
+                f"{follow}"
+            )
+            teacher_tr = "Aynı yapıyı yeni cümlede de kullanabildin. Sohbete devam."
+            weak = list(profile.get("weakAreas") or [])
+            strong = list(profile.get("strongAreas") or [])
+            mastered = list(profile.get("masteredTopics") or [])
+            if pattern and pattern not in mastered:
+                mastered.append(pattern)
+            if pattern in weak:
+                weak = [w for w in weak if w != pattern]
+            if pattern and pattern not in strong:
+                strong.append(pattern)
+            delta_extra = {
+                **_clear_scaffold(),
+                "pendingPracticePhrase": None,
+                "pendingPracticeTr": None,
+                "awaitingTargetPhrase": None,
+                "correctSentences": profile.get("correctSentences", 0) + 1,
+                "lastMasteredPhrase": goal[:120],
+                "masteredTopics": mastered[-20:],
+                "weakAreas": weak[:12],
+                "strongAreas": strong[:12],
+                "lastTeacherText": follow,
+            }
+            return _scaffold_pack(
+                profile, session_delta, teacher_en, teacher_tr, None, 1, "scaffold_success",
+                user_text, translate_fn, target_lang, delta_extra, speak=follow,
+            )
+        teacher_en = (
+            f"Remember the pattern. Try:\n**{goal}**\n\n"
+            f"({transfer_tr} — {transfer_hint})"
+        )
+        teacher_tr = f"Aynı kalıpla dene:\n**{goal}**\n{transfer_tr}"
+        return _scaffold_pack(
+            profile, session_delta, teacher_en, teacher_tr, goal, 2, "scaffold_transfer",
+            user_text, translate_fn, target_lang,
+            {"pendingPracticePhrase": goal, "awaitingTargetPhrase": goal},
+            speak=goal,
+        )
+
+    return None
 
 
 def _try_en_rule_teach_turn(
@@ -5507,7 +5900,22 @@ def process_turn(
         "totalSentences": profile.get("totalSentences", 0) + (1 if original_text else 0),
     }
 
-    if translate_fn and target_lang == "en":
+    # Cümle-kurma iskelesi BAŞLAT — learner_clarify'dan ÖNCE
+    # (örn. "I am read a book" aksi halde intent_teach'e kaçıyor)
+    if target_lang == "en" and not safe_str(profile.get("scaffoldMode")).strip():
+        started_early = _start_sentence_scaffold(
+            original_text, target_lang, profile, session_delta, translate_fn,
+        )
+        if started_early:
+            started_early["weekly_progress"] = weekly_progress(started_early["profile"])
+            return started_early
+
+    # Aktif iskele varken learner_clarify çalmasın (produce/transfer cevapları)
+    if (
+        translate_fn
+        and target_lang == "en"
+        and not safe_str(profile.get("scaffoldMode")).strip()
+    ):
         learner = _try_learner_clarify(
             original_text, history, profile, session_delta, target_lang, translate_fn,
         )
@@ -5664,6 +6072,15 @@ def process_turn(
             okay["weekly_progress"] = weekly_progress(okay["profile"])
             return okay
 
+    # Cümle-kurma iskelesi devam (hint → produce → transfer)
+    if target_lang == "en" and safe_str(profile.get("scaffoldMode")).strip():
+        sc = _continue_sentence_scaffold(
+            user_text, target_lang, profile, session_delta, translate_fn,
+        )
+        if sc:
+            sc["weekly_progress"] = weekly_progress(sc["profile"])
+            return sc
+
     # Yardım sonrası pratik — sadece gerçekten doğru söylendiyse
     if pending and translate_fn:
         resumed = _resume_after_help(
@@ -5696,6 +6113,15 @@ def process_turn(
         if review:
             review["weekly_progress"] = weekly_progress(review["profile"])
             return review
+
+    # Cümle-kurma iskelesi başlat (I am read / He is a story)
+    if target_lang == "en" and user_lang == "en":
+        started = _start_sentence_scaffold(
+            original_text, target_lang, profile, session_delta, translate_fn,
+        )
+        if started:
+            started["weekly_progress"] = weekly_progress(started["profile"])
+            return started
 
     # Kırık İngilizce — AI'dan önce niyet sor (yes understand books vb.)
     if translate_fn and target_lang == "en" and user_lang == "en":
