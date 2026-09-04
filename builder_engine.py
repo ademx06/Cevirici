@@ -1,7 +1,7 @@
 """Cümle Kur + Kendini Test Et — kelime/cümle üretimi, yapılandırılmış analiz, telaffuz."""
 from __future__ import annotations
 
-APP_VERSION = "2026.09.04-v71.8"
+APP_VERSION = "2026.09.04-v71.9"
 
 import difflib
 import json
@@ -50,6 +50,7 @@ from word_teaching_engine import (
     try_ai_word_lesson,
     templates_allowed,
     upgrade_word_lesson_teaching,
+    _lesson_category,
     _rule_word_profile,
     _thirteen_pattern_examples_en,
 )
@@ -443,14 +444,23 @@ def generate_word_lesson(
 
     lesson_source = "ai" if ai_example_count >= 7 else ("hybrid" if ai_example_count >= 1 else "rules")
 
+    # AI-only: yeterince zengin AI örneği varsa şablonla doldurma (sadeleşmesin)
     if len(examples) < 13:
-        profile, examples, category = _fast_complete_word_lesson(
-            word_tr, target_word, target_lang, profile, examples, translate_fn, known_words,
-        )
-        if ai_example_count >= 1:
-            lesson_source = "hybrid" if ai_example_count < 7 else "ai+rules"
+        if ai_only and ai_example_count >= 8:
+            lesson_source = "ai"
         else:
-            lesson_source = "rules"
+            profile, examples, category = _fast_complete_word_lesson(
+                word_tr, target_word, target_lang, profile, examples, translate_fn, known_words,
+            )
+            if ai_example_count >= 1:
+                lesson_source = "hybrid" if ai_example_count < 7 else "ai+rules"
+            else:
+                lesson_source = "rules"
+
+    # İkon/kategori — kural tespiti (AI yanlış kategori yazsa bile)
+    category = _lesson_category(word_tr, target_word, profile)
+    if category and category != "general":
+        profile["semantic_category"] = category
 
     if len(examples) < 4:
         return {

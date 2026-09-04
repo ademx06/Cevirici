@@ -43,6 +43,8 @@
     adjective: '😊', place: '📍', footwear: '👟',
     food: '🍽️', fruit: '🍎', vegetable: '🥕', animal: '🐾', drinkware: '🥛',
     abstract: '🌱', tobacco: '🚬', eyewear: '👓', snack: '🍬', document: '🧾',
+    verb: '🗣️', adverb: '⏩', pronoun: '👤', preposition: '📎',
+    conjunction: '🔗', interjection: '💬', object: '📦', clothing: '👕',
   };
 
   function resolveWordIcon(wordOrData, apiIcon) {

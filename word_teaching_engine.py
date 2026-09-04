@@ -21,21 +21,29 @@ ENGLISH_VARIANT = "en-US"
 
 # AI birincil kelime dersi — ChatGPT gibi: önce AI, başarısızsa retry; şablon yedek YOK
 DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
-WORD_LESSON_MAX_TOKENS = 2800
-WORD_LESSON_FAST_MAX_TOKENS = 2000
-AI_LESSON_MAX_ATTEMPTS = 1
+WORD_LESSON_MAX_TOKENS = 3200
+WORD_LESSON_FAST_MAX_TOKENS = 2800
+AI_LESSON_MAX_ATTEMPTS = 2
 
 WORD_LESSON_FAST_PROMPT = """Sen profesyonel ESL öğretmenisin — Cümle Kur kartı hazırla.
 Türkçe: «{word_tr}» → İngilizce: «{target_word}» | Tür: {pos_label} | {lang_name}
 
 {pos_hint}
 
+[KALİTE — ŞABLON YASAK]
+- Her cümle YALNIZCA «{target_word}» için doğal gerçek hayat kullanımı olsun
+- Fiiller/nesneler kelimeye özel: door→knock/lock/close | table→set/wipe | run→for the bus / in the park
+- ❌ I am using the {target_word} / This is my {target_word} / Bring the {target_word}
+- ❌ Genel şablon; kopyala-yapıştır kalıplar
+
 13 örnek cümle (basic, present, past, future, question, negative, imperative, polite_request, advice, obligation, possibility, conditional, dialogue).
-- target: TAM İngilizce cümle (en az 3 kelime) — YASAK: yalnızca «{target_word}» veya tek kelime
-- Hedef kelime her cümlede doğal geçsin
-- tr: tam doğal Türkçe cümle (iyelik: arabam, cüzdanım)
-- how_it_is_formed_tr: min 50 karakter (1️⃣ anlam 2️⃣ yapı)
-- word_breakdown: yalnızca 3-5 önemli token (token, role_tr, meaning_tr)
+- target: TAM İngilizce cümle (en az 4 kelime) — YASAK: yalnızca «{target_word}»
+- Hedef kelime her cümlede doğal geçsin; fiilde çekimli hali kullan (go/went/going)
+- tr: tam doğal Türkçe cümle (iyelik: arabam, kapıyı)
+- how_it_is_formed_tr: min 80 karakter (1️⃣ anlam 2️⃣ yapı 3️⃣ dikkat)
+- common_verbs: bu kelimeyle gerçekten kullanılan 5+ fiil (jenerik use/get/have YASAK değilse doğal)
+- common_collocations: 4+ doğal kalıp
+- word_breakdown: 3-5 önemli token (token, role_tr, meaning_tr)
 
 JSON döndür:
 {{"meaning_tr":"","part_of_speech":"","countability":"","semantic_category":"","usage_notes_tr":"","common_verbs":[],"common_collocations":[],"article_notes_items":[],"avoid_reason_tr":"","examples":[{{"tr":"","target":"","sentence_type":"","structure_tr":"","how_it_is_formed_tr":"","word_breakdown":[]}}]}}"""
@@ -66,19 +74,22 @@ Zorunlu:
 JSON: meaning_tr, usage_notes_tr, part_of_speech, countability, semantic_category,
 common_verbs (5+), common_collocations (4+), article_notes_items, avoid_reason_tr, examples"""
 
-WORD_LESSON_VERB_COMPACT_PROMPT = """Sen ESL öğretmenisin — fiil dersi.
+WORD_LESSON_VERB_COMPACT_PROMPT = """Sen ESL öğretmenisin — fiil dersi (profesyonel, gerçekçi).
 Türkçe: "{word_tr}" → İngilizce fiil: "{target_word}" ({lang_name})
 
 {pos_rules}
 
-Zorunlu:
+[ZORUNLU — ŞABLON YASAK]
 - Tam 13 örnek; türler: basic, present, past, future, question, negative, imperative,
   polite_request, advice, obligation, possibility, conditional, dialogue
 - Fiil çekimleri doğal (go/went/going, don't go, Do you go…)
 - Hedef fiil her cümlede geçmeli (to go değil, çekimli hali: go, went, going…)
-- tr: tam Türkçe cümle; how_it_is_formed_tr min 50 karakter (1️⃣2️⃣ yeterli)
-- common_verbs: bu fiille kullanılan yardımcı kalıplar (5+)
-- common_collocations (4+)
+- Cümleler bu fiile ÖZEL gerçek hayat bağlamı taşısın (❌ I use/go something generic)
+- tr: tam Türkçe cümle; how_it_is_formed_tr min 80 karakter (1️⃣2️⃣3️⃣)
+- common_collocations: bu fiille doğal kalıplar (4+) — örn. run → run late, run for the bus
+- common_verbs: yardımcı/eşdizim fiiller değil; bu fiille sık geçen parçacık/kalıp ipuçları (5+)
+- usage_notes_tr: en az 2 cümle — anlam, çekim, yaygın hata
+- part_of_speech: "verb"
 
 JSON: meaning_tr, usage_notes_tr, part_of_speech, countability, semantic_category,
 common_verbs, common_collocations, article_notes_items, avoid_reason_tr, examples"""
@@ -5011,35 +5022,58 @@ def _llm_generate_dynamic_lesson(
     attempt: int = 0,
     prior_issues: list[str] | None = None,
 ) -> dict[str, Any] | None:
-    """Tek hızlı AI çağrısı — manuel Gemini/Groq gibi."""
+    """AI kelime dersi — fiillerde özel prompt; isim/nesnede zengin doğal kullanım."""
     if not llm_available() or target_lang != "en":
         return None
     lang_name = LANG_NAMES.get(target_lang, target_lang)
     pos = detect_part_of_speech(word_tr, target_word)
     pos_label = POS_LABELS_TR.get(pos, pos)
-    system = WORD_LESSON_FAST_PROMPT.format(
-        word_tr=word_tr[:80],
-        target_word=target_word[:80],
-        lang_name=lang_name,
-        pos_label=pos_label,
-        pos_hint=get_pos_teaching_rules_for_prompt(word_tr, target_word)[:480],
+    pos_rules = get_pos_teaching_rules_for_prompt(word_tr, target_word)
+
+    # Fiiller: özel kompakt fiil promptu (çekim + doğal kullanım)
+    if pos == "verb" or _prefer_parallel_split_lesson(word_tr, target_word):
+        system = WORD_LESSON_VERB_COMPACT_PROMPT.format(
+            word_tr=word_tr[:80],
+            target_word=target_word[:80],
+            lang_name=lang_name,
+            pos_rules=pos_rules[:900],
+        )
+        max_tok = WORD_LESSON_MAX_TOKENS
+    else:
+        system = WORD_LESSON_FAST_PROMPT.format(
+            word_tr=word_tr[:80],
+            target_word=target_word[:80],
+            lang_name=lang_name,
+            pos_label=pos_label,
+            pos_hint=pos_rules[:700],
+        )
+        max_tok = WORD_LESSON_FAST_MAX_TOKENS
+
+    user_msg = (
+        f"Return JSON only. Focus ONLY on «{word_tr}» → «{target_word}». "
+        "Natural real-world English — no mechanical templates."
     )
-    user_msg = "Return JSON only."
     if prior_issues:
         user_msg = (
-            "Önceki deneme BAŞARISIZ. Düzelt ve 13 örnek üret:\n"
-            + "\n".join(f"- {issue}" for issue in prior_issues[:5])
-            + "\n\nReturn JSON only."
+            "Önceki deneme BAŞARISIZ. Düzelt ve 13 zengin örnek üret:\n"
+            + "\n".join(f"- {issue}" for issue in prior_issues[:6])
+            + f"\n\nKelimeye özel doğal kullanım yaz: «{target_word}». Return JSON only."
         )
-    parsed = _llm_json_word_lesson(system, user_msg, max_tokens=WORD_LESSON_FAST_MAX_TOKENS)
+    parsed = _llm_json_word_lesson(system, user_msg, max_tokens=max_tok)
     if not parsed or not isinstance(parsed.get("examples"), list):
+        # Fiillerde split yedek (7+6)
+        if pos == "verb" or _prefer_parallel_split_lesson(word_tr, target_word):
+            return _llm_generate_dynamic_lesson_split(
+                word_tr, target_word, target_lang, system,
+                attempt=attempt, prior_issues=prior_issues,
+            )
         return None
     profile: dict[str, Any] = {
         "target_word": target_word,
         "meaning_tr": parsed.get("meaning_tr") or word_tr,
         "usage_notes_tr": parsed.get("usage_notes_tr", ""),
-        "part_of_speech": parsed.get("part_of_speech", "noun"),
-        "countability": parsed.get("countability", "countable"),
+        "part_of_speech": parsed.get("part_of_speech") or pos or "noun",
+        "countability": parsed.get("countability", "countable" if pos != "verb" else "n/a"),
         "semantic_category": parsed.get("semantic_category") or detect_category(word_tr, target_word),
         "common_verbs": parsed.get("common_verbs") or [],
         "common_collocations": parsed.get("common_collocations") or [],
@@ -5049,6 +5083,10 @@ def _llm_generate_dynamic_lesson(
         "avoid_reason_tr": parsed.get("avoid_reason_tr", ""),
         "natural_example_ideas": parsed.get("examples"),
     }
+    # Kategori ikon/harita için kural kategorisini koru
+    detected = detect_category(word_tr, target_word)
+    if detected != "general":
+        profile["semantic_category"] = detected
     examples: list[dict[str, Any]] = []
     for i, raw in enumerate(parsed["examples"]):
         if not isinstance(raw, dict):
@@ -5064,6 +5102,11 @@ def _llm_generate_dynamic_lesson(
                 examples.append(ex)
         examples = sanitize_word_examples(examples, word_tr, target_word, profile)
     if len(examples) < 6:
+        if pos == "verb" or _prefer_parallel_split_lesson(word_tr, target_word):
+            return _llm_generate_dynamic_lesson_split(
+                word_tr, target_word, target_lang, system,
+                attempt=attempt, prior_issues=prior_issues,
+            )
         return None
     return {"profile": profile, "examples": examples[:13]}
 
@@ -5615,7 +5658,7 @@ def merge_rule_usage_profile(
     target_lang: str,
 ) -> dict[str, Any]:
     """Kullanım haritası alanlarını kural profiliyle doldur — AI boş bıraksa bile."""
-    category = detect_category(word_tr, target_word)
+    category = _lesson_category(word_tr, target_word, profile)
     rule = _rule_word_profile(word_tr, target_word, target_lang, category)
     rule = enforce_category_usage_profile(rule, word_tr, target_word, target_lang)
     if _is_wallet_like(word_tr, target_word):

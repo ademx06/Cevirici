@@ -3611,7 +3611,7 @@ def _llm_chat_json_raw(
     """Tek sağlayıcıdan ham JSON metin al."""
     messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
     if provider == "groq":
-        word_lesson = max_tokens >= 1600
+        word_lesson = max_tokens >= 2000
         groq_model = (
             os.environ.get("GROQ_WORD_LESSON_MODEL", "llama-3.1-8b-instant")
             if word_lesson
@@ -3619,13 +3619,14 @@ def _llm_chat_json_raw(
             if max_tokens <= 600
             else None
         )
-        timeout = min(10, _llm_request_timeout(max_tokens)) if word_lesson else _llm_request_timeout(max_tokens)
+        timeout = min(12, _llm_request_timeout(max_tokens)) if word_lesson else _llm_request_timeout(max_tokens)
         return _groq_chat(
             messages, max_tokens=max_tokens, json_mode=True, timeout_sec=timeout, model=groq_model,
         )
     if provider == "gemini":
-        word_lesson = max_tokens >= 1600
-        timeout = 16 if word_lesson else None
+        # Kelime dersi: yeterli süre — kesik JSON / sade şablon üretmesin
+        word_lesson = max_tokens >= 2000
+        timeout = 45 if word_lesson else None
         return _gemini_api_request({
             "systemInstruction": {"parts": [{"text": system}]},
             "contents": [{"role": "user", "parts": [{"text": user}]}],
@@ -3687,8 +3688,8 @@ def _llm_json(
 
 
 def _llm_json_word_lesson(system: str, user: str, max_tokens: int = 2400) -> dict[str, Any] | None:
-    """Kelime dersi — Groq + Gemini paralel; ilk geçerli JSON kazanır (~5 sn hedef)."""
-    prefer = os.environ.get("WORD_LESSON_PROVIDER", "groq").strip().lower()
+    """Kelime dersi — Gemini birincil (kalite), Groq yedek. Sıralı dener."""
+    prefer = os.environ.get("WORD_LESSON_PROVIDER", "gemini").strip().lower()
     providers: list[str] = []
     if prefer == "groq":
         if groq_api_key_valid():
@@ -3700,37 +3701,13 @@ def _llm_json_word_lesson(system: str, user: str, max_tokens: int = 2400) -> dic
             providers.append("gemini")
         if groq_api_key_valid():
             providers.append("groq")
-    if not providers:
-        return None
-
-    def _try(provider: str) -> dict[str, Any] | None:
+    for provider in providers:
         raw = _llm_chat_json_raw(provider, system, user, max_tokens)
-        if not raw:
-            return None
-        parsed = _parse_json_object(raw)
-        if parsed and isinstance(parsed.get("examples"), list) and len(parsed["examples"]) >= 4:
-            return parsed
-        return None
-
-    if len(providers) == 1:
-        return _try(providers[0])
-
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        futures = {pool.submit(_try, p): p for p in providers}
-        try:
-            for fut in as_completed(futures, timeout=14):
-                try:
-                    parsed = fut.result()
-                except Exception:
-                    continue
-                if parsed:
-                    for other in futures:
-                        other.cancel()
-                    return parsed
-        except Exception:
-            pass
+        if raw:
+            parsed = _parse_json_object(raw)
+            # İnce/şablon yanıtları reddet — en az 8 örnek
+            if parsed and isinstance(parsed.get("examples"), list) and len(parsed["examples"]) >= 8:
+                return parsed
     return None
 
 
