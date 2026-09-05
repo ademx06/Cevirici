@@ -18,7 +18,8 @@ from education_engine import (
     process_turn, greeting, session_report, daily_lesson, default_profile,
     finalize_session, weekly_progress, merge_profile, llm_available, ai_provider_info,
     pronounce_text, safe_str, llm_translate, groq_api_key_status,
-    llm_rewrite_georgian, llm_verify_and_fix_translation,
+    llm_rewrite_georgian, llm_rewrite_turkish_from_georgian,
+    llm_verify_and_fix_translation,
 )
 from builder_engine import (
     generate_word_lesson,
@@ -28,7 +29,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.09.04-v72.3"
+APP_VERSION = "2026.09.05-v72.4"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -287,6 +288,9 @@ def _is_short_simple_utterance(text: str) -> bool:
 
 def _needs_quality_translate(text: str, from_lang: str = "tr", to_lang: str = "en") -> bool:
     """Uzun / çok cümle / anlatı / zamir bağlamı — tüm dil çiftlerinde LLM kalite yolu."""
+    # Gürcüce → Türkçe: kısa sohbette bile doğal Türkçe kalite yolu
+    if from_lang == "ka" and to_lang == "tr":
+        return True
     t = text.strip()
     if re.search(
         r"\b\w+(?:nın|nin|nun|nün|ın|in|un|ün)\s+\d+\s+yaşında\b",
@@ -721,6 +725,87 @@ def _translate_georgian_native(src: str, from_lang: str) -> str | None:
     return _pick_translation(src, "ka", rewritten, g_ka)
 
 
+
+def _has_mkhedruli(text: str) -> bool:
+    return bool(re.search(r"[\u10A0-\u10FF]", text or ""))
+
+
+def _polish_turkish_from_georgian(src: str, text: str) -> str:
+    """KA→TR hafif düzeltme — anlamı değiştirmeden doğal Türkçe."""
+    t = (text or "").strip()
+    if not t:
+        return t
+    if t[0].islower() and re.match(r"[a-zçğıöşü]", t[0]):
+        t = t[0].upper() + t[1:]
+    src_l = src or ""
+    if "გამარჯობა" in src_l and "როგორ ხარ" in src_l and re.fullmatch(r"nasılsın\??", t, re.I):
+        t = "Merhaba, nasılsın?"
+    if ("?" in src_l or src_l.rstrip().endswith(("?", "؟"))) and not t.endswith("?") and re.search(
+        r"\b(mi|mı|mu|mü|ne|nasıl|nerede|kim|kaç|adın)\b", t, re.I
+    ):
+        t = t.rstrip(".!") + "?"
+    return t
+
+
+def _translate_turkish_from_georgian(src: str) -> str | None:
+    """KA → TR: Google taslak + yerli Türkçe yeniden yazım (Türk kullanıcı için)."""
+    g_tr: str | None = None
+    meaning_en: str | None = None
+
+    def _gtr() -> str | None:
+        try:
+            return google_translate_fast(src, "ka", "tr")
+        except Exception:
+            return None
+
+    def _en() -> str | None:
+        try:
+            return google_translate_fast(src, "ka", "en")
+        except Exception:
+            return None
+
+    pool = ThreadPoolExecutor(max_workers=2)
+    try:
+        f_tr = pool.submit(_gtr)
+        f_en = pool.submit(_en)
+        try:
+            g_tr = f_tr.result(timeout=2.5)
+        except Exception:
+            g_tr = None
+        try:
+            meaning_en = f_en.result(timeout=2.5)
+        except Exception:
+            meaning_en = None
+    finally:
+        pool.shutdown(wait=False, cancel_futures=False)
+
+    if g_tr:
+        g_tr = _polish_turkish_from_georgian(src, g_tr)
+
+    rewritten: str | None = None
+    if llm_available() and (g_tr or src):
+        try:
+            rewritten = llm_rewrite_turkish_from_georgian(src, meaning_en or "", g_tr or "")
+        except Exception:
+            rewritten = None
+        if rewritten:
+            rewritten = _polish_turkish_from_georgian(src, rewritten)
+            if not _script_matches_lang(rewritten, "tr"):
+                rewritten = None
+            elif _translation_is_garbled(src, rewritten, "tr"):
+                rewritten = None
+
+    if not rewritten and not g_tr and llm_available():
+        try:
+            rewritten = llm_translate(src, "ka", "tr")
+        except Exception:
+            rewritten = None
+        if rewritten:
+            rewritten = _polish_turkish_from_georgian(src, rewritten)
+
+    return _pick_translation(src, "tr", rewritten, g_tr)
+
+
 def smart_translate_text(text: str, from_lang: str, to_lang: str) -> str:
     """Profesyonel çeviri: kısa sohbet = Google; uzun/anlatı = LLM+QC (tüm diller)."""
     if from_lang == to_lang:
@@ -740,6 +825,8 @@ def smart_translate_text(text: str, from_lang: str, to_lang: str) -> str:
     if quality:
         if to_lang == "ka":
             result = _translate_georgian_native(src, from_lang)
+        elif from_lang == "ka" and to_lang == "tr":
+            result = _translate_turkish_from_georgian(src)
         else:
             llm_r: str | None = None
             g_r: str | None = None
@@ -824,11 +911,15 @@ def smart_translate_text(text: str, from_lang: str, to_lang: str) -> str:
 
     if to_lang == "ka":
         result = _polish_georgian(src, result)
+    if from_lang == "ka" and to_lang == "tr":
+        result = _polish_turkish_from_georgian(src, result)
 
     # Çeviri sonrası kalite kontrolü (kullanıcıya göstermeden)
     result = _apply_translate_qc(src, result, from_lang, to_lang)
     if to_lang == "ka":
         result = _polish_georgian(src, result)
+    if from_lang == "ka" and to_lang == "tr":
+        result = _polish_turkish_from_georgian(src, result)
 
     _cache_set(_TRANSLATE_CACHE, key, result)
     return result
@@ -940,7 +1031,11 @@ TRANSLATE_WHISPER_PROMPTS: dict[str, str] = {
     "de": "Natürliches gesprochenes Deutsch. Wörtlich transkribieren.",
     "fr": "Conversation française naturelle. Transcrire exactement ce qui est dit.",
     "es": "Conversación en español natural. Transcribir exactamente lo dicho.",
-    "ka": "ბუნებრივი ქართული საუბარი.",
+    "ka": (
+        "ბუნებრივი ქართული საუბარი. ზუსტად ჩაწერე რაც ითქვა. "
+        "მაგალითები: გამარჯობა, როგორ ხარ, რა გქვია, მადლობა, კარგი, "
+        "მე მინდა ყავა, დღეს სამსახურში მივდივარ, ერთად ვისადილოთ."
+    ),
     "ar": "محادثة عربية طبيعية.",
     "ru": "Естественная русская речь.",
     "it": "Conversazione italiana naturale.",
@@ -1714,6 +1809,12 @@ def _stt_early_lang(text: str, my: str, other: str) -> str | None:
     if not t or is_hallucination(t):
         return None
     words = t.split()
+    pair = {my, other}
+    # tr↔ka: Mkhedruli yoksa Latin auto ile erken çıkma (Gürcüceyi Türkçe sanmasın)
+    if "ka" in pair and not _has_mkhedruli(t):
+        has_tr_ortho = bool(re.search(r"[ğüşıöçĞÜŞİÖÇ]", t))
+        if not has_tr_ortho:
+            return None
     tr_clear = is_likely_turkish(t) and not is_likely_english(t, my, other)
     en_clear = is_likely_english(t, my, other) and not is_likely_turkish(t)
     if tr_clear and en_clear:
@@ -1727,6 +1828,8 @@ def _stt_early_lang(text: str, my: str, other: str) -> str | None:
             if lang in ("ka", "ru", "ar", "zh") and looks_like_lang(t, lang):
                 return lang
         return None
+    if _has_mkhedruli(t) and "ka" in pair:
+        return "ka"
     if tr_clear and "tr" in (my, other):
         return "tr"
     if en_clear and "en" in (my, other):
@@ -1768,10 +1871,14 @@ def transcribe_dual(
                 candidates.append((text, r[1], r[2], source))
 
         if long_audio:
-            # Uzun konuşma: tek hızlı auto STT — yazı hızına yaklaş
+            # Uzun konuşma: hızlı auto; tr↔ka'da Gürcüce kanalını da aç
             tasks = {
                 "auto": lambda: groq_stt_auto(wav),
             }
+            if "ka" in (my, other):
+                tasks["lang_ka"] = lambda: stt_for_translate(wav, "ka")
+                if "tr" in (my, other):
+                    tasks["lang_tr"] = lambda: stt_for_translate(wav, "tr")
         else:
             tasks = {
                 "auto": lambda: groq_stt_auto(wav),
@@ -1830,10 +1937,19 @@ def transcribe_dual(
                     s += 30
             if re.search(r"[ğüşıöçĞÜŞİÖÇ]", text):
                 s += 70
+            if _has_mkhedruli(text):
+                s += 110
+                if stt_lang == "ka" or source.endswith("ka") or source == "lang_ka":
+                    s += 40
+            if "ka" in (my, other) and source == "auto" and not _has_mkhedruli(text):
+                # Latin auto adayını Gürcüce Mkhedruli karşısında ezme
+                s -= 35
             if _stt_has_turkish_markers(text):
                 s += 25
-            if source == "auto":
+            if source == "auto" and not ("ka" in (my, other) and not _has_mkhedruli(text)):
                 s += 20
+            elif source == "auto":
+                s += 5  # tr↔ka Latin auto: düşük öncelik
             if looks_like_lang(text, from_lang):
                 s += 15
             if last_from and from_lang == last_from:
@@ -1888,6 +2004,17 @@ def transcribe_dual(
                 if timings is not None:
                     timings["stt_ms"] = int((time.perf_counter() - t_stt) * 1000)
                 return pick[0], ("tr" if pick in strong_tr else "en")
+
+        # tr↔ka: Mkhedruli aday varsa onu seç
+        if "ka" in (my, other):
+            mk = [c for c in candidates if _has_mkhedruli(c[0])]
+            if mk:
+                best = max(mk, key=rank)
+                text = best[0]
+                from_lang = "ka"
+                if timings is not None:
+                    timings["stt_ms"] = int((time.perf_counter() - t_stt) * 1000)
+                return text, from_lang
 
         best = max(candidates, key=rank)
         text = best[0]
