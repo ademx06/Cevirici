@@ -143,6 +143,64 @@ def test_all_pair_langs_have_stt_config():
     print("TEST STT_LANG covers TR/EN/KA/ES/RU OK")
 
 
+
+
+def test_script_guard_rejects_wrong_alphabet():
+    assert server._script_matches_lang("გამარჯობა", "ka")
+    assert not server._script_matches_lang("Merhaba nasılsın", "ka")
+    assert server._script_matches_lang("Здравствуйте", "ru")
+    assert not server._script_matches_lang("Hello", "ru")
+    assert server._script_matches_lang("Hello how are you", "en")
+    assert not server._script_matches_lang("გამარჯობა", "en")
+    assert server._script_matches_lang("Hola cómo estás", "es")
+    assert server._script_matches_lang("Merhaba", "tr")
+    print("TEST script guard OK")
+
+
+def test_transcribe_forced_uses_bas_konus_pipeline():
+    """forced path must use pro audio + bas_konus STT, not auto dual."""
+    calls = {"prep": 0, "stt": 0, "dual": 0}
+
+    def fake_prep(data):
+        calls["prep"] += 1
+        return "/tmp/fake.wav"
+
+    def fake_stt(wav, lang):
+        calls["stt"] += 1
+        assert lang == "en"
+        return ("Hello, how are you today?", "en", 90.0)
+
+    with patch.object(server, "prepare_wav_bas_konus", side_effect=fake_prep), \
+         patch.object(server, "stt_for_bas_konus", side_effect=fake_stt), \
+         patch.object(server, "transcribe_dual") as m_dual, \
+         patch.object(server, "os") as m_os:
+        m_os.path.exists.return_value = True
+        m_os.unlink = lambda *a, **k: None
+        text, lang = server.transcribe_forced(b"RIFF" + b"\x00" * 100, "en", {})
+        assert text.startswith("Hello")
+        assert lang == "en"
+        assert calls["prep"] == 1
+        assert calls["stt"] >= 1
+        assert not m_dual.called
+    print("TEST forced uses bas_konus pipeline OK")
+
+
+def test_bas_konus_prompts_cover_all_stt_langs():
+    for code in ("tr", "en", "ka", "es", "ru", "de", "fr", "it", "ar", "zh"):
+        assert code in server.STT_LANG
+        # prompt may fall back to generic — but preferred keys should exist for core langs
+        if code in ("tr", "en", "ka", "es", "ru"):
+            assert code in server.BAS_KONUS_WHISPER_PROMPTS
+            # örnek cümle sızıntısı olmasın
+            p = server.BAS_KONUS_WHISPER_PROMPTS[code].lower()
+            assert "hello how are you" not in p
+            assert "გამარჯობა" not in server.BAS_KONUS_WHISPER_PROMPTS[code] or code == "ka"
+            # ka prompt should NOT include example greeting phrases as templates to copy
+            if code == "en":
+                assert "common phrases" not in p
+    print("TEST bas_konus prompts OK")
+
+
 if __name__ == "__main__":
     test_forced_source_uses_button_language_not_detection()
     test_forced_ka_source_not_turkish()
@@ -151,4 +209,7 @@ if __name__ == "__main__":
     test_language_switch_does_not_carry_previous()
     test_unsupported_forced_source_errors()
     test_all_pair_langs_have_stt_config()
+    test_script_guard_rejects_wrong_alphabet()
+    test_transcribe_forced_uses_bas_konus_pipeline()
+    test_bas_konus_prompts_cover_all_stt_langs()
     print("\nAll forced-source Bas Konuş tests passed.")

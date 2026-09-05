@@ -25,7 +25,7 @@
 
   function createMicHold(cfg) {
     const S = cfg.state;
-    const tailMs = cfg.tailMs ?? 100;
+    const tailMs = cfg.tailMs ?? 180;
     const minHoldMs = cfg.minHoldMs ?? 280;
     const minBlobBytes = cfg.minBlobBytes ?? 200;
     const micOpenMs = cfg.micOpenMs ?? 12000;
