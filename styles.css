@@ -372,6 +372,21 @@ body {
   color: rgba(255,255,255,0.85);
 }
 
+.dual-mic-hint {
+  margin: 0 12px 8px;
+  color: #94A3B8;
+  font-size: 13px;
+  text-align: center;
+}
+
+.dual-mic-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding: 0 12px;
+  margin-bottom: 8px;
+}
+
 .mic-btn {
   width: 100%;
   display: flex;
@@ -387,6 +402,36 @@ body {
   user-select: none;
   -webkit-user-select: none;
   touch-action: manipulation;
+}
+
+.mic-btn.dual-mic {
+  gap: 10px;
+  padding: 16px 12px;
+  min-height: 88px;
+}
+
+.mic-btn.dual-mic .mic-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 22px;
+  font-size: 22px;
+}
+
+.mic-btn.dual-mic .mic-text strong {
+  font-size: 14px;
+  line-height: 1.25;
+  margin-bottom: 4px;
+}
+
+.mic-btn.dual-mic .mic-text small {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #7DD3FC;
+}
+
+.mic-btn.dual-mic.recording .mic-text small {
+  color: #FECACA;
 }
 
 .mic-btn.processing {

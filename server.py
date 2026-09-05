@@ -29,7 +29,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.09.05-v72.10"
+APP_VERSION = "2026.09.05-v72.11"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -2418,55 +2418,103 @@ def pick_speech_hypothesis(
     return text, lang, float(conf)
 
 
+
+def transcribe_forced(
+    data: bytes,
+    source_lang: str,
+    timings: dict | None = None,
+) -> tuple[str, str]:
+    """Bas Konuş: SOURCE dil butondan gelir — auto detect YOK, tek dil STT."""
+    if source_lang not in STT_LANG:
+        raise ValueError("Bu dil için konuşma tanıma yapılandırması bulunamadı.")
+    t_ffmpeg = time.perf_counter()
+    wav = prepare_wav(data, fast=True)
+    if timings is not None:
+        timings["ffmpeg_ms"] = int((time.perf_counter() - t_ffmpeg) * 1000)
+    t_stt = time.perf_counter()
+    try:
+        result = stt_for_translate(wav, source_lang)
+        if (not result or not (result[0] or "").strip()) and not DISABLE_WHISPER:
+            result = stt_for_lang(wav, source_lang, allow_whisper=True)
+        if not result or not (result[0] or "").strip():
+            raise ValueError("speech not recognized")
+        text = clean_stt_text(result[0])
+        if not text or is_hallucination(text):
+            raise ValueError("speech not recognized")
+        if timings is not None:
+            timings["stt_ms"] = int((time.perf_counter() - t_stt) * 1000)
+            timings["stt_early"] = False
+            timings["stt_forced"] = True
+            timings["language_confidence"] = 1.0
+            timings["detected_language"] = source_lang
+            timings["stt_language"] = source_lang
+        return text, source_lang
+    finally:
+        if os.path.exists(wav):
+            os.unlink(wav)
+
+
 def process_speech_segment(
     data: bytes,
     my: str,
     other: str,
     last_from: str | None = None,
     timings: dict | None = None,
+    forced_source: str | None = None,
 ) -> dict:
     """
-    Merkezi canlı çeviri pipeline:
-    audio → STT adayları → dil güveni → SOURCE transcript → SOURCE→TARGET çeviri
+    Merkezi canlı çeviri pipeline.
+    Bas Konuş: forced_source varsa otomatik dil tespiti YOK —
+    buton dili = SOURCE = STT language.
     """
     t0 = time.perf_counter()
-    original, from_lang = transcribe_dual(data, my, other, last_from, timings)
-    conf = 0.0
-    if timings and timings.get("language_confidence") is not None:
-        conf = float(timings["language_confidence"])
+    forced = forced_source if forced_source in (my, other) else None
+    if forced_source and forced is None:
+        raise ValueError("Seçilen konuşma dili dil çiftinde yok.")
+    if forced_source and forced_source not in STT_LANG:
+        raise ValueError("Bu dil için konuşma tanıma yapılandırması bulunamadı.")
+
+    if forced:
+        original, from_lang = transcribe_forced(data, forced, timings)
+        conf = 1.0
+        to_lang = other if from_lang == my else my
+        # Yön tahminine izin verme — buton SOURCE/TARGET kesin
+        translated = translate_text(original, from_lang, to_lang)
     else:
-        conf = language_confidence(original, from_lang, my, other)
+        original, from_lang = transcribe_dual(data, my, other, last_from, timings)
+        conf = 0.0
+        if timings and timings.get("language_confidence") is not None:
+            conf = float(timings["language_confidence"])
+        else:
+            conf = language_confidence(original, from_lang, my, other)
 
-    # Kaynak transcript doğrulama: Gürcüce seçildiyse Latin/Türkçe çöpünü SOURCE yapma
-    if from_lang == "ka" and original and not _has_mkhedruli(original):
-        # Çeviri metni gibi duran Türkçe/İngilizce SOURCE olmasın — yine de ka kanalı metnini koru
-        if is_likely_turkish(original) or (
-            is_likely_english(original, my, other) and "en" not in (my, other)
-        ):
-            conf = min(conf, 0.45)
+        # Kaynak transcript doğrulama: Gürcüce seçildiyse Latin/Türkçe çöpünü SOURCE yapma
+        if from_lang == "ka" and original and not _has_mkhedruli(original):
+            if is_likely_turkish(original) or (
+                is_likely_english(original, my, other) and "en" not in (my, other)
+            ):
+                conf = min(conf, 0.45)
 
-    to_lang = other if from_lang == my else my
-    # Doğrudan SOURCE → TARGET (ara dil / TR üzerinden zincir yok)
-    translated, from_lang, to_lang = translate_pair_safe(
-        original, from_lang, to_lang, my, other,
-    )
+        to_lang = other if from_lang == my else my
+        translated, from_lang, to_lang = translate_pair_safe(
+            original, from_lang, to_lang, my, other,
+        )
 
     # SOURCE asla TRANSLATION ile değiştirilmez
     if translated and original and translated.strip() == original.strip() and from_lang != to_lang:
-        # Aynı metin kaldıysa çeviri başarısız; yine de original'i bozma
         pass
 
     elapsed_ms = int((time.perf_counter() - t0) * 1000)
-    # Geliştirme debug — hassas veri (API key/token) yok
     print(
-        f"BAS_KONUS SOURCE_LANGUAGE={from_lang} "
-        f"LANGUAGE_CONFIDENCE={conf:.3f} "
+        f"BAS_KONUS BUTTON_LANGUAGE={forced or '-'} "
+        f"SOURCE_LANGUAGE={from_lang} "
         f"TARGET_LANGUAGE={to_lang} "
-        f"SPEECH_CONFIDENCE={conf:.3f} "
+        f"STT_LANGUAGE={forced or timings.get('stt_language') if timings else from_lang} "
+        f"LANGUAGE_CONFIDENCE={conf:.3f} "
         f"ORIGINAL_TRANSCRIPT={((original or '')[:120]).replace(chr(10), ' ')!r} "
         f"TRANSLATION={((translated or '')[:120]).replace(chr(10), ' ')!r} "
         f"PROCESSING_TIME={elapsed_ms} "
-        f"RETRY_COUNT={int((timings or {}).get('retry_count') or 0)}",
+        f"FORCED={bool(forced)}",
         flush=True,
     )
     return {
@@ -2477,6 +2525,8 @@ def process_speech_segment(
         "language_confidence": round(conf, 3),
         "detected_language": from_lang,
         "phonetic": "",
+        "forced_source": bool(forced),
+        "stt_language": forced or from_lang,
     }
 
 
@@ -2955,6 +3005,14 @@ class Handler(SimpleHTTPRequestHandler):
         last_from = (params.get("last") or [""])[0].strip() or None
         if last_from not in (my, other):
             last_from = None
+        # Bas Konuş buton dili — otomatik tespit yerine zorunlu SOURCE
+        forced_source = (params.get("source") or [""])[0].strip() or None
+        if forced_source and forced_source not in STT_LANG:
+            self.send_json_error(400, "Bu dil için konuşma tanıma yapılandırması bulunamadı.")
+            return
+        if forced_source and forced_source not in (my, other):
+            self.send_json_error(400, "Seçilen konuşma dili dil çiftinde yok.")
+            return
         length = int(self.headers.get("Content-Length", 0))
         if length <= 0:
             self.send_error(400, "empty body")
@@ -2965,7 +3023,9 @@ class Handler(SimpleHTTPRequestHandler):
         pid = f"p{int(t0 * 1000) % 100000000}"
         try:
             t_tr = time.perf_counter()
-            result = process_speech_segment(data, my, other, last_from, timings)
+            result = process_speech_segment(
+                data, my, other, last_from, timings, forced_source=forced_source,
+            )
             timings["translation_ms"] = int((time.perf_counter() - t_tr) * 1000)
             timings["process_total_ms"] = int((time.perf_counter() - t0) * 1000)
             print(
@@ -2986,6 +3046,8 @@ class Handler(SimpleHTTPRequestHandler):
                 "to": result["to"],
                 "language_confidence": result.get("language_confidence", 0),
                 "detected_language": result.get("detected_language") or result["from"],
+                "stt_language": result.get("stt_language") or result["from"],
+                "forced_source": bool(result.get("forced_source")),
                 "phonetic": "",
             }).encode()
             self.send_response(200)
