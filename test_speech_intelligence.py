@@ -113,11 +113,47 @@ def test_strong_english_can_switch():
     print("TEST strong English switch OK")
 
 
+
+def test_ka_channel_beats_turkish_hallucination():
+    setup_function()
+    text, lang, conf = pick_speech_hypothesis(
+        [
+            ("Sanırım her şeyi bıraksak bu yiyecek gibi.", "tr", 55.0, "lang_tr"),
+            ("გამარჯობა, როგორ ხარ?", "ka", 50.0, "lang_ka"),
+        ],
+        "tr",
+        "ka",
+        None,
+    )
+    assert lang == "ka"
+    assert "გამარჯობა" in text
+    print("TEST KA channel beats Turkish hallucination OK")
+
+
+def test_ka_latin_channel_still_preferred_over_tr_garbage():
+    setup_function()
+    text, lang, conf = pick_speech_hypothesis(
+        [
+            ("Sanırım her şeyi bıraksak bu yiyecek gibi.", "tr", 55.0, "lang_tr"),
+            ("gamarjoba rogor khar", "ka", 40.0, "lang_ka"),
+        ],
+        "tr",
+        "ka",
+        None,
+    )
+    assert lang == "ka"
+    assert "gamarjoba" in text.lower()
+    print("TEST KA latin channel preferred over TR garbage OK")
+
+
 if __name__ == "__main__":
+
     test_en_channel_beats_turkish_garbage()
     test_ka_mkhedruli_wins()
     test_tr_ortho_wins()
     test_ascii_turkish_not_english()
     test_weak_segment_does_not_flip_language()
     test_strong_english_can_switch()
+    test_ka_channel_beats_turkish_hallucination()
+    test_ka_latin_channel_still_preferred_over_tr_garbage()
     print("\nAll speech intelligence tests passed.")

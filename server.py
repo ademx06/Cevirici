@@ -29,7 +29,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.09.05-v72.7"
+APP_VERSION = "2026.09.05-v72.8"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -1062,9 +1062,10 @@ TRANSLATE_WHISPER_PROMPTS: dict[str, str] = {
     "fr": "Conversation française naturelle. Transcrire exactement ce qui est dit.",
     "es": "Conversación en español natural. Transcribir exactamente lo dicho.",
     "ka": (
-        "ბუნებრივი ქართული საუბარი. ზუსტად ჩაწერე რაც ითქვა. "
-        "მაგალითები: გამარჯობა, როგორ ხარ, რა გქვია, მადლობა, კარგი, "
-        "მე მინდა ყავა, დღეს სამსახურში მივდივარ, ერთად ვისადილოთ."
+        "ბუნებრივი ქართული საუბარი. მხოლოდ ქართული ასოებით (მხედრული) ჩაწერე. "
+        "ლათინური ტრანსლიტერაცია აკრძალულია. ზუსტად ჩაწერე რაც ითქვა, არაფერი გამოიგონო. "
+        "მაგალითები: გამარჯობა, როგორ ხარ?, რა გქვია?, მადლობა, კარგი, "
+        "მე მინდა ყავა, დღეს სამსახურში მივდივარ, სად არის სასტუმრო?"
     ),
     "ar": "محادثة عربية طبيعية.",
     "ru": "Естественная русская речь.",
@@ -1257,6 +1258,7 @@ def _groq_stt_request(
     lang_code: str | None,
     prompt: str,
     timeout_sec: int = 18,
+    model: str | None = None,
 ) -> tuple[str, str, float] | None:
     from education_engine import groq_api_key_valid
 
@@ -1276,8 +1278,9 @@ def _groq_stt_request(
 
         boundary = f"----GroqStt{uuid.uuid4().hex}"
         parts: list[bytes] = []
+        stt_model = (model or "whisper-large-v3-turbo").strip() or "whisper-large-v3-turbo"
         fields: list[tuple[str, str]] = [
-            ("model", "whisper-large-v3-turbo"),
+            ("model", stt_model),
             ("response_format", response_format),
             ("temperature", "0"),
         ]
@@ -1332,7 +1335,13 @@ def groq_stt(wav: str, lang_code: str, *, translate_mode: bool = False) -> tuple
         prompt = TRANSLATE_WHISPER_PROMPTS.get(short, TRANSLATE_WHISPER_PROMPT_GENERIC)
     else:
         prompt = WHISPER_PROMPTS.get(short, "")
-    return _groq_stt_request(wav, lang_code=short, prompt=prompt)
+    # Gürcüce/Arapça/Çince: turbo yerine large-v3 (daha iyi script doğruluğu)
+    model = None
+    if short in ("ka", "ar", "zh", "ru") and translate_mode:
+        model = "whisper-large-v3"
+    return _groq_stt_request(wav, lang_code=short, prompt=prompt, model=model)
+
+
 
 
 def groq_stt_auto(wav: str) -> tuple[str, str, float] | None:
@@ -2072,13 +2081,74 @@ def pick_speech_hypothesis(
     scored.sort(key=lambda x: x[0], reverse=True)
     best_fit, text, lang, conf, source = scored[0]
 
-    # Gürcüce script varsa daima ka
-    if "ka" in (my, other):
-        mk = [c for c in candidates if _has_mkhedruli(c[0])]
-        if mk:
-            text = max(mk, key=lambda c: len(re.findall(r"[\u10A0-\u10FF]", c[0])))[0]
-            lang = "ka"
-            conf = max(conf, 0.97)
+    # ── Yabancı dil kanalı önceliği (özellikle ka) ──
+    # Ana konuşmacı Gürcüce/İngilizce konuşurken Türkçe STT çöpünü SOURCE yapma.
+    foreign = None
+    if "tr" in (my, other):
+        foreign = other if my == "tr" else my
+    if foreign and foreign != "tr":
+        foreign_chan = [
+            c for c in candidates
+            if _channel_matches(c[3], c[1], foreign) and (c[0] or "").strip()
+            and not is_hallucination(c[0])
+        ]
+        tr_strong = [
+            c for c in candidates
+            if _channel_matches(c[3], c[1], "tr")
+            and is_likely_turkish(c[0])
+            and re.search(r"[ğüşıöçĞÜŞİÖÇ]", c[0] or "")
+        ]
+        if foreign == "ka":
+            mk = [c for c in candidates if _has_mkhedruli(c[0])]
+            if mk:
+                text = max(mk, key=lambda c: len(re.findall(r"[\u10A0-\u10FF]", c[0])))[0]
+                lang = "ka"
+                conf = 0.98
+            elif foreign_chan:
+                # Gürcüce ses → Türkçe STT sıkça akıcı Türkçe UYDURUR (ğüşıöç bile ekler).
+                # Bu yüzden lang_ka adayı varken TR kanalını SOURCE yapma.
+                usable = [
+                    c for c in foreign_chan
+                    if not (
+                        is_likely_turkish(c[0])
+                        and re.search(r"[ğüşıöçĞÜŞİÖÇ]", c[0] or "")
+                    )
+                ] or list(foreign_chan)
+                pick = max(usable, key=lambda c: (len(c[0] or ""), float(c[2])))
+                keep_tr = False
+                if tr_strong and last_from == "tr":
+                    st = _LANG_STABILITY.get(_pair_key(my, other)) or {}
+                    if int(st.get("hits") or 0) >= 2 and language_confidence(pick[0], "ka", my, other) < 0.4:
+                        keep_tr = True
+                if not keep_tr:
+                    text, lang = pick[0], "ka"
+                    # Yanlış dilin (TR) conf değerini taşıma
+                    conf = 0.9 if _has_mkhedruli(text) else 0.74
+
+        else:
+            # en/de/fr/ru/es/... : eşleşen kanal + karşı dil lexicon
+            good_foreign = []
+            for c in foreign_chan:
+                if foreign == "en" and is_likely_english(c[0], my, other):
+                    good_foreign.append(c)
+                elif foreign != "en" and (
+                    looks_like_lang(c[0], foreign) or language_confidence(c[0], foreign, my, other) >= 0.55
+                ):
+                    good_foreign.append(c)
+                elif foreign != "en" and c[1] == foreign and len((c[0] or "").split()) >= 2:
+                    # Zorlanmış dil kanalı en az 2 kelime ürettiyse aday say
+                    good_foreign.append(c)
+            if good_foreign and not tr_strong:
+                pick = max(
+                    good_foreign,
+                    key=lambda c: (
+                        language_confidence(c[0], foreign, my, other),
+                        float(c[2]),
+                        len(c[0]),
+                    ),
+                )
+                text, lang = pick[0], foreign
+                conf = max(conf, language_confidence(text, foreign, my, other), 0.7)
 
     # tr-en: eşleşen kanal + lexicon
     if {my, other} == {"tr", "en"}:
@@ -2136,18 +2206,40 @@ def process_speech_segment(
     Merkezi canlı çeviri pipeline:
     audio → STT adayları → dil güveni → SOURCE transcript → SOURCE→TARGET çeviri
     """
+    t0 = time.perf_counter()
     original, from_lang = transcribe_dual(data, my, other, last_from, timings)
     conf = 0.0
     if timings and timings.get("language_confidence") is not None:
         conf = float(timings["language_confidence"])
     else:
         conf = language_confidence(original, from_lang, my, other)
+
+    # Kaynak transcript doğrulama: Gürcüce seçildiyse Latin/Türkçe çöpünü SOURCE yapma
+    if from_lang == "ka" and original and not _has_mkhedruli(original):
+        # Çeviri metni gibi duran Türkçe/İngilizce SOURCE olmasın — yine de ka kanalı metnini koru
+        if is_likely_turkish(original) or (
+            is_likely_english(original, my, other) and "en" not in (my, other)
+        ):
+            conf = min(conf, 0.45)
+
     to_lang = other if from_lang == my else my
-    # Doğrudan SOURCE → TARGET (ara dil yok)
+    # Doğrudan SOURCE → TARGET (ara dil / TR üzerinden zincir yok)
     translated, from_lang, to_lang = translate_pair_safe(
         original, from_lang, to_lang, my, other,
     )
-    # Transcript asla çeviri metniyle değiştirilmez
+
+    # SOURCE asla TRANSLATION ile değiştirilmez
+    if translated and original and translated.strip() == original.strip() and from_lang != to_lang:
+        # Aynı metin kaldıysa çeviri başarısız; yine de original'i bozma
+        pass
+
+    elapsed_ms = int((time.perf_counter() - t0) * 1000)
+    print(
+        f"speech_segment src={from_lang} conf={conf:.2f} "
+        f"dst={to_lang} chars={len(original or '')} ms={elapsed_ms} "
+        f"mkhedruli={bool(_has_mkhedruli(original or ''))}",
+        flush=True,
+    )
     return {
         "original": original,
         "translated": translated,
@@ -2267,6 +2359,19 @@ def transcribe_dual(
                         continue
                     # Auto ile erken çıkma — yanlış dil/çöp riski (özellikle →TR)
                     if source == "auto" and "tr" in (my, other):
+                        continue
+                    # tr↔ka: yalnızca net Mkhedruli veya net Türkçe ortografi
+                    if "ka" in (my, other):
+                        if lang == "ka" and _has_mkhedruli(last[0]) and (
+                            source == "lang_ka" or source.endswith("ka")
+                        ):
+                            early = (last[0], "ka")
+                            break
+                        if lang == "tr" and re.search(r"[ğüşıöçĞÜŞİÖÇ]", last[0] or "") and (
+                            source == "lang_tr" or source.endswith("tr")
+                        ):
+                            early = (last[0], "tr")
+                            break
                         continue
                     if source == f"lang_{lang}" or source.endswith(lang):
                         early = (last[0], lang)
