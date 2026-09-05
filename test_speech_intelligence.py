@@ -258,6 +258,58 @@ def test_ru_and_es_source_detection():
     print("TEST RU and ES source detection OK")
 
 
+def test_turkish_not_overwritten_by_weak_english_thanks():
+    """Kök bug: güçlü Türkçe + zayıf 'thank you' → EN sanılmamalı."""
+    setup_function()
+    text, lang, conf = pick_speech_hypothesis(
+        [
+            ("Teşekkür ederim, iyiyim.", "tr", 80.0, "lang_tr"),
+            ("thank you", "en", 25.0, "lang_en"),
+        ],
+        "tr",
+        "en",
+        None,
+    )
+    assert lang == "tr", f"Türkçe EN sanıldı: {lang} {text!r}"
+    assert "teşekkür" in text.lower() or "iyiyim" in text.lower()
+    assert conf >= 0.7
+    print("TEST Turkish not overwritten by weak English OK")
+
+
+def test_turkish_beats_georgian_hotel_prompt_leak():
+    """lang_ka otel/prompt sızıntısı Türkçe konuşmayı KA yapmamalı."""
+    setup_function()
+    text, lang, _ = pick_speech_hypothesis(
+        [
+            ("Merhaba, bugün otelde kalıyorum.", "tr", 70.0, "lang_tr"),
+            ("სასტუმრო ძალიან ლამაზია და მინდა იქ წავიდე", "ka", 55.0, "lang_ka"),
+        ],
+        "tr",
+        "ka",
+        None,
+    )
+    assert lang == "tr", f"Türkçe otel cümlesi KA sanıldı: {lang} {text!r}"
+    assert "otel" in text.lower() or "merhaba" in text.lower()
+    print("TEST Turkish beats Georgian hotel prompt leak OK")
+
+
+def test_english_source_not_forced_to_turkish():
+    setup_function()
+    text, lang, conf = pick_speech_hypothesis(
+        [
+            ("hava iyi", "tr", 35.0, "lang_tr"),
+            ("Hello, how are you today?", "en", 70.0, "lang_en"),
+        ],
+        "tr",
+        "en",
+        None,
+    )
+    assert lang == "en"
+    assert "hello" in text.lower()
+    assert conf >= 0.7
+    print("TEST English source not forced to Turkish OK")
+
+
 if __name__ == "__main__":
     test_en_channel_beats_turkish_garbage()
     test_ka_mkhedruli_wins()
@@ -272,4 +324,7 @@ if __name__ == "__main__":
     test_real_georgian_with_auto_mkhedruli_beats_turkish_greeting()
     test_reciprocal_tr_en_tr_ka_switches()
     test_ru_and_es_source_detection()
+    test_turkish_not_overwritten_by_weak_english_thanks()
+    test_turkish_beats_georgian_hotel_prompt_leak()
+    test_english_source_not_forced_to_turkish()
     print("\nAll speech intelligence tests passed.")
