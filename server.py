@@ -29,7 +29,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.09.05-v72.9"
+APP_VERSION = "2026.09.05-v72.10"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -1063,9 +1063,8 @@ TRANSLATE_WHISPER_PROMPTS: dict[str, str] = {
     "es": "Conversación en español natural. Transcribir exactamente lo dicho.",
     "ka": (
         "ბუნებრივი ქართული საუბარი. მხოლოდ ქართული ასოებით (მხედრული) ჩაწერე. "
-        "ლათინური ტრანსლიტერაცია აკრძალულია. ზუსტად ჩაწერე რაც ითქვა, არაფერი გამოიგონო. "
-        "მაგალითები: გამარჯობა, როგორ ხარ?, რა გქვია?, მადლობა, კარგი, "
-        "მე მინდა ყავა, დღეს სამსახურში მივდივარ, სად არის სასტუმრო?"
+        "ლათინური ტრანსლიტერაცია აკრძალულია. ზუსტად ჩაწერე რაც ითქვა. "
+        "არაფერი გამოიგონო და მაგალითი ფრაზები არ ჩაამატო."
     ),
     "ar": "محادثة عربية طبيعية.",
     "ru": "Естественная русская речь.",
@@ -1997,67 +1996,19 @@ def _stable_pick_language(
     *,
     min_switch_conf: float = 0.72,
 ) -> str:
-    """Tek zayıf segment ile dil titremesini engelle; gerçek değişimi kaçırma."""
+    """Önceki dil yalnızca zayıf segmentte yardımcı; kararı zorlamaz.
+
+    Process-global dil kilidi YOK (oturumlar birbirini kirletmesin).
+    Güçlü kanıtta her segment kendi SOURCE dilini belirler.
+    Tek kelimelik / düşük güvenli zıt dil, last_from'u ezmez.
+    """
     if preferred not in (my, other):
         preferred = last_from if last_from in (my, other) else my
-    key = _pair_key(my, other)
-    state = _LANG_STABILITY.get(key) or {
-        "current": last_from if last_from in (my, other) else None,
-        "hits": 0,
-        "candidate": None,
-        "candidate_hits": 0,
-    }
-    current = state.get("current") if state.get("current") in (my, other) else last_from
-    if current not in (my, other):
-        current = None
-
-    # Script kesinliği (Mkhedruli vb.) — hemen kilitle
-    if confidence >= 0.93:
-        state["current"] = preferred
-        state["hits"] = max(2, int(state.get("hits") or 0) + 1)
-        state["candidate"] = None
-        state["candidate_hits"] = 0
-        _LANG_STABILITY[key] = state
-        return preferred
-
-    if current is None:
-        state["current"] = preferred
-        state["hits"] = 1
-        state["candidate"] = None
-        state["candidate_hits"] = 0
-        _LANG_STABILITY[key] = state
-        return preferred
-
-    if preferred == current:
-        state["hits"] = int(state.get("hits") or 0) + 1
-        state["candidate"] = None
-        state["candidate_hits"] = 0
-        _LANG_STABILITY[key] = state
-        return current
-
-    # Dil değişim adayı
-    if confidence < min_switch_conf:
-        # Zayıf kanıt — mevcut dili koru
-        _LANG_STABILITY[key] = state
-        return current
-
-    if state.get("candidate") == preferred:
-        state["candidate_hits"] = int(state.get("candidate_hits") or 0) + 1
-    else:
-        state["candidate"] = preferred
-        state["candidate_hits"] = 1
-
-    # İki güçlü ardışık segment veya çok yüksek güven → geç
-    if state["candidate_hits"] >= 2 or confidence >= 0.88:
-        state["current"] = preferred
-        state["hits"] = 1
-        state["candidate"] = None
-        state["candidate_hits"] = 0
-        _LANG_STABILITY[key] = state
-        return preferred
-
-    _LANG_STABILITY[key] = state
-    return current
+    if last_from in (my, other) and preferred != last_from:
+        # Zayıf kanıtla dil değiştirme (ör. "ok", "yes")
+        if confidence < min_switch_conf:
+            return last_from
+    return preferred
 
 
 
@@ -2128,8 +2079,15 @@ _KA_BOILERPLATE_PHRASES = (
     "დღეს ამინდი",
     "ამინდი ძალიან კარგია",
     "მე მინდა ყავა",
+    "მინდა ყავა",
     "სად არის სასტუმრო",
+    "სასტუმრო",
     "დღეს სამსახურში მივდივარ",
+    "სამსახურში",
+    "მივდივარ",
+    "ძალიან კარგია",
+    "ძალიან ლამაზია",
+    "მინდა იქ",
 )
 
 _TR_STT_GARBAGE_RE = re.compile(
@@ -2173,6 +2131,14 @@ def _is_georgian_boilerplate(text: str) -> bool:
         return True
     # Tek/çift kelimelik selamlama
     if len(words) <= 3 and covered >= len(words):
+        return True
+    # Prompt sızıntısı kelime oranı (სასტუმრო/ყავა/სამსახური ezberleri)
+    leak_roots = (
+        "გამარჯობა", "როგორ", "ხარ", "გქვია", "მადლობა", "კარგი", "კარგად",
+        "ამინდი", "ყავა", "სასტუმრო", "სამსახურ", "მივდივარ", "ლამაზია", "მინდა",
+    )
+    leak_hits = sum(1 for w in words if any(root in w for root in leak_roots))
+    if leak_hits >= max(2, len(words) // 2) and len(words) <= 12:
         return True
     return False
 
@@ -2296,30 +2262,29 @@ def pick_speech_hypothesis(
             elif best_tr and tr_s >= 2 and ka_s <= 1 and not tr_garbage:
                 choose_ka = False
             elif best_ka and best_tr and ka_s >= 2 and tr_s >= 2:
-                # İkisi de güçlü — halüsinasyon / auto / doğal konuşma ayrımı
+                # İkisi de güçlü — auto Mkhedruli / TR ortografi / prompt sızıntısı
                 if tr_garbage:
                     choose_ka = True
                 elif auto_mk and ka_s >= 2:
-                    # auto (zorunlu dil yok) Mkhedruli üretti → gerçek Gürcüce ses
+                    # auto (zorunlu dil yok) Mkhedruli → gerçek Gürcüce ses
                     choose_ka = True
-                elif auto_lang == "tr" and tr_natural and tr_s >= 3 and not auto_mk:
+                elif tr_natural and tr_s >= 3 and not auto_mk and (
+                    ka_boiler or auto_lang == "tr" or auto_lang is None
+                ):
+                    # Ortografili doğal Türkçe; KA yalnızca lang_ka sızıntısı / boilerplate
+                    # (auto Mkhedruli yoksa Türkçe konuşmayı KA sanma)
                     choose_ka = False
-                elif ka_boiler and tr_natural and tr_s >= 3 and not auto_mk:
-                    # Ortografili doğal Türkçe + Whisper prompt sızıntısı → TR
-                    # (ASCII "merhaba nasilsin" gerçek Gürcüceyi ezmesin)
-                    choose_ka = False
-                elif not ka_boiler and ka_s >= 3:
+                elif not ka_boiler and ka_s >= 3 and not (tr_natural and tr_s >= 3):
                     choose_ka = True
                 elif ka_s >= 2 and tr_s <= 2 and not (tr_natural and tr_s >= 3):
-                    # Güçlü Mkhedruli, zayıf/ASCII TR → KA
                     choose_ka = True
-                elif auto_lang == "ka" and not (ka_boiler and tr_natural and tr_s >= 3):
+                elif auto_lang == "ka" and not (tr_natural and tr_s >= 3 and not auto_mk):
                     choose_ka = True
-                elif ka_s > tr_s:
+                elif ka_s > tr_s and not (tr_natural and tr_s >= 3 and not auto_mk):
                     choose_ka = True
                 else:
-                    # Eşit güç + doğal ortografili Türkçe → TR
-                    choose_ka = bool(tr_s >= 3 and tr_natural)
+                    # Eşit güç: doğal ortografili TR → TR; aksi KA
+                    choose_ka = not (tr_s >= 3 and tr_natural)
             elif best_ka and ka_s >= 3 and tr_s <= 2:
                 choose_ka = True
 
@@ -2398,33 +2363,54 @@ def pick_speech_hypothesis(
             if _channel_matches(c[3], c[1], "tr") and is_likely_turkish(c[0])
             and re.search(r"[ğüşıöçĞÜŞİÖÇ]", c[0])
         ]
-        if en_chan and _english_signal_strength(en_chan[0][0]) >= 2:
-            # En iyi İngilizce kanalı
-            pick = max(en_chan, key=lambda c: _english_signal_strength(c[0]) + float(c[2]))
-            # Türkçe ortografi yoksa EN tercih
-            if not tr_chan or language_confidence(pick[0], "en", my, other) >= 0.7:
-                text, lang = pick[0], "en"
-                conf = language_confidence(text, "en", my, other)
-        elif tr_chan and (not en_chan or language_confidence(tr_chan[0][0], "tr", my, other) >= 0.75):
-            pick = max(tr_chan, key=lambda c: float(c[2]))
-            text, lang = pick[0], "tr"
+        best_en_pick = (
+            max(en_chan, key=lambda c: _english_signal_strength(c[0]) + float(c[2]))
+            if en_chan else None
+        )
+        best_tr_pick = (
+            max(tr_chan, key=lambda c: (_turkish_strength(c[0]), float(c[2])))
+            if tr_chan else None
+        )
+        en_s2 = _english_strength(best_en_pick[0]) if best_en_pick else 0
+        tr_s2 = _turkish_strength(best_tr_pick[0]) if best_tr_pick else 0
+        # Güçlü Türkçe ortografi, zayıf/kısa EN ("thank you") → TR kazanır
+        if best_tr_pick and tr_s2 >= 2 and en_s2 <= 1:
+            text, lang = best_tr_pick[0], "tr"
+            conf = 0.95 if tr_s2 >= 3 else language_confidence(text, "tr", my, other)
+        elif best_en_pick and en_s2 >= 2 and tr_s2 <= 1:
+            text, lang = best_en_pick[0], "en"
+            conf = language_confidence(text, "en", my, other)
+        elif best_tr_pick and tr_s2 >= 3 and en_s2 <= 2:
+            # "Teşekkür ederim" vs "thank you" — TR ezilmesin
+            text, lang = best_tr_pick[0], "tr"
+            conf = 0.95
+        elif best_en_pick and en_s2 >= 3 and tr_s2 <= 2:
+            text, lang = best_en_pick[0], "en"
+            conf = language_confidence(text, "en", my, other)
+        elif best_tr_pick and not best_en_pick:
+            text, lang = best_tr_pick[0], "tr"
             conf = language_confidence(text, "tr", my, other)
 
     lang = _stable_pick_language(lang, conf, my, other, last_from)
-    # Stabilizasyon sonrası transcript'i o dile en uygun adaydan al
+    # Transcript SOURCE diline ait kanaldan gelsin (çeviri/karşı dil sızmasın)
     matching = [
         c for c in candidates
         if language_confidence(c[0], lang, my, other) >= 0.45
     ]
-    if matching:
-        matching.sort(
+    channel_matching = [
+        c for c in matching
+        if _channel_matches(c[3], c[1], lang)
+    ] or matching
+    if channel_matching:
+        channel_matching.sort(
             key=lambda c: (
+                1 if _channel_matches(c[3], c[1], lang) else 0,
                 _candidate_fit(c[0], c[1], c[3], lang, my, other),
                 float(c[2]),
             ),
             reverse=True,
         )
-        text = matching[0][0]
+        text = channel_matching[0][0]
         conf = max(conf, language_confidence(text, lang, my, other))
 
     if lang not in (my, other):
