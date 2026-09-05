@@ -90,17 +90,20 @@ function clearInterim() {
 function showTranslating() {
   clearMicRecording();
   const src = getLang(S.forcedSource || S.my);
-  setStatus(`Çevriliyor (${src.flag} ${src.name})...`, true);
+  const tgtCode = (S.forcedSource === S.my) ? S.other : S.my;
+  const tgt = getLang(tgtCode);
+  setStatus(`✍️ ${src.flag}→${tgt.flag} yazılıyor / çevriliyor...`, true);
   $('interimBox').classList.remove('hidden');
-  $('interimText').textContent = 'Çevriliyor...';
+  $('interimText').textContent = `${src.name} → ${tgt.name}`;
 }
 
 function showSpeaking() {
   markActiveMicRecording();
   const src = getLang(S.forcedSource || S.my);
-  setStatus(`🎙 ${src.flag} ${src.name} — konuşun...`, true);
+  const listen = `${src.flag} ${src.name.toUpperCase()} DİNLENİYOR...`;
+  setStatus(`🎙️ ${listen}`, true);
   $('interimBox').classList.remove('hidden');
-  $('interimText').textContent = `${src.flag} ${src.name} konuşun...`;
+  $('interimText').textContent = listen;
 }
 
 function resetIdle() {
@@ -109,6 +112,8 @@ function resetIdle() {
   S.stopTimer = null;
   S.safetyTimer = null;
   S.holdActive = false;
+  // Kayıt bitince forcedSource temizlenir; yeni basışta yeniden arm edilir
+  if (S.busyCount === 0) S.forcedSource = null;
   clearMicRecording();
   syncLangMicLabels();
   clearInterim();
@@ -234,11 +239,13 @@ async function fetchProcess(blob, my, other, last, signal, source) {
   try {
     const params = { my, other, last: last || '', source: source || '' };
     if (typeof console !== 'undefined' && console.debug) {
-      console.debug('BAS_KONUS_REQUEST', {
+      console.debug('BAS_KONUS_V2_REQUEST', {
         BUTTON_LANGUAGE: source,
         SOURCE_LANGUAGE: source,
         TARGET_LANGUAGE: source === my ? other : my,
         STT_LANGUAGE: source,
+        AUTO_DETECT: false,
+        PIPELINE: 'button→forced_source→stt→translate',
       });
     }
     const r = await fetch(`/api/process?${new URLSearchParams(params)}`, {
@@ -361,6 +368,7 @@ async function processAudio(blob) {
   S.msgs.unshift(msg);
   render();
   clearInterim();
+  S.forcedSource = null; // oturum izolasyonu — sonraki basış yeni dil seçer
   setStatus('Çeviri hazır', false);
   if (typeof console !== 'undefined' && console.debug) {
     const dt = ((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()) - t0;

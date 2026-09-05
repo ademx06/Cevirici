@@ -29,7 +29,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.09.05-v72.11"
+APP_VERSION = "2026.09.05-v72.12"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -380,7 +380,11 @@ def _apply_translate_qc(src: str, result: str, from_lang: str, to_lang: str) -> 
 
 
 def _script_matches_lang(text: str, lang: str) -> bool:
-    """Hedef dilin yazısı yoksa çeviri geçersiz (zh→İngilizce sızıntısı)."""
+    """Script/ortografi uyumu — çeviri QC ve Bas Konuş SOURCE için ortak.
+
+    Yanlış alfabe (ör. ka için Latin, ru için Latin) → reddet.
+    Türkçe fallback YOK.
+    """
     t = (text or "").strip()
     if not t:
         return False
@@ -392,7 +396,11 @@ def _script_matches_lang(text: str, lang: str) -> bool:
         return bool(re.search(r"[\u0400-\u04FF]", t))
     if lang == "zh":
         return bool(re.search(r"[\u4e00-\u9fff]", t))
-    if lang in ("de", "fr", "es", "it", "en", "tr"):
+    if lang == "tr":
+        if re.search(r"[\u10A0-\u10FF\u0400-\u04FF\u0600-\u06FF\u4e00-\u9fff]", t):
+            return False
+        return True
+    if lang in ("de", "fr", "es", "it", "en"):
         if re.search(r"[\u10A0-\u10FF\u0600-\u06FF\u0400-\u04FF\u4e00-\u9fff]", t):
             return False
         return True
@@ -1072,6 +1080,52 @@ TRANSLATE_WHISPER_PROMPTS: dict[str, str] = {
     "zh": "自然的中文对话。",
 }
 
+# Bas Konuş: birebir transcript — örnek cümle YOK (halüsinasyon sızıntısı engeli)
+BAS_KONUS_WHISPER_PROMPTS: dict[str, str] = {
+    "tr": (
+        "Doğal Türkçe konuşma kaydı. Söyleneni kelimesi kelimesine yaz. "
+        "Çevirme, özetleme, düzeltme veya ekleme yapma. Sessizlikte hiçbir şey yazma."
+    ),
+    "en": (
+        "Natural spoken English. Transcribe verbatim exactly as spoken. "
+        "Do not translate, paraphrase, correct, or invent words. "
+        "If silence, return empty."
+    ),
+    "de": (
+        "Natürliche deutsche Sprache. Wortgetreu transkribieren. "
+        "Nicht übersetzen, umschreiben oder erfinden."
+    ),
+    "fr": (
+        "Parole française naturelle. Transcrire mot pour mot. "
+        "Ne pas traduire, reformuler ou inventer."
+    ),
+    "es": (
+        "Habla española natural. Transcribir palabra por palabra exactamente. "
+        "No traducir, parafrasear ni inventar. Si hay silencio, no escribas nada."
+    ),
+    "ka": (
+        "ბუნებრივი ქართული საუბარი. მხოლოდ მხედრული ასოებით, ზუსტად ჩაწერე რაც ითქვა. "
+        "არ თარგმნო, არ შეცვალო, არაფერი გამოიგონო. სიჩუმეში არაფერი დაწერო."
+    ),
+    "ar": "محادثة عربية طبيعية. انسخ حرفيًا دون ترجمة أو اختراع.",
+    "ru": (
+        "Естественная русская речь. Пиши дословно кириллицей. "
+        "Не переводи, не перефразируй и ничего не выдумывай. При тишине ничего не пиши."
+    ),
+    "it": (
+        "Parlato italiano naturale. Trascrivi parola per parola. "
+        "Non tradurre, non riformulare, non inventare."
+    ),
+    "zh": "自然中文口语。逐字转写，不要翻译、改写或编造。",
+}
+
+BAS_KONUS_WHISPER_PROMPT_GENERIC = (
+    "Spoken conversation in the specified language only. "
+    "Transcribe verbatim. Do not translate or invent text."
+)
+
+
+
 
 def decode_education_state(raw: str) -> dict:
     """JSON veya base64/base64url ile gelen eğitim oturum durumu."""
@@ -1163,8 +1217,16 @@ def is_hallucination(text: str) -> bool:
         return True
     if HALLUCINATION_RE.match(t):
         return True
-    low = t.lower()
-    if low in {"teşekkür", "teşekkürler", "teşekkür ederim", "thank you", "thanks"}:
+    low = t.lower().strip(" .!?،。")
+    if low in {
+        "teşekkür", "teşekkürler", "teşekkür ederim",
+        "thank you", "thanks", "thanks for watching",
+        "thank you for watching", "subscribe", "abone ol",
+        "abone olmayı unutmayın", "thanks for listening",
+    }:
+        return True
+    # Sessizlikte sık Whisper uydurmaları
+    if re.fullmatch(r"(thank you for watching\.?|thanks for watching\.?|subscribe\.?)", low):
         return True
     return False
 
@@ -2419,35 +2481,130 @@ def pick_speech_hypothesis(
 
 
 
+
+def prepare_wav_bas_konus(data: bytes) -> str:
+    """Bas Konuş ses hazırlığı: 16kHz mono, baş/son pad, yumuşak normalizasyon.
+
+    Amaç: ilk/son heceyi kesmeden, aşırı clipping olmadan Whisper'a temiz ses vermek.
+    Agresif noise gate kullanılmaz (konuşma başını yutabilir).
+    """
+    with tempfile.NamedTemporaryFile(suffix=".audio", delete=False) as tmp:
+        tmp.write(data)
+        inp = tmp.name
+    wav = inp + ".wav"
+    # pad_dur: parmak basınca ilk kelime kaybını azaltır
+    filters = (
+        "apad=pad_dur=0.4,highpass=f=70,lowpass=f=7800,dynaudnorm=f=120:g=12,volume=1.9",
+        "apad=pad_dur=0.35,highpass=f=80,lowpass=f=7500,volume=2.0",
+        "apad=pad_dur=0.3,volume=1.8",
+        "volume=1.6",
+        None,
+    )
+    try:
+        for af in filters:
+            cmd = ["ffmpeg", "-y", "-i", inp, "-ar", "16000", "-ac", "1", wav]
+            if af:
+                cmd[4:4] = ["-af", af]
+            result = subprocess.run(cmd, capture_output=True, timeout=12)
+            if result.returncode == 0 and os.path.exists(wav) and os.path.getsize(wav) > 100:
+                return wav
+        raise ValueError("audio conversion failed")
+    finally:
+        if os.path.exists(inp):
+            os.unlink(inp)
+
+
+def stt_for_bas_konus(wav: str, lang: str) -> tuple[str, str, float] | None:
+    """Bas Konuş profesyonel STT: dil kilitli, large-v3, birebir prompt.
+
+    Auto-detect YOK. Çeviri YOK. Sadece seçilen dilde verbatim transcript.
+    """
+    if lang not in STT_LANG:
+        return None
+    prompt = BAS_KONUS_WHISPER_PROMPTS.get(lang, BAS_KONUS_WHISPER_PROMPT_GENERIC)
+    # Tüm Bas Konuş dillerinde large-v3 — "ikincil dil" muamelesi yok
+    model = "whisper-large-v3"
+    groq = _groq_stt_request(
+        wav,
+        lang_code=lang,
+        prompt=prompt,
+        model=model,
+        timeout_sec=22,
+    )
+    if groq and (groq[0] or "").strip() and not is_hallucination(groq[0]):
+        text = clean_stt_text(groq[0])
+        if text and _script_matches_lang(text, lang):
+            return text, lang, float(groq[2]) + 20
+
+    google = google_stt(wav, lang)
+    if google and (google[0] or "").strip() and not is_hallucination(google[0]):
+        text = clean_stt_text(google[0])
+        if text and _script_matches_lang(text, lang):
+            return text, lang, score_text(text, lang) + 30
+
+    # Latin diller: script zaten uyumluysa Groq'u son çare kabul et
+    # ka/ru/ar/zh: yanlış script ASLA kabul etme (Türkçe/fonetik fallback YOK)
+    if groq and (groq[0] or "").strip() and not is_hallucination(groq[0]):
+        text = clean_stt_text(groq[0])
+        if text and lang in ("ka", "ru", "ar", "zh"):
+            return None
+        if text and _script_matches_lang(text, lang):
+            return text, lang, float(groq[2])
+        if text and lang not in ("ka", "ru", "ar", "zh"):
+            return text, lang, float(groq[2])
+
+    if not DISABLE_WHISPER:
+        local = stt_for_lang(wav, lang, allow_whisper=True)
+        if local and (local[0] or "").strip() and not is_hallucination(local[0]):
+            text = clean_stt_text(local[0])
+            if text and _script_matches_lang(text, lang):
+                return text, lang, float(local[2])
+    return None
+
+
 def transcribe_forced(
     data: bytes,
     source_lang: str,
     timings: dict | None = None,
 ) -> tuple[str, str]:
-    """Bas Konuş: SOURCE dil butondan gelir — auto detect YOK, tek dil STT."""
+    """Bas Konuş V2: buton dili = SOURCE = STT dili.
+
+    Auto-detect yok. Çeviri yok. Profesyonel ses hazırlığı + large-v3 + birebir prompt.
+    """
     if source_lang not in STT_LANG:
         raise ValueError("Bu dil için konuşma tanıma yapılandırması bulunamadı.")
     t_ffmpeg = time.perf_counter()
-    wav = prepare_wav(data, fast=True)
+    wav = prepare_wav_bas_konus(data)
     if timings is not None:
         timings["ffmpeg_ms"] = int((time.perf_counter() - t_ffmpeg) * 1000)
+        timings["audio_pipeline"] = "bas_konus_v2"
     t_stt = time.perf_counter()
     try:
-        result = stt_for_translate(wav, source_lang)
-        if (not result or not (result[0] or "").strip()) and not DISABLE_WHISPER:
-            result = stt_for_lang(wav, source_lang, allow_whisper=True)
+        result = stt_for_bas_konus(wav, source_lang)
+        # Kontrollü tek retry — yine AYNI source_lang (dil değiştirme yok)
+        if not result or not (result[0] or "").strip():
+            result = stt_for_bas_konus(wav, source_lang)
+            if timings is not None:
+                timings["stt_retry"] = 1
         if not result or not (result[0] or "").strip():
             raise ValueError("speech not recognized")
         text = clean_stt_text(result[0])
         if not text or is_hallucination(text):
             raise ValueError("speech not recognized")
+        if not _script_matches_lang(text, source_lang):
+            # Yanlış script = yanlış dil STT çıktısı — Türkçe fallback YOK
+            raise ValueError(
+                f"Konuşma {source_lang} olarak çözümlenemedi — tekrar deneyin."
+            )
         if timings is not None:
             timings["stt_ms"] = int((time.perf_counter() - t_stt) * 1000)
             timings["stt_early"] = False
             timings["stt_forced"] = True
+            timings["stt_model"] = "whisper-large-v3"
             timings["language_confidence"] = 1.0
             timings["detected_language"] = source_lang
             timings["stt_language"] = source_lang
+            timings["transcript_chars"] = len(text)
         return text, source_lang
     finally:
         if os.path.exists(wav):
@@ -2505,15 +2662,22 @@ def process_speech_segment(
         pass
 
     elapsed_ms = int((time.perf_counter() - t0) * 1000)
+    stt_lang = forced or ((timings or {}).get("stt_language") if timings else from_lang)
     print(
-        f"BAS_KONUS BUTTON_LANGUAGE={forced or '-'} "
+        f"BAS_KONUS_V2 SESSION "
+        f"BUTTON_LANGUAGE={forced or '-'} "
         f"SOURCE_LANGUAGE={from_lang} "
         f"TARGET_LANGUAGE={to_lang} "
-        f"STT_LANGUAGE={forced or timings.get('stt_language') if timings else from_lang} "
+        f"STT_LANGUAGE={stt_lang} "
+        f"STT_MODEL={(timings or {}).get('stt_model', '-')} "
+        f"AUDIO_PIPELINE={(timings or {}).get('audio_pipeline', '-')} "
         f"LANGUAGE_CONFIDENCE={conf:.3f} "
-        f"ORIGINAL_TRANSCRIPT={((original or '')[:120]).replace(chr(10), ' ')!r} "
-        f"TRANSLATION={((translated or '')[:120]).replace(chr(10), ' ')!r} "
+        f"ORIGINAL_TRANSCRIPT={((original or '')[:160]).replace(chr(10), ' ')!r} "
+        f"TRANSLATION={((translated or '')[:160]).replace(chr(10), ' ')!r} "
         f"PROCESSING_TIME={elapsed_ms} "
+        f"STT_MS={(timings or {}).get('stt_ms', '-')} "
+        f"FFMPEG_MS={(timings or {}).get('ffmpeg_ms', '-')} "
+        f"RETRY={(timings or {}).get('stt_retry', 0)} "
         f"FORCED={bool(forced)}",
         flush=True,
     )
