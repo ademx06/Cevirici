@@ -5064,28 +5064,32 @@ def llm_rewrite_georgian(src: str, meaning_en: str, draft_ka: str) -> str | None
     return None
 
 
-def llm_rewrite_turkish_from_georgian(src: str, meaning_en: str, draft_tr: str) -> str | None:
-    """Gürcüce → doğal Türkçe (anlam korunur; Google taslağını yerelleştirir)."""
+
+def llm_rewrite_turkish(src: str, from_lang: str, meaning_en: str, draft_tr: str) -> str | None:
+    """Herhangi bir dilden → doğal Türkçe (anlam korunur; taslağı yerelleştirir)."""
     source = safe_str(src).strip()
     if not source or not llm_available():
         return None
     draft = safe_str(draft_tr).strip()
     meaning = safe_str(meaning_en).strip() or source
+    from_name = LANG_NAMES.get(from_lang, from_lang)
     system = (
-        "You are a native Turkish editor for MEANING-PRESERVING Georgian→Turkish translation.\n"
-        "SOURCE (Georgian) + MEANING are the truth. DRAFT Turkish may be incomplete or stiff — fix only that.\n"
+        "You are a native Turkish editor for MEANING-PRESERVING translation INTO Turkish.\n"
+        f"SOURCE language: {from_name}. SOURCE + MEANING are the truth.\n"
+        "DRAFT Turkish may be incomplete, literal, or unnatural — fix only that.\n"
         "Do NOT invent facts, names, places, emotions, or extra clauses.\n"
-        "Write natural spoken Turkish. Keep person, tense, negation, and question vs statement.\n"
-        "Prefer everyday Turkish; avoid calques from Georgian/English.\n"
-        "Examples:\n"
+        "Write natural spoken Turkish. Keep person, tense, negation, question vs statement.\n"
+        "Prefer everyday Turkish; avoid stiff calques from the source or English.\n"
+        "Examples of natural style:\n"
+        "- Hello, how are you? → Merhaba, nasılsın?\n"
+        "- What is your name? → Adın ne?\n"
+        "- I want coffee. → Kahve istiyorum.\n"
+        "- I am going to work today. → Bugün işe gidiyorum.\n"
         "- გამარჯობა, როგორ ხარ? → Merhaba, nasılsın?\n"
-        "- რა გქვია? → Adın ne?\n"
-        "- მე მინდა ყავა. → Kahve istiyorum.\n"
-        "- დღეს სამსახურში მივდივარ. → Bugün işe gidiyorum.\n"
         "Reply with ONLY the Turkish text."
     )
     user_msg = (
-        f"SOURCE (Georgian):\n{source[:3500]}\n\n"
+        f"SOURCE ({from_name}):\n{source[:3500]}\n\n"
         f"MEANING:\n{meaning[:3500]}\n\n"
         f"DRAFT Turkish:\n{(draft or '(none)')[:3500]}"
     )
@@ -5129,13 +5133,22 @@ def llm_rewrite_turkish_from_georgian(src: str, meaning_en: str, draft_tr: str) 
             if out.startswith("```"):
                 out = re.sub(r"^```\w*\n?", "", out)
                 out = re.sub(r"\n?```$", "", out).strip()
-            # Reject if still Georgian script or empty
-            if out and not re.search(r"[\u10A0-\u10FF]", out) and out.lower() != source.lower():
+            if out and out.lower() != source.lower():
+                # Reject if still clearly non-Turkish script for non-latin sources
+                if from_lang == "ka" and re.search(r"[\u10A0-\u10FF]", out):
+                    continue
+                if from_lang == "ar" and re.search(r"[\u0600-\u06FF]", out):
+                    continue
+                if from_lang == "ru" and re.search(r"[\u0400-\u04FF]", out) and not re.search(r"[A-Za-zçğıöşüÇĞİÖŞÜ]", out):
+                    continue
                 cleaned = _clean_llm_translation_output(out, source)
                 return cleaned or out
     return None
 
 
+def llm_rewrite_turkish_from_georgian(src: str, meaning_en: str, draft_tr: str) -> str | None:
+    """Geriye dönük uyumluluk — genel Türkçe rewrite."""
+    return llm_rewrite_turkish(src, "ka", meaning_en, draft_tr)
 
 
 def _recent_teacher_questions(history: list[dict], profile: dict, limit: int = 5) -> str:

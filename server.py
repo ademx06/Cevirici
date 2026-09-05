@@ -18,7 +18,7 @@ from education_engine import (
     process_turn, greeting, session_report, daily_lesson, default_profile,
     finalize_session, weekly_progress, merge_profile, llm_available, ai_provider_info,
     pronounce_text, safe_str, llm_translate, groq_api_key_status,
-    llm_rewrite_georgian, llm_rewrite_turkish_from_georgian,
+    llm_rewrite_georgian, llm_rewrite_turkish, llm_rewrite_turkish_from_georgian,
     llm_verify_and_fix_translation,
 )
 from builder_engine import (
@@ -29,7 +29,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.09.05-v72.4"
+APP_VERSION = "2026.09.05-v72.5"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -288,8 +288,8 @@ def _is_short_simple_utterance(text: str) -> bool:
 
 def _needs_quality_translate(text: str, from_lang: str = "tr", to_lang: str = "en") -> bool:
     """Uzun / çok cümle / anlatı / zamir bağlamı — tüm dil çiftlerinde LLM kalite yolu."""
-    # Gürcüce → Türkçe: kısa sohbette bile doğal Türkçe kalite yolu
-    if from_lang == "ka" and to_lang == "tr":
+    # Karşı dil → Türkçe: kısa sohbette bile doğal Türkçe kalite yolu (sesli çeviri)
+    if to_lang == "tr" and from_lang != "tr":
         return True
     t = text.strip()
     if re.search(
@@ -730,6 +730,28 @@ def _has_mkhedruli(text: str) -> bool:
     return bool(re.search(r"[\u10A0-\u10FF]", text or ""))
 
 
+def _polish_turkish_from_foreign(src: str, from_lang: str, text: str) -> str:
+    """Yabancı dil → TR hafif düzeltme."""
+    t = (text or "").strip()
+    if not t:
+        return t
+    if t[0].islower() and re.match(r"[a-zçğıöşü]", t[0]):
+        t = t[0].upper() + t[1:]
+    if from_lang == "ka":
+        return _polish_turkish_from_georgian(src, t)
+    # EN common short drops
+    if from_lang == "en":
+        src_l = (src or "").lower()
+        if re.search(r"\bhello\b|\bhi\b", src_l) and re.search(r"\bhow are you\b", src_l):
+            if re.fullmatch(r"nasılsın\??", t, re.I):
+                t = "Merhaba, nasılsın?"
+        if src.strip().endswith("?") and not t.endswith("?") and re.search(
+            r"\b(mi|mı|mu|mü|ne|nasıl|nerede|kim|kaç|adın)\b", t, re.I
+        ):
+            t = t.rstrip(".!") + "?"
+    return t
+
+
 def _polish_turkish_from_georgian(src: str, text: str) -> str:
     """KA→TR hafif düzeltme — anlamı değiştirmeden doğal Türkçe."""
     t = (text or "").strip()
@@ -747,20 +769,24 @@ def _polish_turkish_from_georgian(src: str, text: str) -> str:
     return t
 
 
-def _translate_turkish_from_georgian(src: str) -> str | None:
-    """KA → TR: Google taslak + yerli Türkçe yeniden yazım (Türk kullanıcı için)."""
+def _translate_to_turkish_native(src: str, from_lang: str) -> str | None:
+    """Herhangi bir dil → TR: Google taslak + yerli Türkçe yeniden yazım."""
+    if from_lang == "tr":
+        return src
     g_tr: str | None = None
-    meaning_en: str | None = None
+    meaning_en: str | None = src if from_lang == "en" else None
 
     def _gtr() -> str | None:
         try:
-            return google_translate_fast(src, "ka", "tr")
+            return google_translate_fast(src, from_lang, "tr")
         except Exception:
             return None
 
     def _en() -> str | None:
+        if from_lang == "en":
+            return src
         try:
-            return google_translate_fast(src, "ka", "en")
+            return google_translate_fast(src, from_lang, "en")
         except Exception:
             return None
 
@@ -775,21 +801,21 @@ def _translate_turkish_from_georgian(src: str) -> str | None:
         try:
             meaning_en = f_en.result(timeout=2.5)
         except Exception:
-            meaning_en = None
+            meaning_en = src if from_lang == "en" else None
     finally:
         pool.shutdown(wait=False, cancel_futures=False)
 
     if g_tr:
-        g_tr = _polish_turkish_from_georgian(src, g_tr)
+        g_tr = _polish_turkish_from_foreign(src, from_lang, g_tr)
 
     rewritten: str | None = None
     if llm_available() and (g_tr or src):
         try:
-            rewritten = llm_rewrite_turkish_from_georgian(src, meaning_en or "", g_tr or "")
+            rewritten = llm_rewrite_turkish(src, from_lang, meaning_en or "", g_tr or "")
         except Exception:
             rewritten = None
         if rewritten:
-            rewritten = _polish_turkish_from_georgian(src, rewritten)
+            rewritten = _polish_turkish_from_foreign(src, from_lang, rewritten)
             if not _script_matches_lang(rewritten, "tr"):
                 rewritten = None
             elif _translation_is_garbled(src, rewritten, "tr"):
@@ -797,13 +823,18 @@ def _translate_turkish_from_georgian(src: str) -> str | None:
 
     if not rewritten and not g_tr and llm_available():
         try:
-            rewritten = llm_translate(src, "ka", "tr")
+            rewritten = llm_translate(src, from_lang, "tr")
         except Exception:
             rewritten = None
         if rewritten:
-            rewritten = _polish_turkish_from_georgian(src, rewritten)
+            rewritten = _polish_turkish_from_foreign(src, from_lang, rewritten)
 
     return _pick_translation(src, "tr", rewritten, g_tr)
+
+
+def _translate_turkish_from_georgian(src: str) -> str | None:
+    """Geriye dönük uyumluluk."""
+    return _translate_to_turkish_native(src, "ka")
 
 
 def smart_translate_text(text: str, from_lang: str, to_lang: str) -> str:
@@ -825,8 +856,8 @@ def smart_translate_text(text: str, from_lang: str, to_lang: str) -> str:
     if quality:
         if to_lang == "ka":
             result = _translate_georgian_native(src, from_lang)
-        elif from_lang == "ka" and to_lang == "tr":
-            result = _translate_turkish_from_georgian(src)
+        elif to_lang == "tr" and from_lang != "tr":
+            result = _translate_to_turkish_native(src, from_lang)
         else:
             llm_r: str | None = None
             g_r: str | None = None
@@ -911,15 +942,15 @@ def smart_translate_text(text: str, from_lang: str, to_lang: str) -> str:
 
     if to_lang == "ka":
         result = _polish_georgian(src, result)
-    if from_lang == "ka" and to_lang == "tr":
-        result = _polish_turkish_from_georgian(src, result)
+    if to_lang == "tr" and from_lang != "tr":
+        result = _polish_turkish_from_foreign(src, from_lang, result)
 
     # Çeviri sonrası kalite kontrolü (kullanıcıya göstermeden)
     result = _apply_translate_qc(src, result, from_lang, to_lang)
     if to_lang == "ka":
         result = _polish_georgian(src, result)
-    if from_lang == "ka" and to_lang == "tr":
-        result = _polish_turkish_from_georgian(src, result)
+    if to_lang == "tr" and from_lang != "tr":
+        result = _polish_turkish_from_foreign(src, from_lang, result)
 
     _cache_set(_TRANSLATE_CACHE, key, result)
     return result
@@ -1810,11 +1841,16 @@ def _stt_early_lang(text: str, my: str, other: str) -> str | None:
         return None
     words = t.split()
     pair = {my, other}
-    # tr↔ka: Mkhedruli yoksa Latin auto ile erken çıkma (Gürcüceyi Türkçe sanmasın)
-    if "ka" in pair and not _has_mkhedruli(t):
-        has_tr_ortho = bool(re.search(r"[ğüşıöçĞÜŞİÖÇ]", t))
-        if not has_tr_ortho:
+    has_tr_ortho = bool(re.search(r"[ğüşıöçĞÜŞİÖÇ]", t))
+    # tr↔yabancı: Mkhedruli yoksa / Türkçe özel harf yoksa Latin auto ile erken "tr" çıkma
+    if "tr" in pair and pair - {"tr"}:
+        foreign = next(iter(pair - {"tr"}))
+        if foreign == "ka" and not _has_mkhedruli(t) and not has_tr_ortho:
             return None
+        if foreign != "ka" and not has_tr_ortho:
+            # İngilizce vb. konuşurken auto'nun uydurma Türkçesiyle erken çıkma
+            # Net yabancı dil kanıtı varsa o dil için erken çıkılabilir (aşağıda)
+            pass
     tr_clear = is_likely_turkish(t) and not is_likely_english(t, my, other)
     en_clear = is_likely_english(t, my, other) and not is_likely_turkish(t)
     if tr_clear and en_clear:
@@ -1830,10 +1866,13 @@ def _stt_early_lang(text: str, my: str, other: str) -> str | None:
         return None
     if _has_mkhedruli(t) and "ka" in pair:
         return "ka"
-    if tr_clear and "tr" in (my, other):
-        return "tr"
     if en_clear and "en" in (my, other):
         return "en"
+    if tr_clear and "tr" in (my, other):
+        # Karşı dil varken Türkçe erken çıkış için özel harf veya güçlü sözlük iste
+        if pair - {"tr"} and not has_tr_ortho and not _stt_has_turkish_markers(t):
+            return None
+        return "tr"
     for lang in (my, other):
         if lang not in ("tr", "en") and looks_like_lang(t, lang):
             other_lang = other if lang == my else my
@@ -1871,14 +1910,12 @@ def transcribe_dual(
                 candidates.append((text, r[1], r[2], source))
 
         if long_audio:
-            # Uzun konuşma: hızlı auto; tr↔ka'da Gürcüce kanalını da aç
+            # Uzun konuşma: auto + her iki dil (özellikle karşı dil → TR)
             tasks = {
                 "auto": lambda: groq_stt_auto(wav),
+                f"lang_{my}": lambda: stt_for_translate(wav, my),
+                f"lang_{other}": lambda: stt_for_translate(wav, other),
             }
-            if "ka" in (my, other):
-                tasks["lang_ka"] = lambda: stt_for_translate(wav, "ka")
-                if "tr" in (my, other):
-                    tasks["lang_tr"] = lambda: stt_for_translate(wav, "tr")
         else:
             tasks = {
                 "auto": lambda: groq_stt_auto(wav),
@@ -1946,10 +1983,23 @@ def transcribe_dual(
                 s -= 35
             if _stt_has_turkish_markers(text):
                 s += 25
-            if source == "auto" and not ("ka" in (my, other) and not _has_mkhedruli(text)):
-                s += 20
-            elif source == "auto":
-                s += 5  # tr↔ka Latin auto: düşük öncelik
+            foreign = ({my, other} - {"tr"} or {None}).pop()
+            if source == "auto":
+                if "tr" in (my, other) and foreign and foreign != "tr":
+                    if foreign == "ka" and not _has_mkhedruli(text):
+                        s += 5
+                    elif foreign != "ka" and not re.search(r"[ğüşıöçĞÜŞİÖÇ]", text) and looks_like_lang(text, foreign):
+                        s += 8
+                    elif foreign != "ka" and not re.search(r"[ğüşıöçĞÜŞİÖÇ]", text) and not looks_like_lang(text, "tr"):
+                        s += 12
+                    else:
+                        s += 20
+                else:
+                    s += 20
+            if foreign == "en" and looks_like_lang(text, "en") and not is_likely_turkish(text):
+                s += 55
+                if stt_lang == "en" or source.endswith("en"):
+                    s += 25
             if looks_like_lang(text, from_lang):
                 s += 15
             if last_from and from_lang == last_from:
