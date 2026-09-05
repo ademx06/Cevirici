@@ -237,8 +237,8 @@ function looksLikeLangClient(text, lang) {
     return /\b(neler|yapıyor|nasıl|merhaba|nasılsın|teşekkür|evet|hayır|tamam|güzel|ben|sen|ne|neden|günaydın|lütfen|bugün|yarın)\b/i.test(t);
   }
   if (lang === 'en') {
-    return /\b(what|how|are|you|doing|hello|thanks|thank|yes|no|good|please|fine|where|when|who|why|the|this|that|is|was|were|i'm|i|a|an|book|today|want|need|have|did|don't|very|hello|hi|bye|sorry|okay|ok)\b/i.test(t)
-      || (/^[a-zA-Z0-9',.\-!? ]+$/.test(t) && t.split(/\s+/).length <= 3 && !/[ğüşıöçĞÜŞİÖÇ]/.test(t));
+    // Kısa ASCII'yi otomatik EN sayma — Türkçe STT çöpü İngilizce sanılmasın
+    return /\b(what|how|are|you|doing|hello|thanks|thank|yes|no|good|please|fine|where|when|who|why|the|this|that|is|was|were|i'm|im|a|an|book|today|want|need|have|did|don't|very|hi|bye|sorry|okay|ok|coffee|name|hotel|please|today|tomorrow)\b/i.test(t);
   }
   if (lang === 'ka') return /[\u10A0-\u10FF]/.test(t);
   if (lang === 'ru') return /[\u0400-\u04FF]/.test(t);
@@ -266,9 +266,7 @@ function detectTextFromLang(text, my, other) {
   // Script / Latin: Türkçe belirteç yoksa ve other Latin dilse other
   if (my === 'tr' && !/[ğüşıöçĞÜŞİÖÇ]/.test(t) && !looksLikeLangClient(t, 'tr')) {
     if (['ka', 'ru', 'ar', 'zh'].includes(other) && looksLikeLangClient(t, other)) return other;
-    if (['en', 'de', 'fr', 'es', 'it'].includes(other) && /^[a-zA-ZÀ-ÿ0-9',.\-!? ¿¡äöüßœæç\s]+$/i.test(t)) {
-      if (looksLikeLangClient(t, other) || (other === 'en' && /^[a-zA-Z0-9',.\-!? ]+$/.test(t))) return other;
-    }
+    if (['en', 'de', 'fr', 'es', 'it'].includes(other) && looksLikeLangClient(t, other)) return other;
   }
   return my;
 }

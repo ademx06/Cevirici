@@ -29,7 +29,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.09.05-v72.6"
+APP_VERSION = "2026.09.05-v72.7"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -1884,6 +1884,281 @@ def transcribe_education(
             os.unlink(wav)
 
 
+
+# ── Speech intelligence (live translate only) ─────────────────────────────
+
+_LANG_STABILITY: dict[str, dict] = {}
+
+
+def _pair_key(my: str, other: str) -> str:
+    return f"{my}|{other}"
+
+
+def _script_confidence(text: str, lang: str) -> float:
+    """Alfabe / script sinyali — yüksek güven."""
+    t = text or ""
+    if not t.strip():
+        return 0.0
+    if lang == "ka":
+        return 0.99 if re.search(r"[\u10A0-\u10FF]", t) else 0.0
+    if lang == "ru":
+        return 0.99 if re.search(r"[\u0400-\u04FF]", t) else 0.0
+    if lang == "ar":
+        return 0.99 if re.search(r"[\u0600-\u06FF]", t) else 0.0
+    if lang == "zh":
+        return 0.99 if re.search(r"[\u4e00-\u9fff]", t) else 0.0
+    if lang == "tr":
+        if re.search(r"[ğüşıöçĞÜŞİÖÇ]", t):
+            return 0.95
+        if _stt_has_turkish_markers(t) or looks_like_lang(t, "tr"):
+            return 0.72
+        return 0.0
+    if lang == "en":
+        s = _english_signal_strength(t)
+        if s >= 4:
+            return 0.92
+        if s >= 2:
+            return 0.78
+        if s >= 1 and looks_like_lang(t, "en"):
+            return 0.55
+        return 0.0
+    if looks_like_lang(t, lang):
+        return 0.7
+    return 0.0
+
+
+def language_confidence(text: str, lang: str, my: str, other: str) -> float:
+    """detected_language için 0–1 güven skoru."""
+    t = (text or "").strip()
+    if not t or lang not in (my, other):
+        return 0.0
+    base = _script_confidence(t, lang)
+    if base <= 0:
+        return 0.0
+    # Karşı dil script'i varsa cezalandır
+    alt = other if lang == my else my
+    alt_c = _script_confidence(t, alt)
+    if alt_c > base:
+        return max(0.05, base * 0.35)
+    if alt_c > 0.5 and base < 0.85:
+        return max(0.1, base - 0.25)
+    # Kanal-uyumlu lexicon
+    words = len(t.split())
+    if words <= 1 and base < 0.9:
+        return min(base, 0.58)
+    return min(0.99, base)
+
+
+def _channel_matches(source: str, stt_lang: str, lang: str) -> bool:
+    if stt_lang == lang:
+        return True
+    if source in (f"lang_{lang}", f"fallback_{lang}"):
+        return True
+    if source.endswith(lang):
+        return True
+    return False
+
+
+def _candidate_fit(text: str, stt_lang: str, source: str, lang: str, my: str, other: str) -> float:
+    """Adayın bu dil için ne kadar uygun olduğu."""
+    conf = language_confidence(text, lang, my, other)
+    if conf <= 0:
+        return -50.0
+    score = conf * 100.0
+    if _channel_matches(source, stt_lang, lang):
+        score += 55.0
+    elif source == "auto":
+        score += 8.0
+    else:
+        # Yanlış dil kanalıyla üretilmiş metin — ciddi ceza
+        score -= 45.0
+    # Karşı dil işaretleri
+    alt = other if lang == my else my
+    if language_confidence(text, alt, my, other) > conf:
+        score -= 60.0
+    return score
+
+
+def _stable_pick_language(
+    preferred: str,
+    confidence: float,
+    my: str,
+    other: str,
+    last_from: str | None,
+    *,
+    min_switch_conf: float = 0.72,
+) -> str:
+    """Tek zayıf segment ile dil titremesini engelle; gerçek değişimi kaçırma."""
+    if preferred not in (my, other):
+        preferred = last_from if last_from in (my, other) else my
+    key = _pair_key(my, other)
+    state = _LANG_STABILITY.get(key) or {
+        "current": last_from if last_from in (my, other) else None,
+        "hits": 0,
+        "candidate": None,
+        "candidate_hits": 0,
+    }
+    current = state.get("current") if state.get("current") in (my, other) else last_from
+    if current not in (my, other):
+        current = None
+
+    # Script kesinliği (Mkhedruli vb.) — hemen kilitle
+    if confidence >= 0.93:
+        state["current"] = preferred
+        state["hits"] = max(2, int(state.get("hits") or 0) + 1)
+        state["candidate"] = None
+        state["candidate_hits"] = 0
+        _LANG_STABILITY[key] = state
+        return preferred
+
+    if current is None:
+        state["current"] = preferred
+        state["hits"] = 1
+        state["candidate"] = None
+        state["candidate_hits"] = 0
+        _LANG_STABILITY[key] = state
+        return preferred
+
+    if preferred == current:
+        state["hits"] = int(state.get("hits") or 0) + 1
+        state["candidate"] = None
+        state["candidate_hits"] = 0
+        _LANG_STABILITY[key] = state
+        return current
+
+    # Dil değişim adayı
+    if confidence < min_switch_conf:
+        # Zayıf kanıt — mevcut dili koru
+        _LANG_STABILITY[key] = state
+        return current
+
+    if state.get("candidate") == preferred:
+        state["candidate_hits"] = int(state.get("candidate_hits") or 0) + 1
+    else:
+        state["candidate"] = preferred
+        state["candidate_hits"] = 1
+
+    # İki güçlü ardışık segment veya çok yüksek güven → geç
+    if state["candidate_hits"] >= 2 or confidence >= 0.88:
+        state["current"] = preferred
+        state["hits"] = 1
+        state["candidate"] = None
+        state["candidate_hits"] = 0
+        _LANG_STABILITY[key] = state
+        return preferred
+
+    _LANG_STABILITY[key] = state
+    return current
+
+
+def pick_speech_hypothesis(
+    candidates: list[tuple[str, str, float, str]],
+    my: str,
+    other: str,
+    last_from: str | None = None,
+) -> tuple[str, str, float]:
+    """SOURCE transcript + language + confidence seç (tek merkez)."""
+    if not candidates:
+        raise ValueError("speech not recognized")
+
+    scored: list[tuple[float, str, str, float, str]] = []
+    for text, stt_lang, base, source in candidates:
+        for lang in (my, other):
+            fit = _candidate_fit(text, stt_lang, source, lang, my, other)
+            fit += float(base) * 0.15
+            conf = language_confidence(text, lang, my, other)
+            scored.append((fit, text, lang, conf, source))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    best_fit, text, lang, conf, source = scored[0]
+
+    # Gürcüce script varsa daima ka
+    if "ka" in (my, other):
+        mk = [c for c in candidates if _has_mkhedruli(c[0])]
+        if mk:
+            text = max(mk, key=lambda c: len(re.findall(r"[\u10A0-\u10FF]", c[0])))[0]
+            lang = "ka"
+            conf = max(conf, 0.97)
+
+    # tr-en: eşleşen kanal + lexicon
+    if {my, other} == {"tr", "en"}:
+        en_chan = [
+            c for c in candidates
+            if _channel_matches(c[3], c[1], "en") and is_likely_english(c[0], my, other)
+        ]
+        tr_chan = [
+            c for c in candidates
+            if _channel_matches(c[3], c[1], "tr") and is_likely_turkish(c[0])
+            and re.search(r"[ğüşıöçĞÜŞİÖÇ]", c[0])
+        ]
+        if en_chan and _english_signal_strength(en_chan[0][0]) >= 2:
+            # En iyi İngilizce kanalı
+            pick = max(en_chan, key=lambda c: _english_signal_strength(c[0]) + float(c[2]))
+            # Türkçe ortografi yoksa EN tercih
+            if not tr_chan or language_confidence(pick[0], "en", my, other) >= 0.7:
+                text, lang = pick[0], "en"
+                conf = language_confidence(text, "en", my, other)
+        elif tr_chan and (not en_chan or language_confidence(tr_chan[0][0], "tr", my, other) >= 0.75):
+            pick = max(tr_chan, key=lambda c: float(c[2]))
+            text, lang = pick[0], "tr"
+            conf = language_confidence(text, "tr", my, other)
+
+    lang = _stable_pick_language(lang, conf, my, other, last_from)
+    # Stabilizasyon sonrası transcript'i o dile en uygun adaydan al
+    matching = [
+        c for c in candidates
+        if language_confidence(c[0], lang, my, other) >= 0.45
+    ]
+    if matching:
+        matching.sort(
+            key=lambda c: (
+                _candidate_fit(c[0], c[1], c[3], lang, my, other),
+                float(c[2]),
+            ),
+            reverse=True,
+        )
+        text = matching[0][0]
+        conf = max(conf, language_confidence(text, lang, my, other))
+
+    if lang not in (my, other):
+        lang = other if other != "tr" else my
+    return text, lang, float(conf)
+
+
+def process_speech_segment(
+    data: bytes,
+    my: str,
+    other: str,
+    last_from: str | None = None,
+    timings: dict | None = None,
+) -> dict:
+    """
+    Merkezi canlı çeviri pipeline:
+    audio → STT adayları → dil güveni → SOURCE transcript → SOURCE→TARGET çeviri
+    """
+    original, from_lang = transcribe_dual(data, my, other, last_from, timings)
+    conf = 0.0
+    if timings and timings.get("language_confidence") is not None:
+        conf = float(timings["language_confidence"])
+    else:
+        conf = language_confidence(original, from_lang, my, other)
+    to_lang = other if from_lang == my else my
+    # Doğrudan SOURCE → TARGET (ara dil yok)
+    translated, from_lang, to_lang = translate_pair_safe(
+        original, from_lang, to_lang, my, other,
+    )
+    # Transcript asla çeviri metniyle değiştirilmez
+    return {
+        "original": original,
+        "translated": translated,
+        "from": from_lang,
+        "to": to_lang,
+        "language_confidence": round(conf, 3),
+        "detected_language": from_lang,
+        "phonetic": "",
+    }
+
+
 def _stt_early_lang(text: str, my: str, other: str) -> str | None:
     """İlk Whisper sonucu yeterince net mi? Şüphede None → diğer çağrıları bekle."""
     t = clean_stt_text(text)
@@ -2008,6 +2283,10 @@ def transcribe_dual(
             if timings is not None:
                 timings["stt_ms"] = int((time.perf_counter() - t_stt) * 1000)
                 timings["stt_early"] = True
+                timings["language_confidence"] = round(
+                    language_confidence(early[0], early[1], my, other), 3
+                )
+                timings["detected_language"] = early[1]
             return early
 
         if not candidates:
@@ -2076,99 +2355,11 @@ def transcribe_dual(
                 s += 2
             return s
 
-        if {my, other} == {"tr", "en"}:
-            strong_tr = [
-                c for c in candidates
-                if is_likely_turkish(c[0]) and not is_likely_english(c[0], my, other)
-            ]
-            strong_en = [
-                c for c in candidates
-                if is_likely_english(c[0], my, other) and not is_likely_turkish(c[0])
-            ]
-            lang_en = [
-                c for c in strong_en
-                if c[3] in ("lang_en", "fallback_en") or c[1] == "en"
-            ]
-            lang_tr = [
-                c for c in strong_tr
-                if c[3] in ("lang_tr", "fallback_tr") or c[1] == "tr"
-            ]
-            auto = [c for c in candidates if c[3] == "auto"]
-
-            # İngilizce kanalı netse onu seç (Türkçe STT çöpüne ezdirme)
-            if lang_en:
-                best_en = max(lang_en, key=rank)
-                if _english_signal_strength(best_en[0]) >= 2:
-                    if timings is not None:
-                        timings["stt_ms"] = int((time.perf_counter() - t_stt) * 1000)
-                    return best_en[0], "en"
-            if lang_tr and any(re.search(r"[ğüşıöçĞÜŞİÖÇ]", c[0]) for c in lang_tr):
-                if timings is not None:
-                    timings["stt_ms"] = int((time.perf_counter() - t_stt) * 1000)
-                return max(lang_tr, key=rank)[0], "tr"
-
-            if auto:
-                at = max(auto, key=rank)[0]
-                if is_likely_english(at, my, other) and not is_likely_turkish(at):
-                    # Auto İngilizce — lang_en yoksa kabul; varsa zaten yukarıda döndü
-                    if timings is not None:
-                        timings["stt_ms"] = int((time.perf_counter() - t_stt) * 1000)
-                    return at, "en"
-                if is_likely_turkish(at) and not is_likely_english(at, my, other):
-                    if strong_tr:
-                        if timings is not None:
-                            timings["stt_ms"] = int((time.perf_counter() - t_stt) * 1000)
-                        return max(strong_tr, key=rank)[0], "tr"
-                    if timings is not None:
-                        timings["stt_ms"] = int((time.perf_counter() - t_stt) * 1000)
-                    return at, "tr"
-
-            if strong_tr and not strong_en:
-                if timings is not None:
-                    timings["stt_ms"] = int((time.perf_counter() - t_stt) * 1000)
-                return max(strong_tr, key=rank)[0], "tr"
-            if strong_en and not strong_tr:
-                if timings is not None:
-                    timings["stt_ms"] = int((time.perf_counter() - t_stt) * 1000)
-                return max(strong_en, key=rank)[0], "en"
-
-            if strong_tr and strong_en:
-                ortho = [c for c in strong_tr if re.search(r"[ğüşıöçĞÜŞİÖÇ]", c[0])]
-                auto_clear_en = bool(
-                    auto and is_likely_english(auto[0][0], my, other) and not is_likely_turkish(auto[0][0])
-                )
-                if ortho and not auto_clear_en:
-                    if timings is not None:
-                        timings["stt_ms"] = int((time.perf_counter() - t_stt) * 1000)
-                    return max(ortho, key=rank)[0], "tr"
-                pick = max(strong_tr + strong_en, key=rank)
-                if timings is not None:
-                    timings["stt_ms"] = int((time.perf_counter() - t_stt) * 1000)
-                return pick[0], ("tr" if pick in strong_tr else "en")
-
-        # tr↔ka: Mkhedruli aday varsa onu seç
-        if "ka" in (my, other):
-            mk = [c for c in candidates if _has_mkhedruli(c[0])]
-            if mk:
-                best = max(mk, key=rank)
-                text = best[0]
-                from_lang = "ka"
-                if timings is not None:
-                    timings["stt_ms"] = int((time.perf_counter() - t_stt) * 1000)
-                return text, from_lang
-
-        best = max(candidates, key=rank)
-        text = best[0]
-        from_lang = detect_speech_lang(text, my, other, best[1], last_from)
-        if {my, other} == {"tr", "en"}:
-            if is_likely_turkish(text) and not is_likely_english(text, my, other):
-                from_lang = "tr"
-            elif is_likely_english(text, my, other) and not is_likely_turkish(text):
-                from_lang = "en"
-        if from_lang not in (my, other):
-            from_lang = my
+        text, from_lang, conf = pick_speech_hypothesis(candidates, my, other, last_from)
         if timings is not None:
             timings["stt_ms"] = int((time.perf_counter() - t_stt) * 1000)
+            timings["language_confidence"] = round(conf, 3)
+            timings["detected_language"] = from_lang
         return text, from_lang
     finally:
         if os.path.exists(wav):
@@ -2437,28 +2628,28 @@ class Handler(SimpleHTTPRequestHandler):
         timings: dict = {}
         pid = f"p{int(t0 * 1000) % 100000000}"
         try:
-            original, from_lang = transcribe_dual(data, my, other, last_from, timings)
-            to_lang = other if from_lang == my else my
             t_tr = time.perf_counter()
-            translated, from_lang, to_lang = translate_pair_safe(
-                original, from_lang, to_lang, my, other,
-            )
+            result = process_speech_segment(data, my, other, last_from, timings)
             timings["translation_ms"] = int((time.perf_counter() - t_tr) * 1000)
             timings["process_total_ms"] = int((time.perf_counter() - t0) * 1000)
             print(
                 f"process {pid} ffmpeg_ms={timings.get('ffmpeg_ms', '-')} "
                 f"stt_ms={timings.get('stt_ms', '-')} "
                 f"stt_early={timings.get('stt_early', False)} "
+                f"lang={result.get('from')} conf={result.get('language_confidence')} "
                 f"translation_ms={timings.get('translation_ms', '-')} "
                 f"process_total_ms={timings['process_total_ms']}",
                 flush=True,
             )
             # Fonetik istemci /api/pronounce — çeviri JSON'unu bekletme
+            # original = SOURCE transcript (asla translation ile değiştirilmez)
             body = json.dumps({
-                "original": original,
-                "translated": translated,
-                "from": from_lang,
-                "to": to_lang,
+                "original": result["original"],
+                "translated": result["translated"],
+                "from": result["from"],
+                "to": result["to"],
+                "language_confidence": result.get("language_confidence", 0),
+                "detected_language": result.get("detected_language") or result["from"],
                 "phonetic": "",
             }).encode()
             self.send_response(200)
