@@ -29,7 +29,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.09.05-v72.5"
+APP_VERSION = "2026.09.05-v72.6"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -1053,11 +1053,10 @@ TRANSLATE_WHISPER_PROMPT_GENERIC = (
 TRANSLATE_WHISPER_PROMPTS: dict[str, str] = {
     "tr": "Doğal Türkçe konuşma. Tek kelime de olabilir. Tam olarak söyleneni yaz.",
     "en": (
-        "Natural spoken English. Even single words must be transcribed. "
-        "Common short words: one two three four five six seven eight nine ten, "
-        "head bed red bad bet set met let get long short tall big small, "
-        "yes no hi bye hello please thanks sorry okay stop go run eat drink, "
-        "what where when why how who."
+        "Natural spoken English conversation. Transcribe exactly what was said. "
+        "Common phrases: hello how are you, what is your name, I want coffee, "
+        "thank you, please, where is, I am fine, nice to meet you, "
+        "yes no hi bye okay sorry help stop go come."
     ),
     "de": "Natürliches gesprochenes Deutsch. Wörtlich transkribieren.",
     "fr": "Conversation française naturelle. Transcrire exactement ce qui est dit.",
@@ -1368,12 +1367,70 @@ def whisper_stt(wav: str, lang_code: str) -> tuple[str, str, float] | None:
     return None
 
 
+
+_EN_LEXICON_RE = re.compile(
+    r"\b(what|how|are|you|doing|hello|thanks|thank|yes|no|good|please|fine|"
+    r"where|when|who|why|the|this|that|is|was|were|your|holiday|i'm|im|"
+    r"book|read|went|work|tired|today|yesterday|park|home|ate|had|"
+    r"played|watched|walked|studied|spoke|said|like|want|need|have|did|don't|"
+    r"run|ran|running|very|so|just|only|also|then|well|now|"
+    r"two|too|one|three|four|five|bad|bed|bet|red|head|bread|hi|bye|"
+    r"sorry|okay|ok|great|nice|love|help|stop|wait|come|go|name|coffee|"
+    r"water|food|time|day|night|morning|evening|friend|family|please|"
+    r"can|could|would|should|will|shall|may|might|must|about|from|with|"
+    r"for|and|but|not|it's|its|my|me|we|they|he|she|his|her|our|their|"
+    r"am|been|being|do|does|done|get|got|make|made|know|think|see|come|"
+    r"give|take|tell|ask|feel|try|leave|call|keep|let|begin|show|hear|"
+    r"play|run|move|live|believe|hold|bring|happen|write|sit|stand|"
+    r"lose|pay|meet|include|continue|set|learn|change|lead|understand|"
+    r"watch|follow|stop|create|speak|read|allow|add|spend|grow|open|"
+    r"walk|win|offer|remember|love|consider|appear|buy|wait|serve|"
+    r"die|send|expect|build|stay|fall|cut|reach|kill|remain)\b",
+    re.I,
+)
+
+_TR_ASCII_LEXICON_RE = re.compile(
+    r"\b(hava|iyi|guzel|güzel|degil|değil|icin|için|gibi|ben|sen|biz|siz|"
+    r"bir|cok|çok|var|yok|tamam|evet|hayir|hayır|merhaba|nasil|nasıl|"
+    r"nasilsin|nasılsın|bugun|bugün|yarin|yarın|simdi|şimdi|sonra|once|önce|"
+    r"neden|niye|lütfen|lutfen|tesekkur|teşekkür|gunaydin|günaydın|"
+    r"iyiyim|naber|ne|neler|yapiyorum|yapıyorum|gittim|geldim|istiyorum|"
+    r"kahve|su|yemek|kitap|okudum|calistim|çalıştım|eve|okula|ise|işe)\b",
+    re.I,
+)
+
+
+def _has_english_lexicon(text: str) -> bool:
+    return bool(_EN_LEXICON_RE.search(text or ""))
+
+
+def _has_turkish_ascii_lexicon(text: str) -> bool:
+    return bool(_TR_ASCII_LEXICON_RE.search(text or ""))
+
+
+def _english_signal_strength(text: str) -> int:
+    """Gerçek İngilizce sözcük yoğunluğu — ASCII çöpü ele."""
+    words = re.findall(r"[A-Za-z']+", text or "")
+    if not words:
+        return 0
+    hits = sum(1 for w in words if _EN_LEXICON_RE.search(w))
+    # Tek başına "a/I/ok" yetmez
+    if hits == 0:
+        return 0
+    if len(words) == 1 and words[0].lower() in {"a", "i", "an", "to", "ok", "no"}:
+        return 1
+    return hits * 2 + (2 if hits >= 2 else 0)
+
+
 def looks_like_lang(text: str, lang: str) -> bool:
+
     t = text.strip()
     if not t:
         return False
     if lang == "tr":
         if re.search(r"[ğüşıöçĞÜŞİÖÇ]", t):
+            return True
+        if _has_turkish_ascii_lexicon(t):
             return True
         return bool(re.search(
             r"neler|yapıyor|yapıyorsun|yapiyorsun|nasıl|merhaba|nasılsın|nasilsin|"
@@ -1382,17 +1439,8 @@ def looks_like_lang(text: str, lang: str) -> bool:
             re.I,
         ))
     if lang == "en":
-        return bool(re.search(
-            r"\b(what|how|are|you|doing|hello|thanks|thank|yes|no|good|please|fine|"
-            r"where|when|who|why|the|this|that|is|are|was|were|your|holiday|i'm|im|"
-            r"i|a|an|book|read|went|work|tired|today|yesterday|park|home|ate|had|"
-            r"played|watched|walked|studied|spoke|said|like|want|need|have|did|don't|"
-            r"run|ran|running|very|so|just|only|also|then|well|now|"
-            r"two|to|too|one|three|four|five|bad|bed|bet|red|head|bread|hello|hi|bye|"
-            r"sorry|please|thanks|okay|ok|great|nice|love|help|stop|wait|come|go)\b",
-            t,
-            re.I,
-        )) or (len(t.split()) <= 3 and is_ascii_latin(t) and not _stt_has_turkish_markers(t))
+        # NOT: short ASCII → English (Türkçe STT çöpü "hava iyi" İngilizce sanılıyordu)
+        return _has_english_lexicon(t)
     if lang == "ka":
         return bool(re.search(r"[\u10A0-\u10FF]", t))
     if lang == "ru":
@@ -1515,7 +1563,7 @@ def is_ascii_latin(text: str) -> bool:
 
 
 def is_likely_english(text: str, my: str = "tr", other: str = "en") -> bool:
-    """Tek/ kısa İngilizce sözcükler — looks_like_lang kaçırmasın."""
+    """Gerçek İngilizce sinyali — kısa ASCII çöpünü İngilizce sayma."""
     t = text.strip()
     if not t:
         return False
@@ -1523,14 +1571,14 @@ def is_likely_english(text: str, my: str = "tr", other: str = "en") -> bool:
         return False
     if _stt_has_turkish_markers(t):
         return False
-    # Bilinen Türkçe (ben/evet/kitap…) ASCII olsa da İngilizce sayma
     if looks_like_lang(t, "tr"):
         return False
-    if looks_like_lang(t, "en"):
-        return True
     if other != "en" and my != "en":
-        return False
-    if is_ascii_latin(t):
+        return _has_english_lexicon(t)
+    strength = _english_signal_strength(t)
+    if strength >= 2:
+        return True
+    if strength >= 1 and looks_like_lang(t, "en"):
         return True
     return False
 
@@ -1631,6 +1679,8 @@ def resolve_lang_from_text(text: str, my: str, other: str, stt_lang: str) -> str
 
 def _stt_has_turkish_markers(text: str) -> bool:
     if re.search(r"[ğüşıöçĞÜŞİÖÇ]", text):
+        return True
+    if _has_turkish_ascii_lexicon(text):
         return True
     return bool(re.search(
         r"\b(merhaba|nasılsın|nasilsin|teşekkür|tesekkur|evet|hayır|hayir|tamam|iyiyim|günaydın|gunaydin|"
@@ -1936,8 +1986,17 @@ def transcribe_dual(
                     if not candidates:
                         continue
                     last = candidates[-1]
+                    source = last[3]
                     lang = _stt_early_lang(last[0], my, other)
-                    if lang:
+                    if not lang:
+                        continue
+                    # Auto ile erken çıkma — yanlış dil/çöp riski (özellikle →TR)
+                    if source == "auto" and "tr" in (my, other):
+                        continue
+                    if source == f"lang_{lang}" or source.endswith(lang):
+                        early = (last[0], lang)
+                        break
+                    if lang == "ka" and _has_mkhedruli(last[0]):
                         early = (last[0], lang)
                         break
             except Exception:
@@ -1996,10 +2055,21 @@ def transcribe_dual(
                         s += 20
                 else:
                     s += 20
-            if foreign == "en" and looks_like_lang(text, "en") and not is_likely_turkish(text):
-                s += 55
-                if stt_lang == "en" or source.endswith("en"):
-                    s += 25
+            if foreign == "en":
+                en_s = _english_signal_strength(text)
+                if en_s >= 2 and not is_likely_turkish(text):
+                    s += 40 + en_s * 8
+                    if stt_lang == "en" or source == "lang_en" or source.endswith("en"):
+                        s += 70
+                elif source == "lang_en" and en_s >= 1:
+                    s += 50
+                # Türkçe STT'nin ASCII çöpü İngilizce sanılmasın
+                if source == "lang_tr" and not re.search(r"[ğüşıöçĞÜŞİÖÇ]", text) and en_s < 2:
+                    s -= 40
+            if source == f"lang_{foreign}" and foreign and looks_like_lang(text, foreign):
+                s += 45
+            if source == "lang_tr" and is_likely_turkish(text):
+                s += 35
             if looks_like_lang(text, from_lang):
                 s += 15
             if last_from and from_lang == last_from:
@@ -2015,11 +2085,32 @@ def transcribe_dual(
                 c for c in candidates
                 if is_likely_english(c[0], my, other) and not is_likely_turkish(c[0])
             ]
+            lang_en = [
+                c for c in strong_en
+                if c[3] in ("lang_en", "fallback_en") or c[1] == "en"
+            ]
+            lang_tr = [
+                c for c in strong_tr
+                if c[3] in ("lang_tr", "fallback_tr") or c[1] == "tr"
+            ]
             auto = [c for c in candidates if c[3] == "auto"]
+
+            # İngilizce kanalı netse onu seç (Türkçe STT çöpüne ezdirme)
+            if lang_en:
+                best_en = max(lang_en, key=rank)
+                if _english_signal_strength(best_en[0]) >= 2:
+                    if timings is not None:
+                        timings["stt_ms"] = int((time.perf_counter() - t_stt) * 1000)
+                    return best_en[0], "en"
+            if lang_tr and any(re.search(r"[ğüşıöçĞÜŞİÖÇ]", c[0]) for c in lang_tr):
+                if timings is not None:
+                    timings["stt_ms"] = int((time.perf_counter() - t_stt) * 1000)
+                return max(lang_tr, key=rank)[0], "tr"
 
             if auto:
                 at = max(auto, key=rank)[0]
                 if is_likely_english(at, my, other) and not is_likely_turkish(at):
+                    # Auto İngilizce — lang_en yoksa kabul; varsa zaten yukarıda döndü
                     if timings is not None:
                         timings["stt_ms"] = int((time.perf_counter() - t_stt) * 1000)
                     return at, "en"
