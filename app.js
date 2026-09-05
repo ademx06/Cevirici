@@ -22,7 +22,7 @@ const MIN_HOLD_MS = 180;
 const S = {
   my: 'tr', other: 'en', msgs: [],
   holdActive: false, holdGen: 0,
-  lastFrom: null, audioReady: false,
+  lastFrom: null, forcedSource: null, audioReady: false,
   stream: null, recorder: null, chunks: [],
   fingerDownAt: 0, pressMs: 0,
   stopHandled: false, usedTouch: false,
@@ -34,6 +34,28 @@ const S = {
 
 const $ = (id) => document.getElementById(id);
 const getLang = (c) => LANGUAGES.find((l) => l.code === c) || LANGUAGES[0];
+
+function speakActionLabel(code) {
+  if (code === 'en') return 'PRESS TO SPEAK';
+  if (code === 'tr') return 'BAS KONUŞ';
+  return 'BAS KONUŞ';
+}
+
+function micButtons() {
+  return [$('micBtnMy'), $('micBtnOther')].filter(Boolean);
+}
+
+function clearMicRecording() {
+  micButtons().forEach((b) => b.classList.remove('recording'));
+}
+
+function markActiveMicRecording() {
+  clearMicRecording();
+  const side = S.forcedSource === S.other ? 'other' : 'my';
+  const btn = $(side === 'other' ? 'micBtnOther' : 'micBtnMy');
+  if (btn) btn.classList.add('recording');
+}
+
 
 const MIC_OPTS = {
   audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
@@ -66,19 +88,19 @@ function clearInterim() {
 }
 
 function showTranslating() {
-  $('micBtn').classList.remove('recording');
-  $('micTitle').textContent = 'Çevriliyor...';
-  setStatus('Çevriliyor...', true);
+  clearMicRecording();
+  const src = getLang(S.forcedSource || S.my);
+  setStatus(`Çevriliyor (${src.flag} ${src.name})...`, true);
   $('interimBox').classList.remove('hidden');
   $('interimText').textContent = 'Çevriliyor...';
 }
 
 function showSpeaking() {
-  $('micBtn').classList.add('recording');
-  $('micTitle').textContent = 'Konuşun...';
-  setStatus('🎙 Konuşun...', true);
+  markActiveMicRecording();
+  const src = getLang(S.forcedSource || S.my);
+  setStatus(`🎙 ${src.flag} ${src.name} — konuşun...`, true);
   $('interimBox').classList.remove('hidden');
-  $('interimText').textContent = 'Konuşun...';
+  $('interimText').textContent = `${src.flag} ${src.name} konuşun...`;
 }
 
 function resetIdle() {
@@ -87,17 +109,17 @@ function resetIdle() {
   S.stopTimer = null;
   S.safetyTimer = null;
   S.holdActive = false;
-  $('micBtn').classList.remove('recording');
-  $('micTitle').textContent = 'Basılı Tut ve Konuş';
+  clearMicRecording();
+  syncLangMicLabels();
   clearInterim();
-  if (S.busyCount === 0) setStatus('Basılı tut ve konuş', false);
+  if (S.busyCount === 0) setStatus('Diline basılı tut ve konuş', false);
 }
 
 function render() {
   const el = $('messages');
   if (!S.msgs.length) {
     el.innerHTML = `<div class="empty-state"><div class="empty-icon">🎤</div>
-      <h2>Basılı tut ve konuş</h2>
+      <h2>Diline basılı tut ve konuş</h2>
       <p>Basılı tut, konuş, bırak. İstediğin kadar tekrarla.</p></div>`;
     $('clearBtn').classList.add('hidden');
     return;
@@ -201,7 +223,7 @@ async function fetchListen(blob, my, other, last) {
   }
 }
 
-async function fetchProcess(blob, my, other, last, signal) {
+async function fetchProcess(blob, my, other, last, signal, source) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 45000);
   const onAbort = () => { try { ctrl.abort(); } catch { /* ignore */ } };
@@ -210,7 +232,16 @@ async function fetchProcess(blob, my, other, last, signal) {
     else signal.addEventListener('abort', onAbort, { once: true });
   }
   try {
-    const r = await fetch(`/api/process?${new URLSearchParams({ my, other, last: last || '' })}`, {
+    const params = { my, other, last: last || '', source: source || '' };
+    if (typeof console !== 'undefined' && console.debug) {
+      console.debug('BAS_KONUS_REQUEST', {
+        BUTTON_LANGUAGE: source,
+        SOURCE_LANGUAGE: source,
+        TARGET_LANGUAGE: source === my ? other : my,
+        STT_LANGUAGE: source,
+      });
+    }
+    const r = await fetch(`/api/process?${new URLSearchParams(params)}`, {
       method: 'POST',
       body: blob,
       headers: { 'Content-Type': blob.type || 'audio/mp4' },
@@ -309,9 +340,14 @@ async function fetchPronunciation(text, lang) {
 async function processAudio(blob) {
   const { gen, signal } = nextTransGen();
   const t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
-  const data = await fetchProcess(blob, S.my, S.other, S.lastFrom, signal);
+  const source = S.forcedSource;
+  if (!source || (source !== S.my && source !== S.other)) {
+    throw new Error('Konuşma dili seçilmedi — dil butonuna basılı tutun');
+  }
+  // Bas Konuş: SOURCE = basılan buton dili (otomatik tespit YOK)
+  const data = await fetchProcess(blob, S.my, S.other, '', signal, source);
   if (gen !== S.transGen) return;
-  S.lastFrom = data.from;
+  S.lastFrom = data.from || source;
   const toLang = data.to;
   const msg = {
     orig: data.original,
@@ -473,14 +509,36 @@ LANGUAGES.forEach((l) => {
   });
 });
 
+function syncLangMicLabels() {
+  const my = getLang(S.my);
+  const other = getLang(S.other);
+  if ($('micTitleMy')) $('micTitleMy').textContent = `${my.flag} ${my.name.toUpperCase()}`;
+  if ($('micActionMy')) $('micActionMy').textContent = speakActionLabel(S.my);
+  if ($('micTitleOther')) $('micTitleOther').textContent = `${other.flag} ${other.name.toUpperCase()}`;
+  if ($('micActionOther')) $('micActionOther').textContent = speakActionLabel(S.other);
+  if ($('conversationSubtitle')) {
+    $('conversationSubtitle').textContent =
+      `${my.flag} ${my.name} ↔ ${other.flag} ${other.name} — hangi dilde konuşacaksan o butona bas`;
+  }
+}
+
 function syncLang() {
   $('myLang').value = S.my;
   $('otherLang').value = S.other;
-  $('conversationSubtitle').textContent =
-    `${getLang(S.my).flag} ${getLang(S.my).name} ↔ ${getLang(S.other).flag} ${getLang(S.other).name}`;
+  syncLangMicLabels();
 }
 
-mic.bindHold($('micBtn'));
+function bindLangMic(btn, getCode) {
+  if (!btn) return;
+  const arm = () => { S.forcedSource = getCode(); };
+  btn.addEventListener('touchstart', arm, { passive: true, capture: true });
+  btn.addEventListener('mousedown', arm, { capture: true });
+  btn.addEventListener('pointerdown', arm, { capture: true });
+  mic.bindHold(btn);
+}
+
+bindLangMic($('micBtnMy'), () => S.my);
+bindLangMic($('micBtnOther'), () => S.other);
 
 /* Yazı ile çeviri */
 const _txtInput = $('translateTextInput');
@@ -546,5 +604,5 @@ resetIdle();
 
 if (!navigator.mediaDevices?.getUserMedia) {
   showErr('Safari gerekli');
-  $('micBtn').disabled = true;
+  micButtons().forEach((b) => { b.disabled = true; });
 }
