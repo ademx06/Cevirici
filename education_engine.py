@@ -5064,6 +5064,80 @@ def llm_rewrite_georgian(src: str, meaning_en: str, draft_ka: str) -> str | None
     return None
 
 
+def llm_rewrite_turkish_from_georgian(src: str, meaning_en: str, draft_tr: str) -> str | None:
+    """Gürcüce → doğal Türkçe (anlam korunur; Google taslağını yerelleştirir)."""
+    source = safe_str(src).strip()
+    if not source or not llm_available():
+        return None
+    draft = safe_str(draft_tr).strip()
+    meaning = safe_str(meaning_en).strip() or source
+    system = (
+        "You are a native Turkish editor for MEANING-PRESERVING Georgian→Turkish translation.\n"
+        "SOURCE (Georgian) + MEANING are the truth. DRAFT Turkish may be incomplete or stiff — fix only that.\n"
+        "Do NOT invent facts, names, places, emotions, or extra clauses.\n"
+        "Write natural spoken Turkish. Keep person, tense, negation, and question vs statement.\n"
+        "Prefer everyday Turkish; avoid calques from Georgian/English.\n"
+        "Examples:\n"
+        "- გამარჯობა, როგორ ხარ? → Merhaba, nasılsın?\n"
+        "- რა გქვია? → Adın ne?\n"
+        "- მე მინდა ყავა. → Kahve istiyorum.\n"
+        "- დღეს სამსახურში მივდივარ. → Bugün işe gidiyorum.\n"
+        "Reply with ONLY the Turkish text."
+    )
+    user_msg = (
+        f"SOURCE (Georgian):\n{source[:3500]}\n\n"
+        f"MEANING:\n{meaning[:3500]}\n\n"
+        f"DRAFT Turkish:\n{(draft or '(none)')[:3500]}"
+    )
+    translate_model = (
+        os.environ.get("GROQ_TRANSLATE_MODEL")
+        or os.environ.get("GROQ_MODEL")
+        or ""
+    ).strip() or None
+    max_tok = min(1800, 220 + max(len(draft), len(source) // 2))
+    for provider in _llm_providers_in_order():
+        raw = None
+        if provider == "groq":
+            kwargs = {
+                "max_tokens": max_tok,
+                "timeout_sec": 8,
+                "temperature": 0.05,
+            }
+            if translate_model:
+                kwargs["model"] = translate_model
+            raw = _groq_chat(
+                [{"role": "system", "content": system}, {"role": "user", "content": user_msg}],
+                **kwargs,
+            )
+            if not raw and translate_model:
+                raw = _groq_chat(
+                    [{"role": "system", "content": system}, {"role": "user", "content": user_msg}],
+                    max_tokens=max_tok,
+                    timeout_sec=8,
+                    temperature=0.05,
+                )
+        elif provider == "gemini":
+            raw = _gemini_chat(system, user_msg, max_tokens=max_tok)
+        else:
+            raw = _openai_chat(
+                [{"role": "system", "content": system}, {"role": "user", "content": user_msg}],
+                max_tokens=max_tok,
+            )
+        if raw:
+            out = raw.strip().strip('"').strip("'")
+            out = re.sub(r"^translation\s*:\s*", "", out, flags=re.I).strip()
+            if out.startswith("```"):
+                out = re.sub(r"^```\w*\n?", "", out)
+                out = re.sub(r"\n?```$", "", out).strip()
+            # Reject if still Georgian script or empty
+            if out and not re.search(r"[\u10A0-\u10FF]", out) and out.lower() != source.lower():
+                cleaned = _clean_llm_translation_output(out, source)
+                return cleaned or out
+    return None
+
+
+
+
 def _recent_teacher_questions(history: list[dict], profile: dict, limit: int = 5) -> str:
     """Öğretmenin tekrar sormaması gereken son sorular."""
     seen: list[str] = []

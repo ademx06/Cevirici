@@ -1,7 +1,7 @@
 """Cümle Kur + Kendini Test Et — kelime/cümle üretimi, yapılandırılmış analiz, telaffuz."""
 from __future__ import annotations
 
-APP_VERSION = "2026.09.04-v72.3"
+APP_VERSION = "2026.09.05-v72.4"
 
 import difflib
 import json
