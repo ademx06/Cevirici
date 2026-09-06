@@ -6,8 +6,8 @@
  *      → /api/stt?lang=SOURCE (+ Web Speech interim)
  *      → anlamlı bölümde /api/translate?force=1 → canlı UI
  *      → anlamlı/stabil hedef dil segmentleri → /api/tts?tl=TARGET (konuşurken)
- * release → mikrofonu hemen serbest bırak → arka planda son STT/çeviri/TTS
- *      → ikinci/üçüncü konuşma hemen başlayabilir (geçmiş korunur)
+ * release → recorder durur; mikrofon track STOP EDİLMEZ (izin tekrarlanmaz)
+ *      → aynı kalıcı stream ile 2./3. konuşma hemen başlar + konuşurken TTS
  */
 (function () {
   'use strict';
@@ -33,7 +33,7 @@
   var RELEASE_TAIL_MS = 180;
   var MIN_HOLD_MS = 220;
   var MIN_BLOB_BYTES = 900;
-  var TTS_STABLE_MS = 650;
+  var TTS_STABLE_MS = 380;
   var TTS_MIN_WORDS = 3;
 
   var MIC_OPTS = {
@@ -54,6 +54,7 @@
     usedTouch: false,
     session: null,
     pendingSide: null,
+    micStream: null,
     ttsQueue: [],
     ttsPlaying: false,
     ttsPausedMic: false
@@ -228,20 +229,46 @@
     resumeMicAfterTts();
   }
 
-  function setMicCaptureEnabled(sess, enabled) {
-    if (!sess || !sess.stream) return;
+  function micTracksLive(stream) {
+    if (!stream) return false;
     try {
-      sess.stream.getAudioTracks().forEach(function (t) {
-        t.enabled = !!enabled;
-      });
+      return stream.getAudioTracks().some(function (t) { return t.readyState === 'live'; });
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function setSharedMicEnabled(enabled) {
+    if (!S.micStream) return;
+    try {
+      S.micStream.getAudioTracks().forEach(function (t) { t.enabled = !!enabled; });
     } catch (e) {}
+  }
+
+  function setMicCaptureEnabled(sess, enabled) {
+    setSharedMicEnabled(enabled);
+  }
+
+  async function ensureMicStream() {
+    if (micTracksLive(S.micStream)) {
+      setSharedMicEnabled(true);
+      return S.micStream;
+    }
+    if (S.micStream) {
+      try { S.micStream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {}
+      S.micStream = null;
+    }
+    var stream = await navigator.mediaDevices.getUserMedia(MIC_OPTS);
+    S.micStream = stream;
+    setSharedMicEnabled(true);
+    return stream;
   }
 
   function pauseMicForTts(sess) {
     if (!sess || !sess.active) return;
     if (S.ttsPausedMic) return;
     S.ttsPausedMic = true;
-    setMicCaptureEnabled(sess, false);
+    setSharedMicEnabled(false);
     if (sess.webSpeech) {
       try {
         sess.webSpeechPaused = true;
@@ -256,7 +283,7 @@
     S.ttsPausedMic = false;
     var sess = S.session;
     if (!sess || !sess.active || sess.finalizing) return;
-    setMicCaptureEnabled(sess, true);
+    setSharedMicEnabled(true);
     if (sess.webSpeechPaused) {
       sess.webSpeechPaused = false;
       sess.webSpeech = null;
@@ -330,7 +357,7 @@
   /**
    * Partial çeviriyi baştan tekrar okumadan, yalnızca yeni tamamlanmış bölümü seslendir.
    */
-  function maybeSpeakTranslation(sess, fullTrans, forceAll) {
+  function maybeSpeakTranslation(sess, fullTrans, forceAll, allowStable) {
     if (!sess || !S.autoSpeak) return;
     var text = String(fullTrans || '').trim();
     if (!text) return;
@@ -366,14 +393,13 @@
       var sent = unsaid.match(/^([\s\S]+?[.!?…؟。！？]+)(?:\s+|$)/);
       if (sent) {
         commit = sent[1].trim();
+      } else if (allowStable && wordCount(unsaid) >= TTS_MIN_WORDS && isMeaningfulPhrase(sess.liveOrig)) {
+        commit = unsaid;
+      } else if (allowStable && !spoken && wordCount(unsaid) >= 2 && unsaid.length >= 8) {
+        // İlk anlamlı çeviriyi konuşma bitmeden seslendir
+        commit = unsaid;
       } else {
-        var lastChange = sess.transStableAt || 0;
-        var stable = Date.now() - lastChange >= TTS_STABLE_MS;
-        if (stable && wordCount(unsaid) >= TTS_MIN_WORDS && isMeaningfulPhrase(sess.liveOrig)) {
-          commit = unsaid;
-        } else {
-          return;
-        }
+        return;
       }
     }
 
@@ -383,6 +409,17 @@
     if (nextSpoken === spoken) return;
     sess.spokenTrans = nextSpoken;
     enqueueTts(commit, sess.to, sess);
+  }
+
+  function scheduleStableSpeak(sess) {
+    if (!sess || !S.autoSpeak) return;
+    if (sess.speakTimer) clearTimeout(sess.speakTimer);
+    var snap = String(sess.liveTrans || '');
+    sess.speakTimer = setTimeout(function () {
+      sess.speakTimer = null;
+      if (String(sess.liveTrans || '') !== snap) return;
+      maybeSpeakTranslation(sess, sess.liveTrans, false, true);
+    }, TTS_STABLE_MS);
   }
 
   function showLivePanel(fromCode, toCode) {
@@ -600,7 +637,8 @@
       updateLivePanel(sess.liveOrig, sess.liveTrans);
       setStatus('🔴 Canlı çeviri — konuşmaya devam', true);
       if (translated !== prev) {
-        maybeSpeakTranslation(sess, translated, false);
+        maybeSpeakTranslation(sess, translated, false, false);
+        scheduleStableSpeak(sess);
       }
     } catch (e) {
       if (e && e.name === 'AbortError') return;
@@ -775,16 +813,17 @@
     clearRollTimer(sess);
     stopWebSpeech(sess);
     abortFetches(sess);
+    if (sess.speakTimer) { clearTimeout(sess.speakTimer); sess.speakTimer = null; }
     return Promise.resolve().then(function () {
       if (!sess.recorder || sess.recorder.state === 'inactive') return null;
       return stopRecorderBlob(sess.recorder);
     }).then(function (lastBlob) {
       if (lastBlob && lastBlob.size) sess.chunks.push(lastBlob);
-      if (sess.stream) {
-        try { sess.stream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {}
-        sess.stream = null;
-      }
+      // Track'leri STOP ETME — aksi halde her basışta yeniden izin istenir ve 2. konuşma bozulur
+      sess.stream = null;
       sess.recorder = null;
+      setSharedMicEnabled(false);
+      S.ttsPausedMic = false;
     });
   }
 
@@ -824,26 +863,29 @@
       return;
     }
 
+    // Yeni konuşmada önceki TTS'i kes — mikrofon echo'ya düşmesin
+    stopTtsPlayback();
+
     var stream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia(MIC_OPTS);
+      stream = await ensureMicStream();
     } catch (e) {
       showError('Mikrofon izni gerekli. Ayarlar → Safari → Mikrofon');
       return;
     }
 
-    // getUserMedia sırasında başka oturum açıldıysa stream'i bırak
+    // ensureMicStream sırasında başka oturum açıldıysa yeni kayıt başlatma
     if (S.session && S.session.active) {
-      try { stream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {}
       return;
     }
+
+    setSharedMicEnabled(true);
 
     var mime = pickMime();
     var recorder;
     try {
       recorder = makeRecorder(stream, mime);
     } catch (e) {
-      stream.getTracks().forEach(function (t) { t.stop(); });
       showError('Kayıt başlatılamadı — tekrar dene');
       return;
     }
@@ -873,6 +915,7 @@
       lastTranslatedOrig: '',
       spokenTrans: '',
       lastSpeakKey: '',
+      speakTimer: null,
       transStableAt: 0,
       lastSttAt: 0,
       sttInflight: false,

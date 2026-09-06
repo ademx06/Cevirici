@@ -48,6 +48,14 @@ class Structure(unittest.TestCase):
         self.assertIn("rollSegment", js)
         self.assertIn("scheduleRoll", js)
         self.assertIn("Sesli çeviri", html)
+        self.assertIn("ensureMicStream", js)
+        self.assertIn("scheduleStableSpeak", js)
+        self.assertIn("micStream", js)
+        # Release must not stop tracks (re-permission / 2nd utterance break)
+        release = js.split("function releaseHardware", 1)[1].split("function tryStartPending", 1)[0]
+        self.assertNotIn("getTracks().forEach", release)
+        self.assertNotIn("t.stop()", release)
+
     def test_no_education_dependency(self):
         js=(ROOT/"live-talk.js").read_text(encoding="utf-8")
         self.assertNotIn("education", js.lower())
