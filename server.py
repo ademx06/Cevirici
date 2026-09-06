@@ -29,7 +29,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.09.06-v72.16"
+APP_VERSION = "2026.09.06-v72.17"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -3586,14 +3586,19 @@ class Handler(SimpleHTTPRequestHandler):
         to_lang = (params.get("to") or ["en"])[0]
         my = (params.get("my") or [from_lang])[0]
         other = (params.get("other") or [to_lang])[0]
+        # force=1 → yönü sabitle (Eşzamanlı Konuşma partial metinlerde sapmayı önler)
+        force = (params.get("force") or ["0"])[0].strip().lower() in ("1", "true", "yes")
         if not text:
             self.send_json_error(400, "Metin gerekli")
             return
         try:
-            # Yazı çevirisinde yönü metne göre düzelt — karşı dil Türkçe tarafa yazılmasın
-            translated, from_lang, to_lang = translate_pair_safe(
-                text, from_lang, to_lang, my, other,
-            )
+            if force:
+                translated = translate_text(text, from_lang, to_lang)
+            else:
+                # Yazı çevirisinde yönü metne göre düzelt — karşı dil Türkçe tarafa yazılmasın
+                translated, from_lang, to_lang = translate_pair_safe(
+                    text, from_lang, to_lang, my, other,
+                )
             body = json.dumps({
                 "text": translated,
                 "from": from_lang,

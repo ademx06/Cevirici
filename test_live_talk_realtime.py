@@ -29,6 +29,14 @@ class Structure(unittest.TestCase):
         self.assertIn("isMeaningfulPhrase", js)
         self.assertIn("ltLiveBox", js)
         self.assertIn("CANLI ÇEVİRİ", html)
+        self.assertIn("force: '1'", js)
+        self.assertIn("maybeSpeakTranslation", js)
+        self.assertIn("enqueueTts", js)
+        self.assertIn("spokenTrans", js)
+        self.assertIn("pendingSide", js)
+        self.assertIn("releaseHardware", js)
+        self.assertIn("finalizeUtterance", js)
+        self.assertIn("/api/tts", js)
         self.assertNotRegex(js, r"(?<![\w/])MicHold\.create")
         # Yorum dışında gerçek çağrı olmamalı
         code_only = "\n".join(
@@ -39,6 +47,7 @@ class Structure(unittest.TestCase):
         self.assertNotIn("mic-hold.js", html)
         self.assertIn("rollSegment", js)
         self.assertIn("scheduleRoll", js)
+        self.assertIn("Sesli çeviri", html)
     def test_no_education_dependency(self):
         js=(ROOT/"live-talk.js").read_text(encoding="utf-8")
         self.assertNotIn("education", js.lower())
@@ -79,6 +88,16 @@ class ApiSmoke(unittest.TestCase):
         self.assertTrue(all(outs))
         final=outs[-1].lower()
         self.assertTrue(any(k in final for k in ("yarın","buluş","kafe","üç","3","uygun")), final)
+    def test_force_keeps_direction_on_partial(self):
+        """force=1 partial TR→EN yönünü pair_safe sapmasından korur."""
+        import server
+        # Doğrudan motor: force yolu translate_text kullanır
+        partial = "Yarın seninle"
+        forced = server.translate_text(partial, "tr", "en")
+        self.assertTrue(forced)
+        # İngilizce karakter / kelime beklenir; Türkçe cümle olarak kalmamalı
+        low = forced.lower()
+        self.assertTrue(any(k in low for k in ("tomorrow", "you", "with", "meet", "want")), forced)
     def test_audio_stt_then_translate(self):
         import server
         from pathlib import Path as P
