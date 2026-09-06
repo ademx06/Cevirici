@@ -53,35 +53,45 @@ LANG_NAMES = {
 LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"]
 SRS_INTERVALS_DAYS = [1, 3, 7, 14, 30]
 
-SYSTEM_PROMPT = """You are a personal English teacher AND conversation partner for a near-beginner Turkish student.
-Priority skill: SENTENCE BUILDING (not vocabulary dumps).
+SYSTEM_PROMPT = """You are a real English conversation teacher for a Turkish-speaking student.
 
-Loop: UNDERSTAND → MICRO-TEACH ONE PATTERN → BUILD TOGETHER → USER PRODUCES → USER TRANSFERS TO A NEW SENTENCE → CONTINUE TALK.
+Your job is NOT quiz → answer → lesson over.
+Your job is natural English conversation that continues as long as the student keeps talking.
 
-Rules:
-- Hint before dumping the full answer when possible (especially he/she/it).
-- Teach ONE pattern at a time: I am + verb-ing / I want to + verb / he-she-it / past simple.
-- After they say the corrected sentence, ask them to make a NEW similar sentence (transfer).
-- Correct sentences: praise briefly and continue chatting — no grammar lecture.
-- Keep questions simple for beginners (avoid heavy vocab).
-- Preserve proper names. Never shame. USER talks more than you."""
+Balance: about 70% natural conversation, 30% teaching/correction (only when needed).
 
-AI_TUTOR_JSON_PROMPT = """You are a PROFESSIONAL personal {lang_name} TEACHER + conversation partner for a Turkish-speaking student.
-Level: {level}. Warm, patient, human. NOT a chatbot. NOT a translator. NOT a quiz master.
+Core loop every turn:
+UNDERSTAND → USE CONTEXT → CORRECT ONLY IF IMPORTANT → SHORT TEACH IF NEEDED → CONTINUE THE CHAT WITH A NATURAL FOLLOW-UP
 
-Weak areas (reuse naturally later): {weak_areas}
-Repeated mistakes (gently reinforce when relevant): {repeated_mistakes}
+Hard rules:
+- Never end the conversation unless the student clearly says goodbye / stop / I'm done / ders bitti.
+- Never say: lesson complete, that's all, goodbye, see you next time, practice later (unless they said goodbye).
+- Never become a mechanical drill master ("Now let's learn…", "Next question…", "Repeat after me…" every turn).
+- Short answers (yes/no/maybe/nothing/okay/I don't know) are valid — keep chatting with an easier follow-up.
+- If they switch topic, follow the new topic.
+- Remember what they already said; do not re-ask the same question.
+- If they speak Turkish, help them say it in English, then return to conversation.
+- Correct gently (Almost! / You're close! / A more natural way is…). Never shame.
+- Prefer 1–5 short sentences. One main correction max per turn.
+- User should talk more than you."""
+
+
+AI_TUTOR_JSON_PROMPT = """You are a PROFESSIONAL personal {lang_name} conversation TEACHER for a Turkish-speaking student.
+Level: {level}. Warm, patient, human. You feel like a real teacher chatting — NOT a chatbot, translator, or quiz app.
+
+Weak areas (reuse naturally later, do not lecture): {weak_areas}
+Repeated mistakes (gently reinforce only when they appear again): {repeated_mistakes}
 Roleplay: {roleplay}
 
 {curriculum_block}
 
-CONVERSATION HISTORY:
+CONVERSATION HISTORY (oldest → newest):
 {history_text}
 
 LAST THING YOU SAID:
 "{last_teacher}"
 
-RECENT QUESTIONS (do NOT repeat the same question):
+RECENT QUESTIONS (do NOT repeat the same or near-same question):
 {recent_questions}
 
 STUDENT JUST SAID ({input_lang}):
@@ -89,52 +99,63 @@ STUDENT JUST SAID ({input_lang}):
 
 {stt_note}
 
-BEGINNER SENTENCE-BUILDING LOOP:
-UNDERSTAND → MICRO-TEACH ONE PATTERN → BUILD TOGETHER → PRODUCE → TRANSFER (new similar sentence) → CONTINUE
-
-Evaluate:
-1. MEANING first — what did they try to say?
-2. GRAMMAR — only the MAIN error
-3. NATURALNESS — correct but stiff?
-
 {micro_chain_block}
 
-CRITICAL STYLE:
-- Prefer scaffolding: hint → pattern → correct sentence → then a NEW similar sentence (transfer).
-- Example: "I am read a book" → praise I am → **I am + verb-ing** → **I am reading a book.** → then "Ben televizyon izliyorum" (watch).
-- Example: "He is a happy story" → He=person / story≠person → hint he or it? → **It is a happy story.**
-- ONE pattern per turn. Correct answer → short praise + simple follow-up.
-- Keep follow-up questions SIMPLE for beginners.
-STYLE (critical — avoid robot phrases):
-- Avoid overusing: "Great!", "Excellent!", "Now let's learn something new", "Try saying it", "Now practice".
-- Prefer: Oh really? / That's interesting / What kind of…? / Why…? / I understand what you mean / You're very close / One small change.
-- Combine CORRECTION + TEACHING + CONVERSATION in ONE natural reply.
-- Example: "I go book" → acknowledge plan → teach "I'm going to buy a book" briefly → "What kind of book are you going to buy?"
-- Example: "I speak Samet" → "I'm talking to Samet" (keep the name!) → ask a follow-up about Samet.
-- Example: short "Tired" after feeling question → accept it; optionally mention "I'm tired" then ask why.
-- Do NOT force yes/no confirmation when intent is clear.
-- Do NOT reset to greetings curriculum if the student is already talking about something else.
-- Preserve proper names exactly.
+MISSION:
+Keep a living conversation going. The student should feel they are talking with a real English teacher.
+As long as the student continues, YOU CONTINUE. Never close the chat.
+
+TURN ALGORITHM (follow in order):
+1) UNDERSTAND meaning from context (STT/spelling may be messy — infer intent).
+2) CHECK HISTORY — reuse facts they already shared; never re-ask answered questions.
+3) IF TOPIC CHANGED — follow the new topic immediately.
+4) IF IMPORTANT ERROR — correct briefly (grammar / word choice / naturalness / tense / preposition / article / plural / pronoun / structure). One main error only.
+5) IF NEEDED — ask them to repeat the corrected sentence once (not 5 times).
+6) ALWAYS — continue naturally with a contextual follow-up (question OR "tell me more" prompt).
+7) NEVER end with goodbye / lesson complete / that's enough for today unless student clearly wants to stop.
+
+STYLE BALANCE:
+- ~70% natural chat, ~30% teaching.
+- No error? Do NOT invent corrections. Praise briefly or just continue.
+- Error? Pattern: Almost! → natural sentence → tiny tip (optional) → follow-up about THEIR topic.
+- Long story? Understand first, then one key correction, then a story question.
+- Short reply (yes/no/maybe/nothing/okay/I don't know)? Soften and continue with an easier question. Never stop.
+- Turkish help / "yardım"? Give English, ask them to say it, then continue chatting.
+- Student asks a meaning? Explain simply with one example, then continue.
+- Vary follow-ups (why / when / who with / what next / how often / would you… / tell me more). Avoid repeating "What is your favorite…?"
+
+LEVEL ADAPTATION:
+- Beginner: short sentences, simple words, more Turkish support in teacher_tr.
+- Intermediate: more natural English, fewer Turkish lines, richer follow-ups.
+- Advanced: natural chat, optional idioms, fewer corrections.
+
+FORBIDDEN:
+- Mechanical lesson mode every turn.
+- Long grammar lectures / listing many errors.
+- Harsh words: Wrong / Bad English / Incorrect / You failed.
+- Over-praise spam every turn (Amazing! Excellent! Fantastic!).
+- Hallucinating facts the student never said.
+- Resetting to greetings curriculum while a topic is already open.
 
 HELP / STUCK:
 - yardım alone → ask them to write the idea in Turkish.
-- bilmiyorum → give easy options, then teach one English sentence, then continue chatting.
+- bilmiyorum / I don't know → easier options or yes/no, then continue.
 
-ADAPTIVE LENGTH / TOKENS:
-- Small fix → 2-4 short sentences total.
-- No huge grammar essays. No repeating the same "Sanırım…" block twice.
+LENGTH:
+- Usually 1–5 short sentences total.
+- Small fix → 2–4 sentences. No essays.
 
 TEACHER_TR:
-- Brief Turkish support only (1-3 lines) or null. Never duplicate the full English reply in Turkish.
+- Brief Turkish support (1–3 lines) or null. Never duplicate the full English reply.
 
 Return ONLY valid JSON:
 {{
-  "teacher_en": "natural {lang_name} reply — react + fix if needed + ONE follow-up about their topic",
+  "teacher_en": "natural {lang_name} reply — react + fix if needed + continue the SAME conversation",
   "teacher_tr": "brief Turkish support or null",
   "phonetic_en": "string or null",
   "correction_level": 1,
   "correct_phrase": "string or null",
-  "suggested_practice": "optional short phrase to try OR null if follow-up question is enough",
+  "suggested_practice": "optional short phrase to try OR null if follow-up is enough",
   "teach_new_phrase": "one new phrase/pattern this turn or null",
   "teach_new_phrase_tr": "Turkish meaning or null",
   "grammar_tr": "max 2 short Turkish sentences about MAIN mistake or null",
@@ -150,7 +171,10 @@ Return ONLY valid JSON:
 
 correction_level: 1=ok/continue, 2=small fix inside chat, 3=important structure error.
 If correction_level is 1, correct_phrase must be null.
-Do NOT put internal scores or reasoning in teacher_en/teacher_tr."""
+Do NOT put internal scores or reasoning in teacher_en/teacher_tr.
+Prefer awaiting_practice=true only for important errors; otherwise continue chatting.
+"""
+
 
 
 SENTENCE_ANALYSIS_JSON_PROMPT = """You are an expert personal language tutor. Student is Turkish; target language is {lang_name} ({target_lang}).
@@ -1628,17 +1652,56 @@ def _recent_user_texts(history: list[dict], n: int = 4) -> list[str]:
     return out
 
 
+def _history_chronological(history: list[dict], limit: int = 12) -> list[dict]:
+    """Normalize client/server history to oldest→newest turns.
+
+    education.js historically used unshift (newest-first). Engine prompts and
+    older tests expect oldest-first. Detect both and return chronological.
+    """
+    items = [
+        h for h in (history or [])
+        if isinstance(h, dict) and str(h.get("text") or "").strip()
+    ]
+    if len(items) <= 1:
+        return items[-limit:]
+
+    def _opening_score(msg: dict) -> int:
+        t = str(msg.get("text") or "").lower()
+        score = 0
+        if re.search(r"\b(hello|hi|hey|good morning|good evening|welcome|merhaba|how are you|how was your day)\b", t):
+            score += 2
+        if msg.get("role") == "teacher":
+            score += 1
+        return score
+
+    # newest-first usually ends with an opening/greeting teacher turn
+    if _opening_score(items[-1]) > _opening_score(items[0]) + 0:
+        # still ambiguous — also check: if first looks like a short answer to a later question
+        pass
+    newest_first = False
+    # Strong signal: first item is user short reply and last is teacher greeting
+    if items[0].get("role") in ("user", "student") and items[-1].get("role") == "teacher" and _opening_score(items[-1]) >= 2:
+        newest_first = True
+    # Strong signal: first teacher message is a follow-up question while last is greeting
+    if items[0].get("role") == "teacher" and "?" in str(items[0].get("text") or "") and _opening_score(items[-1]) >= 2:
+        newest_first = True
+    # Client marker: roles alternate starting with most recent user/teacher near index 0 and greeting at end
+    if _opening_score(items[-1]) >= 2 and _opening_score(items[0]) == 0:
+        newest_first = True
+
+    ordered = list(reversed(items)) if newest_first else items
+    return ordered[-limit:]
+
+
 def _format_history_for_ai(history: list[dict], limit: int = 10) -> str:
-    """Compact conversation history for AI tutor prompt (token-efficient)."""
+    """Compact chronological conversation history for AI tutor prompt."""
     lines: list[str] = []
-    for h in history[-limit:]:
-        if not isinstance(h, dict):
-            continue
-        text = (h.get("text") or "").strip()
-        if not text:
+    for h in _history_chronological(history, limit=limit):
+        msg = (h.get("text") or "").strip()
+        if not msg:
             continue
         role = "Teacher" if h.get("role") == "teacher" else "Student"
-        lines.append(f"{role}: {text[:400]}")
+        lines.append(f"{role}: {msg[:400]}")
     return "\n".join(lines) if lines else "(start of conversation)"
 
 
@@ -4058,19 +4121,115 @@ def _try_intent_clarify(
 
 
 def _is_short_natural_reply(text: str, teacher_q: str) -> bool:
-    """'Tired.' gibi kısa cevaplar bağlama göre doğal olabilir."""
+    """Kısa cevaplar bağlama göre doğal olabilir — sohbeti bitirme."""
     ul = re.sub(r"[.!?]+$", "", (text or "").strip().lower()).strip()
-    if ul not in (
+    feeling = {
         "tired", "fine", "good", "ok", "okay", "busy", "happy", "sad", "great",
         "so-so", "not bad", "sleepy", "hungry", "bored",
-    ):
-        return False
+    }
     tq = (teacher_q or "").lower()
-    return bool(re.search(
-        r"how are you|how (?:are|do) you feel|how(?:'s| is) it going|feeling|"
-        r"nasılsın|nasil sin|ne haber",
-        tq,
-    ))
+    if ul in feeling:
+        return bool(re.search(
+            r"how are you|how (?:are|do) you feel|how(?:'s| is) it going|feeling|"
+            r"nasılsın|nasil sin|ne haber",
+            tq,
+        ))
+    return False
+
+
+def _is_minimal_conversation_reply(text: str) -> bool:
+    """Evet/hayır/nothing/maybe gibi minimal cevaplar — sohbet devam etmeli."""
+    ul = re.sub(r"[.!?]+$", "", (text or "").strip().lower()).strip()
+    ul = re.sub(r"\s+", " ", ul)
+    return ul in {
+        "yes", "yeah", "yep", "yup", "no", "nope", "nah",
+        "ok", "okay", "sure", "maybe", "perhaps", "idk",
+        "i don't know", "i dont know", "not sure",
+        "nothing", "nothing much", "not much", "none",
+        "same", "me too", "hmm", "huh", "right", "true",
+        "evet", "hayır", "hayir", "tamam", "belki", "bilmiyorum", "hiçbir şey", "hicbir sey",
+    }
+
+
+def _minimal_conversation_followup(user_text: str, last_teacher: str) -> tuple[str, str]:
+    """Minimal cevaptan sonra kolay, bağlama uygun devam sorusu üret."""
+    ul = re.sub(r"[.!?]+$", "", (user_text or "").strip().lower()).strip()
+    tq = (last_teacher or "").lower()
+
+    if ul in {"nothing", "nothing much", "not much", "none", "hiçbir şey", "hicbir sey"}:
+        en = (
+            "That's okay! Sometimes a quiet day is nice. "
+            "What do you usually do when you have free time?"
+        )
+        tr = "Sorun değil. Boş zamanında genelde ne yaparsın?"
+        return en, tr
+
+    if ul in {"i don't know", "i dont know", "idk", "not sure", "bilmiyorum"}:
+        if re.search(r"coffee|tea|drink", tq):
+            en = "No problem! Let's make it easy — do you prefer coffee or tea?"
+            tr = "Sorun değil. Daha kolay sorayım: kahve mi çay mı tercih edersin?"
+        elif re.search(r"yesterday|last|weekend|today", tq):
+            en = "No problem. Let's make it easy: Did you stay home yesterday?"
+            tr = "Sorun değil. Kolay soralım: Dün evde mi kaldın?"
+        else:
+            en = "That's okay! Let's make it easier. Do you like music?"
+            tr = "Sorun değil. Daha kolay sorayım: müzik sever misin?"
+        return en, tr
+
+    if ul in {"yes", "yeah", "yep", "yup", "evet", "sure", "ok", "okay", "tamam", "right", "true"}:
+        en = "Nice! Can you tell me a bit more?"
+        tr = "Güzel! Biraz daha anlatır mısın?"
+        if re.search(r"work|job|office", tq):
+            en = "Got it! What time do you usually finish work?"
+            tr = "Anladım! Genelde işi saat kaçta bitiriyorsun?"
+        elif re.search(r"like|love|prefer|favorite|favourite", tq):
+            en = "Cool! Why do you like it?"
+            tr = "Güzel! Neden seviyorsun?"
+        return en, tr
+
+    if ul in {"no", "nope", "nah", "hayır", "hayir"}:
+        en = "Okay! What do you like instead?"
+        tr = "Tamam! Peki yerine ne seversin?"
+        return en, tr
+
+    if ul in {"maybe", "perhaps", "belki"}:
+        en = "Maybe works! What would make you say yes?"
+        tr = "Belki de olur! Seni 'evet' dedirtecek şey ne olurdu?"
+        return en, tr
+
+    if ul in {"same", "me too"}:
+        en = "Same here! What else do you enjoy?"
+        tr = "Ben de! Başka nelerden hoşlanıyorsun?"
+        return en, tr
+
+    en = "I see. Tell me more — what happened next?"
+    tr = "Anladım. Devam et — sonra ne oldu?"
+    return en, tr
+
+
+def _minimal_conversation_turn(
+    user_text: str,
+    target_lang: str,
+    profile: dict,
+    session_delta: dict,
+    translate_fn: Callable[[str, str, str], str] | None = None,
+) -> dict[str, Any]:
+    """Kısa cevapları sohbet kapanışı yapma — kolay takip sorusu sor."""
+    last = safe_str(profile.get("lastTeacherText")).strip()
+    teacher_en, teacher_tr = _minimal_conversation_followup(user_text, last)
+    if translate_fn and target_lang != "en":
+        teacher_tr = _to_tr(teacher_en, translate_fn, target_lang) or teacher_tr
+    delta = {
+        **session_delta,
+        "lastTeacherText": teacher_en,
+        "waitingForUser": True,
+        # Minimal cevaplar pratik kilidini bozmasın diye pending'i zorla temizleme;
+        # konu değişimi zaten _should_exit_practice_mode ile yönetiliyor.
+    }
+    return _pack(
+        profile, delta, teacher_en, teacher_tr, None, 1, "conversation",
+        waiting=True, user_text=user_text, teacher_en=teacher_en, speak_text=teacher_en,
+    )
 
 
 def _short_natural_reply_turn(
@@ -5152,18 +5311,19 @@ def llm_rewrite_turkish_from_georgian(src: str, meaning_en: str, draft_tr: str) 
 
 
 def _recent_teacher_questions(history: list[dict], profile: dict, limit: int = 5) -> str:
-    """Öğretmenin tekrar sormaması gereken son sorular."""
+    """Öğretmenin tekrar sormaması gereken son sorular (en yeniden eskiye)."""
     seen: list[str] = []
     last = safe_str(profile.get("lastTeacherText")).strip()
     if last:
         seen.append(last)
-    for h in reversed(history):
+    chrono = _history_chronological(history, limit=max(limit * 3, 12))
+    for h in reversed(chrono):  # newest first
         if not isinstance(h, dict) or h.get("role") != "teacher":
             continue
-        text = safe_str(h.get("text")).strip()
-        if not text or text in seen:
+        msg = safe_str(h.get("text")).strip()
+        if not msg or msg in seen:
             continue
-        for line in text.split("\n"):
+        for line in msg.split("\n"):
             line = line.strip()
             if "?" in line and len(line) > 8:
                 seen.append(line)
@@ -5173,6 +5333,8 @@ def _recent_teacher_questions(history: list[dict], profile: dict, limit: int = 5
     if not seen:
         return "(none yet — ask a friendly opening question)"
     return "\n".join(f"- {q[:200]}" for q in seen[:limit])
+
+
 
 
 def _try_ai_tutor_turn(
@@ -5348,6 +5510,37 @@ def safe_str(val: Any) -> str:
     return val if isinstance(val, str) else str(val)
 
 
+def _contextual_continue_question(history: list[dict], pending: str, profile: dict) -> str:
+    """Pratik başarı sonrası bağlama uygun devam sorusu — generic reset yok."""
+    chrono = _history_chronological(history, limit=10)
+    # Son kullanıcı konularından ipucu
+    user_bits = [
+        safe_str(h.get("text")).strip()
+        for h in chrono
+        if isinstance(h, dict) and h.get("role") in ("user", "student") and safe_str(h.get("text")).strip()
+    ]
+    last_user = user_bits[-1] if user_bits else ""
+    blob = f"{pending} {last_user} {safe_str(profile.get('lastTeacherText'))}".lower()
+
+    if re.search(r"shop|mall|buy|clothes|jacket|store|alışveriş", blob):
+        return "What are you planning to buy?"
+    if re.search(r"work|office|job|meeting|iş", blob):
+        return "How was work — busy or calm?"
+    if re.search(r"food|eat|restaurant|cook|coffee|tea|yemek|kahve", blob):
+        return "What do you usually like to eat or drink?"
+    if re.search(r"travel|trip|ankara|istanbul|flight|tatil|gezi", blob):
+        return "What are you most excited to do there?"
+    if re.search(r"film|movie|series|music|game|film|dizi|müzik", blob):
+        return "What do you like about it?"
+    if re.search(r"family|son|daughter|wife|husband|friend|aile|oğul|arkadaş", blob):
+        return "Tell me more about them."
+    if re.search(r"tired|sleep|rest|yorgun", blob):
+        return "What makes you feel better when you're tired?"
+    if last_user and len(last_user.split()) >= 2:
+        return "Nice — what happened next?"
+    return "What would you like to talk about next?"
+
+
 def _resume_after_help(
     user_text: str, target_lang: str, profile: dict, session_delta: dict,
     translate_fn: Callable[[str, str, str], str] | None,
@@ -5369,34 +5562,38 @@ def _resume_after_help(
     if not practiced:
         return None
 
-    clear_delta = {"pendingPracticePhrase": None, "pendingPracticeTr": None}
+    follow = _contextual_continue_question(history, pending, profile)
+    clear_delta = {
+        "pendingPracticePhrase": None,
+        "pendingPracticeTr": None,
+        "awaitingTargetPhrase": None,
+        "waitingForUser": True,
+    }
     teacher_en = (
-        f"Excellent! You said it well:\n\"{user_text.strip()}\"\n\n"
-        f"That's the sentence we practiced"
-        + (f" (\"{pending}\")" if _norm(user_text) != _norm(pending) else "")
-        + f". Now let's keep chatting in {lang_name} — what else are you planning today?"
+        "Perfect! You said it well: \"" + user_text.strip() + "\"\n\n" + follow
     )
     teacher_tr = (
-        f"🎉 Harika! Doğru söyledin:\n\"{user_text.strip()}\"\n\n"
-        f"Çalıştığımız cümleydi. "
-        f"Şimdi {lang_name} sohbete devam edelim — bugün başka ne planlıyorsun?"
+        "🎉 Harika! Doğru söyledin: \"" + user_text.strip() + "\"\n\n"
+        "Sohbete devam edelim."
     )
     if translate_fn:
         teacher_tr = (
-            f"🎉 Harika! Doğru söyledin:\n\"{pending}\"\n\n"
-            + _to_tr(
-                f"That's exactly the sentence we practiced. "
-                f"Now let's keep chatting — what else are you planning today?",
-                translate_fn, target_lang,
-            )
+            "🎉 Harika! Doğru söyledin: \"" + pending + "\"\n\n"
+            + (_to_tr(follow, translate_fn, target_lang) or "Sohbete devam edelim.")
         )
 
-    merged = merge_profile(profile, {**session_delta, **clear_delta, "correctSentences": profile.get("correctSentences", 0) + 1})
+    merged = merge_profile(
+        profile,
+        {**session_delta, **clear_delta, "correctSentences": profile.get("correctSentences", 0) + 1},
+    )
     return _pack(
-        merged, {**session_delta, **clear_delta, "correctSentences": profile.get("correctSentences", 0) + 1},
+        merged,
+        {**session_delta, **clear_delta, "correctSentences": profile.get("correctSentences", 0) + 1},
         teacher_en, teacher_tr, None, 1, "practice_success",
         waiting=True, user_text=user_text, teacher_en=teacher_en, speak_text=teacher_en,
     )
+
+
 
 
 def _contextual_reply(
@@ -6082,6 +6279,16 @@ def process_turn(
         if result:
             result["weekly_progress"] = weekly_progress(result["profile"])
             return result
+
+    # Minimal sohbet cevapları (nothing / maybe / yes / okay…) — konuşmayı KAPATMA
+    # Broken-English / intent yolundan ÖNCE yakala
+    if _is_minimal_conversation_reply(user_text):
+        # "bilmiyorum" zaten yukarıda özel moda girdi; burada kalan minimal cevaplar
+        result = _minimal_conversation_turn(
+            user_text, target_lang, profile, session_delta, translate_fn,
+        )
+        result["weekly_progress"] = weekly_progress(result["profile"])
+        return result
 
     # "bunu biliyorum" — konuyu mastered işaretle, ilerlet
     if re.search(r"\b(bunu\s+biliyorum|bunu\s+biliom|i\s+know\s+this|i\s+already\s+know)\b", user_text, re.I):
