@@ -29,7 +29,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.09.05-v72.12"
+APP_VERSION = "2026.09.06-v72.13"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 

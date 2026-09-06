@@ -1,0 +1,222 @@
+/* Eşzamanlı Konuşma — yalnızca live-talk sayfası */
+
+.live-talk-page .live-talk-app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+  padding-bottom: 12px;
+}
+
+.live-talk-header .tagline {
+  font-size: 12px;
+  color: #94A3B8;
+  margin: 2px 0 0;
+}
+
+.live-talk-lang-bar {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 8px;
+  align-items: end;
+  padding: 8px 12px 4px;
+}
+
+.live-talk-lang-field label {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #64748B;
+  margin-bottom: 4px;
+}
+
+.live-talk-lang-field select {
+  width: 100%;
+  appearance: none;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: rgba(15, 23, 42, 0.85);
+  color: #F8FAFC;
+  padding: 10px 12px;
+  font-size: 14px;
+}
+
+.live-talk-options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 12px 8px;
+}
+
+.live-talk-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #CBD5E1;
+  user-select: none;
+}
+
+.live-talk-toggle input {
+  width: 16px;
+  height: 16px;
+  accent-color: #22D3EE;
+}
+
+.live-talk-status-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #94A3B8;
+}
+
+.live-talk-interim { margin: 0 12px 8px; }
+
+.live-talk-messages { flex: 1; min-height: 160px; }
+
+.live-talk-bubble {
+  max-width: 94%;
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(15, 23, 42, 0.78);
+  border: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.live-talk-bubble.me {
+  margin-left: auto;
+  border-left: 3px solid #22D3EE;
+}
+
+.live-talk-bubble.other {
+  margin-right: auto;
+  border-left: 3px solid #A78BFA;
+}
+
+.live-talk-bubble-meta {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #64748B;
+  margin-bottom: 6px;
+}
+
+.live-talk-bubble-orig {
+  color: #CBD5E1;
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+.live-talk-bubble-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 10px 0;
+}
+
+.live-talk-bubble-trans {
+  color: #F8FAFC;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.live-talk-bubble-actions { margin-top: 8px; }
+
+.live-talk-replay {
+  border: 0;
+  background: rgba(34, 211, 238, 0.12);
+  color: #67E8F9;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.live-talk-speakers {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 12px 4px;
+  position: sticky;
+  bottom: 0;
+  background: linear-gradient(180deg, transparent, rgba(6, 11, 24, 0.92) 18%);
+}
+
+.live-talk-speaker {
+  border-radius: 18px;
+  padding: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(15, 23, 42, 0.72);
+}
+
+.live-talk-speaker.me { border-color: rgba(34, 211, 238, 0.28); }
+.live-talk-speaker.other { border-color: rgba(167, 139, 250, 0.28); }
+
+.live-talk-speaker-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 0 2px;
+}
+
+.live-talk-badge {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  color: #E2E8F0;
+}
+
+.live-talk-lang-name {
+  font-size: 12px;
+  color: #94A3B8;
+}
+
+.live-talk-mic { width: 100%; }
+
+.live-talk-speaker.me .live-talk-mic {
+  border-color: rgba(34, 211, 238, 0.4);
+  background: linear-gradient(135deg, rgba(34, 211, 238, 0.16), rgba(56, 189, 248, 0.08));
+}
+
+.live-talk-speaker.other .live-talk-mic {
+  border-color: rgba(167, 139, 250, 0.4);
+  background: linear-gradient(135deg, rgba(167, 139, 250, 0.16), rgba(129, 140, 248, 0.08));
+}
+
+.live-talk-arrow {
+  text-align: center;
+  font-size: 18px;
+  opacity: 0.7;
+  line-height: 1;
+}
+
+.live-talk-page .phone-footer-compact {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+}
+
+@media (min-width: 720px) {
+  .live-talk-speakers {
+    flex-direction: row;
+    align-items: stretch;
+  }
+  .live-talk-speaker { flex: 1; }
+  .live-talk-arrow {
+    display: flex;
+    align-items: center;
+    font-size: 0;
+    padding: 0 4px;
+  }
+  .live-talk-arrow::before {
+    content: "↔️";
+    font-size: 18px;
+  }
+}

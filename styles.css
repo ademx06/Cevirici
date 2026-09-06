@@ -726,6 +726,11 @@ body {
   background: linear-gradient(135deg, rgba(56,189,248,0.12), rgba(56,189,248,0.04));
 }
 
+.menu-card-live {
+  border-color: rgba(34,211,238,0.4);
+  background: linear-gradient(135deg, rgba(34,211,238,0.14), rgba(129,140,248,0.06));
+}
+
 .menu-card-edu {
   border-color: rgba(167,139,250,0.35);
   background: linear-gradient(135deg, rgba(167,139,250,0.14), rgba(167,139,250,0.04));
