@@ -53,8 +53,11 @@ class Structure(unittest.TestCase):
         self.assertIn("micStream", js)
         self.assertIn("holding", js)
         self.assertIn("holdGen", js)
-        self.assertIn("_ltUsedOnce", js)
         self.assertIn("bindGlobalRelease", js)
+        self.assertIn("oturumu BITIRME", js)
+        self.assertIn("TTS sırasında STT", js)
+        self.assertNotIn("_ltUsedOnce", js)
+        self.assertNotIn("forceRefresh", js)
         # Release must not stop tracks (re-permission / 2nd utterance break)
         release = js.split("function releaseHardware", 1)[1].split("function tryStartPending", 1)[0]
         self.assertNotIn("getTracks().forEach", release)
