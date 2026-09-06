@@ -6,8 +6,9 @@
  *      → /api/stt?lang=SOURCE (+ Web Speech interim)
  *      → anlamlı bölümde /api/translate?force=1 → canlı UI
  *      → anlamlı/stabil hedef dil segmentleri → /api/tts?tl=TARGET (konuşurken)
- * release → recorder durur; mikrofon track STOP EDİLMEZ (izin tekrarlanmaz)
- *      → aynı kalıcı stream ile 2./3. konuşma hemen başlar + konuşurken TTS
+ * release → recorder durur; track STOP/MUTE yok (izin + 2. konuşma)
+ *      → izin sonrası yapışık basılı kalmaz (holding/holdGen)
+ *      → 2./3. konuşma stream yenileme + konuşurken hızlı TTS
  */
 (function () {
   'use strict';
@@ -33,8 +34,8 @@
   var RELEASE_TAIL_MS = 180;
   var MIN_HOLD_MS = 220;
   var MIN_BLOB_BYTES = 900;
-  var TTS_STABLE_MS = 380;
-  var TTS_MIN_WORDS = 3;
+  var TTS_STABLE_MS = 280;
+  var TTS_MIN_WORDS = 2;
 
   var MIC_OPTS = {
     audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
@@ -52,6 +53,9 @@
     autoSpeak: true,
     audioReady: false,
     usedTouch: false,
+    holding: false,
+    holdGen: 0,
+    _globalReleaseBound: false,
     session: null,
     pendingSide: null,
     micStream: null,
@@ -249,16 +253,32 @@
     setSharedMicEnabled(enabled);
   }
 
-  async function ensureMicStream() {
-    if (micTracksLive(S.micStream)) {
+  async function ensureMicStream(forceRefresh) {
+    if (!forceRefresh && micTracksLive(S.micStream)) {
       setSharedMicEnabled(true);
       return S.micStream;
     }
+    var opts = MIC_OPTS;
+    var oldId = null;
     if (S.micStream) {
+      try {
+        var ot = S.micStream.getAudioTracks()[0];
+        if (ot && ot.getSettings) oldId = ot.getSettings().deviceId || null;
+      } catch (e) {}
       try { S.micStream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {}
       S.micStream = null;
     }
-    var stream = await navigator.mediaDevices.getUserMedia(MIC_OPTS);
+    if (oldId) {
+      opts = {
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          deviceId: { ideal: oldId }
+        }
+      };
+    }
+    var stream = await navigator.mediaDevices.getUserMedia(opts);
     S.micStream = stream;
     setSharedMicEnabled(true);
     return stream;
@@ -268,7 +288,7 @@
     if (!sess || !sess.active) return;
     if (S.ttsPausedMic) return;
     S.ttsPausedMic = true;
-    setSharedMicEnabled(false);
+    // Track.enabled=false YAPMA — sonraki MediaRecorder boş kayıt üretir
     if (sess.webSpeech) {
       try {
         sess.webSpeechPaused = true;
@@ -283,7 +303,6 @@
     S.ttsPausedMic = false;
     var sess = S.session;
     if (!sess || !sess.active || sess.finalizing) return;
-    setSharedMicEnabled(true);
     if (sess.webSpeechPaused) {
       sess.webSpeechPaused = false;
       sess.webSpeech = null;
@@ -415,11 +434,12 @@
     if (!sess || !S.autoSpeak) return;
     if (sess.speakTimer) clearTimeout(sess.speakTimer);
     var snap = String(sess.liveTrans || '');
+    var delay = sess.spokenTrans ? TTS_STABLE_MS : Math.min(250, TTS_STABLE_MS);
     sess.speakTimer = setTimeout(function () {
       sess.speakTimer = null;
       if (String(sess.liveTrans || '') !== snap) return;
       maybeSpeakTranslation(sess, sess.liveTrans, false, true);
-    }, TTS_STABLE_MS);
+    }, delay);
   }
 
   function showLivePanel(fromCode, toCode) {
@@ -819,10 +839,9 @@
       return stopRecorderBlob(sess.recorder);
     }).then(function (lastBlob) {
       if (lastBlob && lastBlob.size) sess.chunks.push(lastBlob);
-      // Track'leri STOP ETME — aksi halde her basışta yeniden izin istenir ve 2. konuşma bozulur
+      // Track STOP/MUTE YOK — kalıcı stream canlı kalsın
       sess.stream = null;
       sess.recorder = null;
-      setSharedMicEnabled(false);
       S.ttsPausedMic = false;
     });
   }
@@ -832,10 +851,11 @@
     if (S.session && S.session.active) return;
     var side = S.pendingSide;
     S.pendingSide = null;
-    startSession(side);
+    if (!S.holding) return;
+    startSession(side, S.holdGen);
   }
 
-  async function startSession(side) {
+  async function startSession(side, holdGen) {
     // Yalnızca aktif kayıt varken engelle. Finalize arka planda — ikinci basış çalışır.
     if (S.session && S.session.active) {
       S.pendingSide = side;
@@ -848,11 +868,10 @@
 
     hideError();
     unlockAudio();
-    // Önceki TTS kuyruğunu temizleme: önceki cümlenin sonunu okumaya izin ver.
-    // Yeni basışta echo olmaması için mikrofon açılınca pauseMicForTts zaten yok.
 
     var from = side === 'other' ? S.other : S.my;
     var to = side === 'other' ? S.my : S.other;
+    var gen = (holdGen == null) ? S.holdGen : holdGen;
 
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       showError('Mikrofon için Safari gerekli');
@@ -866,20 +885,29 @@
     // Yeni konuşmada önceki TTS'i kes — mikrofon echo'ya düşmesin
     stopTtsPlayback();
 
+    // 2.+ konuşmada stream'i aynı cihazdan yenile (izin istemez)
+    var needRefresh = !!S.micStream && S.micStream._ltUsedOnce;
+
     var stream;
     try {
-      stream = await ensureMicStream();
+      stream = await ensureMicStream(needRefresh);
     } catch (e) {
       showError('Mikrofon izni gerekli. Ayarlar → Safari → Mikrofon');
       return;
     }
 
-    // ensureMicStream sırasında başka oturum açıldıysa yeni kayıt başlatma
+    // İzin diyaloğu sırasında parmak kalkmışsa kayda başlama (yapışık basılı bug)
+    if (!S.holding || gen !== S.holdGen) {
+      setStatus('Hangi taraf konuşacaksa o butona basılı tut', false);
+      return;
+    }
+
     if (S.session && S.session.active) {
       return;
     }
 
     setSharedMicEnabled(true);
+    try { stream._ltUsedOnce = true; } catch (e) {}
 
     var mime = pickMime();
     var recorder;
@@ -887,6 +915,13 @@
       recorder = makeRecorder(stream, mime);
     } catch (e) {
       showError('Kayıt başlatılamadı — tekrar dene');
+      return;
+    }
+
+    // Recorder kurulurken bırakıldıysa iptal
+    if (!S.holding || gen !== S.holdGen) {
+      try { if (recorder.state !== 'inactive') recorder.stop(); } catch (e) {}
+      setStatus('Hangi taraf konuşacaksa o butona basılı tut', false);
       return;
     }
 
@@ -960,6 +995,12 @@
         endSession(true);
         return;
       }
+    }
+
+    // start sonrası hâlâ basılı değilse hemen iptal et
+    if (!S.holding || gen !== S.holdGen) {
+      endSession(true);
+      return;
     }
 
     if (useRoll) scheduleRoll(sess);
@@ -1085,14 +1126,21 @@
     if (!btn) return;
     function down(e) {
       e.preventDefault();
+      S.holding = true;
+      S.holdGen += 1;
+      var gen = S.holdGen;
       if (S.session && S.session.active) return;
-      startSession(side);
+      startSession(side, gen);
     }
     function up(e) {
       e.preventDefault();
+      if (!S.holding && !(S.session && S.session.active)) return;
+      S.holding = false;
       if (!S.session || !S.session.active || S.session.finalizing) return;
       endSession(false);
     }
+    btn._ltDown = down;
+    btn._ltUp = up;
     btn.addEventListener('contextmenu', function (e) { e.preventDefault(); });
     btn.addEventListener('touchstart', function (e) { S.usedTouch = true; down(e); }, { passive: false });
     btn.addEventListener('touchend', up, { passive: false });
@@ -1101,8 +1149,25 @@
     btn.addEventListener('mouseup', function (e) { if (!S.usedTouch) up(e); });
     btn.addEventListener('mouseleave', function (e) {
       if (S.usedTouch) return;
-      if (S.session && S.session.active) up(e);
+      if (S.holding || (S.session && S.session.active)) up(e);
     });
+  }
+
+  function bindGlobalRelease() {
+    if (S._globalReleaseBound) return;
+    S._globalReleaseBound = true;
+    if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return;
+    window.addEventListener('mouseup', function (e) {
+      if (S.usedTouch) return;
+      if (!S.holding) return;
+      S.holding = false;
+      if (S.session && S.session.active && !S.session.finalizing) endSession(false);
+    });
+    window.addEventListener('touchend', function () {
+      if (!S.holding) return;
+      S.holding = false;
+      if (S.session && S.session.active && !S.session.finalizing) endSession(false);
+    }, { passive: true });
   }
 
   LANGS.forEach(function (l) {
@@ -1116,6 +1181,7 @@
 
   bindHold($('ltMicMe'), 'me');
   bindHold($('ltMicOther'), 'other');
+  bindGlobalRelease();
 
   $('ltMyLang').onchange = function () {
     var v = $('ltMyLang').value;
