@@ -7,11 +7,10 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Eşzamanlı Konuşma">
   <meta name="theme-color" content="#060B18">
-  <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%23060B18' width='100' height='100' rx='20'/><text x='50' y='62' font-size='48' text-anchor='middle' fill='%2322D3EE'>🗣️</text></svg>">
   <link rel="manifest" href="manifest.json">
   <title>Eşzamanlı Konuşma — Sesli Çevirmen</title>
-  <link rel="stylesheet" href="styles.css?v=74">
-  <link rel="stylesheet" href="live-talk.css?v=1">
+  <link rel="stylesheet" href="styles.css?v=75">
+  <link rel="stylesheet" href="live-talk.css?v=3">
 </head>
 <body class="live-talk-page">
   <div class="app live-talk-app">
@@ -20,7 +19,7 @@
         <a href="/" class="back-btn" aria-label="Ana menü">←</a>
         <div>
           <h1>Eşzamanlı Konuşma</h1>
-          <p class="tagline">İki yönlü canlı çeviri — bas, konuş, bırak</p>
+          <p class="tagline">Konuşurken çevir — bitmesini beklemez</p>
         </div>
       </div>
       <button id="ltClearBtn" class="ghost-btn hidden" type="button">Temizle</button>
@@ -31,7 +30,7 @@
         <label for="ltMyLang">Benim dilim</label>
         <select id="ltMyLang"></select>
       </div>
-      <button id="ltSwapBtn" class="swap-btn" type="button" aria-label="Dilleri değiştir" title="Dilleri değiştir">🔄</button>
+      <button id="ltSwapBtn" class="swap-btn" type="button" aria-label="Dilleri değiştir">🔄</button>
       <div class="live-talk-lang-field">
         <label for="ltOtherLang">Karşı taraf</label>
         <select id="ltOtherLang"></select>
@@ -41,26 +40,34 @@
     <div class="live-talk-options">
       <label class="live-talk-toggle">
         <input id="ltAutoSpeak" type="checkbox" checked>
-        <span>Çeviriyi sesli oku</span>
+        <span>Bitişte sesli oku</span>
       </label>
       <div class="live-talk-status-row">
         <span id="ltStatusDot" class="status-dot"></span>
-        <span id="ltStatusText">Hangi taraf konuşacaksa o butona bas</span>
+        <span id="ltStatusText">Hangi taraf konuşacaksa o butona basılı tut</span>
       </div>
     </div>
 
     <div id="ltErrorBox" class="error-box hidden"></div>
 
-    <div id="ltInterimBox" class="interim live-talk-interim hidden">
-      <div class="interim-label">Dinleniyor…</div>
-      <div id="ltInterimText"></div>
+    <div id="ltLiveBox" class="live-talk-live hidden" aria-live="polite">
+      <div class="live-talk-live-label">🔴 CANLI ÇEVİRİ</div>
+      <div class="live-talk-live-row">
+        <span id="ltLiveFromFlag" class="live-talk-live-flag">🇹🇷</span>
+        <div id="ltLiveOrig" class="live-talk-live-orig">…</div>
+      </div>
+      <div class="live-talk-live-divider"></div>
+      <div class="live-talk-live-row">
+        <span id="ltLiveToFlag" class="live-talk-live-flag">🇬🇧</span>
+        <div id="ltLiveTrans" class="live-talk-live-trans">Çeviri konuşurken oluşacak…</div>
+      </div>
     </div>
 
     <main id="ltMessages" class="messages live-talk-messages" aria-live="polite">
       <div class="empty-state">
         <div class="empty-icon">🗣️</div>
-        <h2>Eşzamanlı konuşmaya başla</h2>
-        <p>Üst: sen · Alt: karşı taraf. Butona basılı tut, cümleyi bitir, bırak — çeviri otomatik gelir.</p>
+        <h2>Konuşurken çeviri başlar</h2>
+        <p>Butona basılı tutup konuş. Cümleyi bitirmeden anlamlı bölümler hedef dile çevrilmeye başlar.</p>
       </div>
     </main>
 
@@ -73,14 +80,12 @@
         <button id="ltMicMe" class="mic-btn live-talk-mic" type="button">
           <span class="mic-icon">🎤</span>
           <span class="mic-text">
-            <strong id="ltMicTitleMe">BAS VE KONUŞ</strong>
-            <small id="ltMicHintMe">Benim dilim</small>
+            <strong id="ltMicTitleMe">BASILI TUT</strong>
+            <small id="ltMicHintMe">Benim dilim → canlı çeviri</small>
           </span>
         </button>
       </div>
-
       <div class="live-talk-arrow" aria-hidden="true">↕️</div>
-
       <div class="live-talk-speaker other">
         <div class="live-talk-speaker-meta">
           <span id="ltOtherBadge" class="live-talk-badge">🇬🇧 KARŞI TARAF</span>
@@ -89,8 +94,8 @@
         <button id="ltMicOther" class="mic-btn live-talk-mic" type="button">
           <span class="mic-icon">🎤</span>
           <span class="mic-text">
-            <strong id="ltMicTitleOther">PRESS TO SPEAK</strong>
-            <small id="ltMicHintOther">Karşı tarafın dili</small>
+            <strong id="ltMicTitleOther">HOLD TO SPEAK</strong>
+            <small id="ltMicHintOther">Karşı dil → canlı çeviri</small>
           </span>
         </button>
       </div>
@@ -102,9 +107,8 @@
     <a href="translate.html">Klasik çeviri</a>
   </footer>
 
-  <script src="mic-hold.js?v=4"></script>
   <script src="api-client.js?v=6"></script>
   <script src="keepalive.js?v=2"></script>
-  <script src="live-talk.js?v=1"></script>
+  <script src="live-talk.js?v=3"></script>
 </body>
 </html>

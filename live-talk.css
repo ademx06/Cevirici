@@ -74,9 +74,65 @@
   color: #94A3B8;
 }
 
-.live-talk-interim { margin: 0 12px 8px; }
+/* Canlı çeviri paneli — konuşurken görünür */
+.live-talk-live {
+  margin: 0 12px 10px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(34, 211, 238, 0.35);
+  background: linear-gradient(180deg, rgba(34, 211, 238, 0.12), rgba(15, 23, 42, 0.85));
+  box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.08);
+}
 
-.live-talk-messages { flex: 1; min-height: 160px; }
+.live-talk-live.hidden { display: none; }
+
+.live-talk-live-label {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: #F87171;
+  margin-bottom: 8px;
+}
+
+.live-talk-live-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.live-talk-live-flag {
+  font-size: 18px;
+  line-height: 1.3;
+  flex-shrink: 0;
+}
+
+.live-talk-live-orig {
+  color: #CBD5E1;
+  font-size: 15px;
+  line-height: 1.45;
+  flex: 1;
+  min-height: 1.3em;
+}
+
+.live-talk-live-trans {
+  color: #F8FAFC;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.45;
+  flex: 1;
+  min-height: 1.3em;
+}
+
+.live-talk-live-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.1);
+  margin: 10px 0;
+}
+
+.live-talk-messages {
+  flex: 1;
+  min-height: 140px;
+}
 
 .live-talk-bubble {
   max-width: 94%;
@@ -188,6 +244,16 @@
 .live-talk-speaker.other .live-talk-mic {
   border-color: rgba(167, 139, 250, 0.4);
   background: linear-gradient(135deg, rgba(167, 139, 250, 0.16), rgba(129, 140, 248, 0.08));
+}
+
+.live-talk-mic.recording {
+  border-color: #EF4444 !important;
+  box-shadow: 0 0 24px rgba(239, 68, 68, 0.35);
+}
+
+.live-talk-mic.processing {
+  opacity: 0.85;
+  pointer-events: none;
 }
 
 .live-talk-arrow {
