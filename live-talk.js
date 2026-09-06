@@ -26,7 +26,8 @@
   var SLICE_MS = 1100;
   var ROLL_MS = 2000;
   var STT_GAP_MS = 900;
-  var TR_DEBOUNCE_MS = 400;
+  var TR_DEBOUNCE_MS = 280;
+  var TR_MAX_WAIT_MS = 900;
   var RELEASE_TAIL_MS = 220;
   var MIN_HOLD_MS = 220;
   var MIN_BLOB_BYTES = 900;
@@ -103,9 +104,11 @@
     var t = String(text || '').trim();
     if (!t) return false;
     var words = t.split(/\s+/).filter(Boolean);
-    if (words.length >= 4) return true;
+    // Canlı çeviri için daha erken başla (kelime kelime değil, kısa ifade yeter)
+    if (words.length >= 3) return true;
+    if (words.length >= 2 && t.length >= 10) return true;
     if (words.length >= 2 && /[.!?…,;:؟。！？]$/.test(t)) return true;
-    return t.length >= 20;
+    return t.length >= 14;
   }
 
   function shouldRetranslate(prev, next) {
@@ -113,9 +116,10 @@
     var b = String(next || '').trim();
     if (!b || b === a) return false;
     if (!a) return isMeaningfulPhrase(b);
-    if (b.length - a.length >= 8) return true;
+    if (b.length - a.length >= 6) return true;
     var aw = a.split(/\s+/).filter(Boolean).length;
     var bw = b.split(/\s+/).filter(Boolean).length;
+    if (bw - aw >= 1 && b.length - a.length >= 4) return true;
     if (bw - aw >= 2) return true;
     return /[.!?…]$/.test(b) && b !== a;
   }
@@ -342,6 +346,8 @@
     if (sess.sttAbort) { try { sess.sttAbort.abort(); } catch (e) {} sess.sttAbort = null; }
     if (sess.trAbort) { try { sess.trAbort.abort(); } catch (e) {} sess.trAbort = null; }
     if (sess.translateTimer) { clearTimeout(sess.translateTimer); sess.translateTimer = null; }
+    sess.translateInflight = false;
+    sess.translatePending = false;
   }
 
   function applyLiveOrig(sess, text) {
@@ -362,23 +368,57 @@
 
   function scheduleTranslate(sess) {
     if (!sess || sess.finalizing) return;
+    var text = String(sess.liveOrig || '').trim();
+    if (!text) return;
+
+    // İlk anlamlı metinde çeviriyi hemen başlat (debounce yüzünden hiç çalışmasın)
+    if (!sess.liveTrans && isMeaningfulPhrase(text) && !sess.translateInflight) {
+      if (sess.translateTimer) { clearTimeout(sess.translateTimer); sess.translateTimer = null; }
+      runTranslate(sess, true);
+      return;
+    }
+
+    // Uçuştayken iptal etme — bitince güncel metni çevir
+    if (sess.translateInflight) {
+      sess.translatePending = true;
+      return;
+    }
+
+    var now = Date.now();
+    if (!sess.translateFirstAt) sess.translateFirstAt = now;
     if (sess.translateTimer) clearTimeout(sess.translateTimer);
-    sess.translateTimer = setTimeout(function () { runTranslate(sess, false); }, TR_DEBOUNCE_MS);
+
+    // Sürekli interim güncellemesi debounce'u sonsuza ertelemesin
+    var waited = now - (sess.translateFirstAt || now);
+    var delay = waited >= TR_MAX_WAIT_MS ? 0 : TR_DEBOUNCE_MS;
+    sess.translateTimer = setTimeout(function () {
+      sess.translateTimer = null;
+      sess.translateFirstAt = 0;
+      runTranslate(sess, false);
+    }, delay);
   }
 
   async function runTranslate(sess, force) {
-    if (!sess) return;
+    if (!sess || sess.finalizing) return;
     var text = String(sess.liveOrig || '').trim();
     if (!text) return;
     if (!force) {
       if (!isMeaningfulPhrase(text) && !shouldRetranslate(sess.lastTranslatedOrig, text)) return;
       if (!shouldRetranslate(sess.lastTranslatedOrig, text) && sess.liveTrans) return;
+    } else if (sess.liveTrans && text === sess.lastTranslatedOrig) {
+      return;
     }
-    if (sess.trAbort) { try { sess.trAbort.abort(); } catch (e) {} }
+
+    // Öncekini iptal etme — paralel çakışmayı reqId ile çöz
     var ctrl = new AbortController();
     sess.trAbort = ctrl;
     var reqId = ++sess.trReqId;
+    sess.translateInflight = true;
+    sess.translatePending = false;
     try {
+      if (!sess.liveTrans) {
+        updateLivePanel(sess.liveOrig, 'Çevriliyor…');
+      }
       setStatus('✍️ Canlı çevriliyor…', true);
       var translated = await fetchTranslate(text, sess.from, sess.to, ctrl.signal);
       if (!S.session || S.session.id !== sess.id || reqId !== sess.trReqId) return;
@@ -389,6 +429,15 @@
       setStatus('🔴 Canlı çeviri — konuşmaya devam', true);
     } catch (e) {
       if (e && e.name === 'AbortError') return;
+    } finally {
+      if (S.session && S.session.id === sess.id && reqId === sess.trReqId) {
+        sess.translateInflight = false;
+        // Konuşma sürerken metin değiştiyse hemen yeniden çevir
+        if (sess.translatePending && sess.active && !sess.finalizing) {
+          sess.translatePending = false;
+          scheduleTranslate(sess);
+        }
+      }
     }
   }
 
@@ -527,7 +576,8 @@
   }
 
   async function startSession(side) {
-    if (S.session && S.session.active) return;
+    // Önceki oturum bitene kadar yeni konuşma başlatma (yarış / ikinci basış bug'ı)
+    if (S.session && (S.session.active || S.session.finalizing)) return;
     hideError();
     unlockAudio();
     stopTts();
@@ -592,6 +642,9 @@
       sttReqId: 0,
       trReqId: 0,
       translateTimer: null,
+      translateInflight: false,
+      translatePending: false,
+      translateFirstAt: 0,
       webSpeech: null
     };
     S.session = sess;
@@ -641,6 +694,10 @@
     var holdMs = Date.now() - sess.startedAt;
     await new Promise(function (r) { setTimeout(r, RELEASE_TAIL_MS); });
 
+    function clearThisSession() {
+      if (S.session && S.session.id === sess.id) S.session = null;
+    }
+
     try {
       if (sess.recorder && sess.recorder.state !== 'inactive') {
         var lastBlob = await stopRecorderBlob(sess.recorder);
@@ -654,7 +711,7 @@
     }
 
     if (cancelled) {
-      S.session = null;
+      clearThisSession();
       hideLivePanel();
       clearMicUi();
       setStatus('Hangi taraf konuşacaksa o butona basılı tut', false);
@@ -662,7 +719,7 @@
     }
 
     if (holdMs < MIN_HOLD_MS) {
-      S.session = null;
+      clearThisSession();
       hideLivePanel();
       clearMicUi();
       showError('Biraz daha uzun basılı tutun');
@@ -672,7 +729,7 @@
 
     var blob = new Blob(sess.chunks, { type: sess.mime || 'audio/webm' });
     if ((!blob.size || blob.size < MIN_BLOB_BYTES) && !sess.liveOrig) {
-      S.session = null;
+      clearThisSession();
       hideLivePanel();
       clearMicUi();
       showError('Ses duyulamadı — tekrar dene');
@@ -701,8 +758,12 @@
       finalOrig = String(finalOrig || '').trim();
       if (!finalOrig) throw new Error('Konuşma anlaşılamadı. Lütfen tekrar konuşun.');
 
-      updateLivePanel(finalOrig, sess.liveTrans || 'Son çeviri…');
-      var finalTrans = await fetchTranslate(finalOrig, sess.from, sess.to);
+      // Varsa canlı çeviriyi koru; yoksa / değiştiyse son çeviriyi yap
+      var finalTrans = sess.liveTrans;
+      if (!finalTrans || sess.lastTranslatedOrig !== finalOrig) {
+        updateLivePanel(finalOrig, finalTrans || 'Son çeviri…');
+        finalTrans = await fetchTranslate(finalOrig, sess.from, sess.to);
+      }
       if (!finalTrans) throw new Error('Çeviri başarısız');
 
       var msg = {
@@ -719,13 +780,16 @@
       clearMicUi();
       setStatus('Çeviri hazır', false);
 
+      // TTS'ten önce oturumu kapat — ikinci basış çalışsın
+      clearThisSession();
+
       if (S.autoSpeak) {
         try {
           var b64 = await fetchTts(finalTrans, sess.to);
           if (b64) {
             msg.audio = b64;
             render();
-            await playB64(b64);
+            playB64(b64);
           }
         } catch (e) {}
       }
@@ -735,7 +799,7 @@
       clearMicUi();
       setStatus('Hangi taraf konuşacaksa o butona basılı tut', false);
     } finally {
-      S.session = null;
+      clearThisSession();
     }
   }
 
@@ -743,12 +807,12 @@
     if (!btn) return;
     function down(e) {
       e.preventDefault();
-      if (S.session && S.session.active) return;
+      if (S.session && (S.session.active || S.session.finalizing)) return;
       startSession(side);
     }
     function up(e) {
       e.preventDefault();
-      if (!S.session) return;
+      if (!S.session || S.session.finalizing) return;
       endSession(false);
     }
     btn.addEventListener('contextmenu', function (e) { e.preventDefault(); });

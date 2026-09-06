@@ -29,13 +29,13 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.09.06-v72.15"
+APP_VERSION = "2026.09.06-v72.16"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
 
 def _version_number(version: str) -> int:
-    """Parse 2026.09.06-v72.15 -> 72015 for update comparisons."""
+    """Parse 2026.09.06-v72.16 -> 72015 for update comparisons."""
     m = re.search(r"-v(\d+)(?:\.(\d+))?$", safe_str(version).strip(), re.I)
     if not m:
         return 0
