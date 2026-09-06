@@ -29,14 +29,17 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.09.06-v72.14"
+APP_VERSION = "2026.09.06-v72.15"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
 
 def _version_number(version: str) -> int:
-    m = re.search(r"-v(\d+)$", safe_str(version).strip(), re.I)
-    return int(m.group(1)) if m else 0
+    """Parse 2026.09.06-v72.15 -> 72015 for update comparisons."""
+    m = re.search(r"-v(\d+)(?:\.(\d+))?$", safe_str(version).strip(), re.I)
+    if not m:
+        return 0
+    return int(m.group(1)) * 1000 + int(m.group(2) or 0)
 
 
 def _deploy_hook_url() -> str:
