@@ -51,6 +51,10 @@ class Structure(unittest.TestCase):
         self.assertIn("ensureMicStream", js)
         self.assertIn("scheduleStableSpeak", js)
         self.assertIn("micStream", js)
+        self.assertIn("holding", js)
+        self.assertIn("holdGen", js)
+        self.assertIn("_ltUsedOnce", js)
+        self.assertIn("bindGlobalRelease", js)
         # Release must not stop tracks (re-permission / 2nd utterance break)
         release = js.split("function releaseHardware", 1)[1].split("function tryStartPending", 1)[0]
         self.assertNotIn("getTracks().forEach", release)
@@ -66,7 +70,7 @@ class Heuristics(unittest.TestCase):
         script=r"""
 const fs=require('fs'); const vm=require('vm');
 const code=fs.readFileSync('live-talk.js','utf8');
-const sandbox={window:{},document:{createElement:()=>({setAttribute(){},classList:{add(){},remove(){},toggle(){}},style:{},appendChild(){}}),getElementById:()=>({classList:{add(){},remove(){},toggle(){},contains:()=>false},textContent:'',value:'',style:{},appendChild(){},addEventListener(){}}),body:{appendChild(){}},querySelectorAll:()=>[]},console,navigator:{mediaDevices:null},setTimeout,clearTimeout,fetch:async()=>({ok:true,text:async()=>'{}',json:async()=>({}),blob:async()=>new Blob()})};
+const sandbox={window:{addEventListener(){}},document:{createElement:()=>({setAttribute(){},classList:{add(){},remove(){},toggle(){}},style:{},appendChild(){}}),getElementById:()=>({classList:{add(){},remove(){},toggle(){},contains:()=>false},textContent:'',value:'',style:{},appendChild(){},addEventListener(){}}),body:{appendChild(){}},querySelectorAll:()=>[]},console,navigator:{mediaDevices:null},setTimeout,clearTimeout,fetch:async()=>({ok:true,text:async()=>'{}',json:async()=>({}),blob:async()=>new Blob()})};
 vm.createContext(sandbox); vm.runInContext(code,sandbox);
 const H=sandbox.window.LiveTalkHeuristics;
 function assert(c,m){if(!c){console.error(m);process.exit(1)}}
