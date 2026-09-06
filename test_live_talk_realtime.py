@@ -24,6 +24,8 @@ class Structure(unittest.TestCase):
         self.assertIn("recorder.start(SLICE_MS)", js)
         self.assertIn("runLiveStt", js)
         self.assertIn("scheduleTranslate", js)
+        self.assertIn("translateInflight", js)
+        self.assertIn("TR_MAX_WAIT_MS", js)
         self.assertIn("isMeaningfulPhrase", js)
         self.assertIn("ltLiveBox", js)
         self.assertIn("CANLI ÇEVİRİ", html)
