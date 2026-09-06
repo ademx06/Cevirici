@@ -823,9 +823,14 @@ async function playB64(b64) {
 }
 
 function pushHistory(role, text) {
+  // Oldest → newest (AI context). Eski newest-first kayıtları bir kez çevir.
   S.history = sanitizeHistory(S.history);
-  S.history.unshift({ role, text: safeStr(text).slice(0, 500) });
-  S.history = S.history.slice(0, 24);
+  if (!S._historyChrono) {
+    S.history = S.history.slice().reverse();
+    S._historyChrono = true;
+  }
+  S.history.push({ role, text: safeStr(text).slice(0, 500) });
+  S.history = S.history.slice(-24);
   saveHistory();
 }
 
@@ -1004,7 +1009,7 @@ async function processEducationChat(text) {
       body: JSON.stringify({
         text,
         profile: compactProfileForApi(),
-        history: sanitizeHistory(S.history),
+        history: sanitizeHistory(S.history), // chronological oldest→newest
         roleplay: S.roleplay || null,
         speak_slow: S.speakSlow,
         user_lang: detectInputLang(text),
@@ -1084,7 +1089,7 @@ async function processEducationVoice(blob) {
       body: JSON.stringify({
         text: original,
         profile: compactProfileForApi(),
-        history: sanitizeHistory(S.history),
+        history: sanitizeHistory(S.history), // chronological oldest→newest
         roleplay: S.roleplay || null,
         speak_slow: S.speakSlow,
         user_lang: userLang,
@@ -1487,6 +1492,7 @@ window.addEventListener('pagehide', () => {
 
 S.profile = loadProfile();
 S.history = loadHistory();
+S._historyChrono = false; // migrate legacy newest-first on next pushHistory
 S.msgs = loadChat();
 S.learnLang = S.profile?.targetLang || 'en';
 syncLearnLang();
