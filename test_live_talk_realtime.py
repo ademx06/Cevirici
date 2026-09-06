@@ -58,10 +58,14 @@ class Structure(unittest.TestCase):
         self.assertIn("TTS sırasında STT", js)
         self.assertNotIn("_ltUsedOnce", js)
         self.assertNotIn("forceRefresh", js)
-        # Release must not stop tracks (re-permission / 2nd utterance break)
+        # Safari: her hold taze getUserMedia; release track STOP (2. kayıt boş blob olmasın)
+        self.assertIn("warmMicPermission", js)
+        self.assertIn("stopTracks", js)
+        self.assertIn("İzin verildi — tekrar basılı tutup konuşun", js)
         release = js.split("function releaseHardware", 1)[1].split("function tryStartPending", 1)[0]
-        self.assertNotIn("getTracks().forEach", release)
-        self.assertNotIn("t.stop()", release)
+        self.assertIn("stopTracks", release)
+        # iOS mid-hold MediaRecorder restart yok
+        self.assertIn("mid-hold restart yok", js)
 
     def test_no_education_dependency(self):
         js=(ROOT/"live-talk.js").read_text(encoding="utf-8")
