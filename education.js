@@ -176,6 +176,54 @@ function sanitizeCorrectionDetail(cd) {
   };
 }
 
+function sanitizeHelpExample(ex) {
+  if (!ex || typeof ex !== 'object' || Array.isArray(ex)) return null;
+  const target = safeStr(ex.target || ex.en || ex.english || ex.text).slice(0, 400);
+  if (!target) return null;
+  return {
+    label: safeStr(ex.label || ex.title || ex.level).slice(0, 80),
+    target,
+    tr: safeStr(ex.tr || ex.turkish || ex.turkishText || ex.meaningTr).slice(0, 400),
+    phonetic: safeStr(ex.phonetic || ex.pronunciation || ex.pronunciation_tr).slice(0, 400),
+  };
+}
+
+function sanitizeHelpExamples(raw) {
+  return ensureArray(raw).map(sanitizeHelpExample).filter(Boolean).slice(0, 6);
+}
+
+function sanitizeHelpStructure(hs) {
+  if (!hs || typeof hs !== 'object' || Array.isArray(hs)) return null;
+  const answer = (hs.answer && typeof hs.answer === 'object') ? {
+    structure: safeStr(hs.answer.structure).slice(0, 400),
+    explain_tr: safeStr(hs.answer.explain_tr || hs.answer.explainTr).slice(0, 500),
+  } : null;
+  const question = (hs.question && typeof hs.question === 'object') ? {
+    structure: safeStr(hs.question.structure).slice(0, 400),
+    explain_tr: safeStr(hs.question.explain_tr || hs.question.explainTr).slice(0, 500),
+  } : null;
+  return {
+    active_question: safeStr(hs.active_question || hs.activeQuestion).slice(0, 280),
+    answer,
+    question,
+    pattern_tip: safeStr(hs.pattern_tip || hs.patternTip).slice(0, 300),
+    commands: safeStr(hs.commands).slice(0, 800),
+  };
+}
+
+function sanitizeHelpTtsPairs(raw) {
+  return ensureArray(raw).map((p) => {
+    if (!p || typeof p !== 'object') return null;
+    const en = safeStr(p.en || p.target || p.text).slice(0, 400);
+    if (!en) return null;
+    return {
+      en,
+      tr: safeStr(p.tr || p.turkish).slice(0, 400),
+      phonetic: safeStr(p.phonetic || p.pronunciation).slice(0, 400),
+    };
+  }).filter(Boolean).slice(0, 6);
+}
+
 function sanitizeChatMsg(m) {
   if (!m || typeof m !== 'object' || Array.isArray(m)) return null;
   const role = m.role === 'user' ? 'user' : 'teacher';
@@ -188,6 +236,16 @@ function sanitizeChatMsg(m) {
   const newWord = nw && typeof nw === 'object' && !Array.isArray(nw) && nw.word
     ? { word: safeStr(nw.word), meaningTr: safeStr(nw.meaningTr) }
     : null;
+  // Preserve help examples from API (help_examples) and in-memory (helpExamples)
+  const helpExamples = sanitizeHelpExamples(
+    m.helpExamples || m.help_examples || m.examples || m.answerExamples,
+  );
+  const helpTtsPairs = sanitizeHelpTtsPairs(
+    m.helpTtsPairs || m.help_tts_pairs,
+  );
+  const helpStructure = sanitizeHelpStructure(
+    m.helpStructure || m.help_structure,
+  );
   return {
     role: 'teacher',
     teacher: safeStr(m.teacher || m.teacherEn),
@@ -203,6 +261,15 @@ function sanitizeChatMsg(m) {
     type: safeStr(m.type),
     newWord,
     speakTr: safeStr(m.speakTr),
+    speakText: safeStr(m.speakText || m.speak_text),
+    phoneticEn: safeStr(m.phoneticEn || m.phonetic_en),
+    questionText: safeStr(m.questionText || m.question_text),
+    hasQuestion: !!(m.hasQuestion || m.has_question),
+    messageId: safeStr(m.messageId || m.message_id),
+    ttsLanguage: safeStr(m.ttsLanguage || m.tts_language || m.targetLang || S.learnLang),
+    helpExamples,
+    helpTtsPairs,
+    helpStructure,
     time: safeStr(m.time),
   };
 }
@@ -636,7 +703,7 @@ function render() {
     const teacherTr = safeStr(m.teacherTr || m.explain || '');
     const corrLevel = Number(m.correctionLevel) || 1;
     // intent_teach / help: içerik teacher_en içinde — çift kart gösterme
-    const skipCorrCard = ['intent_teach', 'intent_soft_confirm', 'help', 'help_offer', 'dont_know_help', 'conversation', 'greeting', 'natural_teach', 'scaffold_hint', 'scaffold_produce', 'scaffold_transfer', 'scaffold_success', 'stt_clarify', 'practice_retry'].includes(safeStr(m.type));
+    const skipCorrCard = ['intent_teach', 'intent_soft_confirm', 'help', 'help_offer', 'help_idle', 'help_change_tr', 'help_change_target', 'help_more', 'help_easier', 'help_natural', 'dont_know_help', 'conversation', 'greeting', 'natural_teach', 'scaffold_hint', 'scaffold_produce', 'scaffold_transfer', 'scaffold_success', 'stt_clarify', 'practice_retry'].includes(safeStr(m.type));
     let corr = (!skipCorrCard && corrLevel >= 2 && m.correctionDetail) ? renderCorrectionCard(m.correctionDetail) : '';
     if (!corr && !skipCorrCard && m.correction && corrLevel >= 2) {
       corr = renderCorrectionCard({
@@ -649,21 +716,33 @@ function render() {
     const hideEnBlock = false;
     const vocab = m.newWord && m.newWord.word
       ? `<div class="chat-vocab">📚 <strong>${esc(safeStr(m.newWord.word))}</strong> = ${esc(safeStr(m.newWord.meaningTr))}</div>` : '';
-    const helpExamples = Array.isArray(m.helpExamples) ? m.helpExamples : [];
+    // Prefer structured helpExamples; fall back to helpTtsPairs (same payload TTS uses)
+    let helpExamples = Array.isArray(m.helpExamples) ? m.helpExamples : [];
+    if (!helpExamples.length && Array.isArray(m.helpTtsPairs) && m.helpTtsPairs.length) {
+      helpExamples = m.helpTtsPairs.map((p, idx) => ({
+        label: ['1️⃣ Kolay', '2️⃣ Orta', '3️⃣ Daha doğal'][idx] || `${idx + 1}️⃣`,
+        target: safeStr(p.en || p.target),
+        tr: safeStr(p.tr),
+        phonetic: safeStr(p.phonetic),
+      })).filter((ex) => ex.target);
+    }
     const hs = (m.helpStructure && typeof m.helpStructure === 'object') ? m.helpStructure : null;
+    const langFlag = lg.flag || '🌐';
+    const langName = (lg.name || 'Hedef dil').toUpperCase();
     const helpBlocks = helpExamples.length
-      ? `<div class="chat-help-examples">${helpExamples.map((ex) => {
+      ? `<div class="chat-help-examples" data-help-count="${helpExamples.length}">${helpExamples.map((ex, idx) => {
           const tgt = safeStr(ex.target || ex.en || '');
           const tr = safeStr(ex.tr || '');
           const ph = safeStr(ex.phonetic || '');
-          const label = safeStr(ex.label || '');
+          const label = safeStr(ex.label || `💬 Örnek ${idx + 1}`);
           if (!tgt) return '';
           return `<div class="chat-help-ex">
-            ${label ? `<p class="chat-help-ex-label">${esc(label)}</p>` : ''}
+            <p class="chat-help-ex-label">${esc(label)}</p>
+            <p class="chat-help-ex-lang">${esc(langFlag)} ${esc(langName)}</p>
             <p class="chat-help-ex-target">${esc(tgt)}</p>
-            ${tr ? `<p class="chat-help-ex-tr">🇹🇷 ${esc(tr)}</p>` : ''}
-            ${ph ? `<p class="chat-phonetic">🔤 ${esc(ph)}</p>` : ''}
-            <button type="button" class="replay-btn chat-help-listen" data-text="${esc(tgt)}" data-lang="${esc(S.learnLang)}">🔊 Dinle</button>
+            ${tr ? `<p class="chat-help-ex-tr"><span>🇹🇷 TÜRKÇE</span><br>${esc(tr)}</p>` : ''}
+            ${ph ? `<p class="chat-phonetic"><span>🔤 TÜRKÇE OKUNUŞ</span><br>${esc(ph)}</p>` : ''}
+            <button type="button" class="replay-btn chat-help-listen" data-text="${esc(tgt)}" data-lang="${esc(m.ttsLanguage || S.learnLang)}">🔊 Dinle</button>
           </div>`;
         }).join('')}</div>`
       : '';
@@ -677,12 +756,12 @@ function render() {
     const enBlock = teacherEn && !hideEnBlock
       ? `<div class="chat-lang-block chat-en ${isTeaching ? 'chat-en-compact' : ''}"><span>${lg.flag} ${isTeaching ? 'Devam' : lg.name}</span><p>${esc(teacherEn).replace(/\n/g, '<br>')}</p>${(!helpBlocks && m.phoneticEn) ? `<p class="chat-phonetic">🔤 ${esc(m.phoneticEn)}</p>` : ''}</div>`
       : '';
-    // When structured help cards exist, avoid dumping the full duplicate TR wall — show short cue
+    // When structured help cards exist, keep a short TR cue (examples live in cards)
     let trShow = teacherTr;
     if (helpExamples.length && teacherTr && teacherTr.length > 280) {
       const lines = teacherTr.split('\n').filter(Boolean);
       trShow = lines.slice(0, 4).join('\n');
-      if (!/öğretmenin sorusu|yardım/i.test(trShow)) {
+      if (!/öğretmenin sorusu|yardım|örnek/i.test(trShow)) {
         trShow = (hs && hs.active_question)
           ? `❓ Öğretmenin sorusu: ${hs.active_question}\nÖrnekler aşağıda — birini Konuş mikrofonuyla söyle.`
           : 'Örnekler aşağıda — birini Konuş mikrofonuyla söyle.';
@@ -797,7 +876,10 @@ async function fetchAndPlayTts(phrase, lang, slow = false) {
   ]);
 }
 
-const TR_HELP_TYPES = new Set(['help', 'confusion_help', 'explain_tr', 'help_offer', 'dont_know_help']);
+const TR_HELP_TYPES = new Set([
+  'help', 'confusion_help', 'explain_tr', 'help_offer', 'dont_know_help',
+  'help_idle', 'help_change_tr', 'help_change_target', 'help_more', 'help_easier', 'help_natural',
+]);
 const SKIP_TTS_TYPES = new Set(['intent_guess', 'practice_retry']);
 
 function englishTextForTts(d) {
@@ -1037,6 +1119,19 @@ function appendTeacherMsg(d) {
   const teacherEn = safeStr(d.teacher_en || d.robot_target || d.teacher_text || '');
   const teacherTr = safeStr(d.teacher_tr || d.explain_tr || '');
   const corrLevel = Number(d.correction_level) || 1;
+  const helpExamples = sanitizeHelpExamples(
+    d.help_examples || d.helpExamples || d.examples || d.answerExamples,
+  );
+  const helpTtsPairs = sanitizeHelpTtsPairs(d.help_tts_pairs || d.helpTtsPairs);
+  // If API only sent pairs (TTS path), still show cards
+  const examplesForUi = helpExamples.length
+    ? helpExamples
+    : helpTtsPairs.map((p, idx) => ({
+        label: ['1️⃣ Kolay', '2️⃣ Orta', '3️⃣ Daha doğal'][idx] || `${idx + 1}️⃣`,
+        target: p.en,
+        tr: p.tr,
+        phonetic: p.phonetic,
+      }));
   S.msgs.push({
     role: 'teacher',
     teacher: safeStr(d.teacher_text || teacherEn),
@@ -1055,9 +1150,9 @@ function appendTeacherMsg(d) {
     messageId: safeStr(d.message_id || ''),
     ttsLanguage: safeStr(d.tts_language || d.target_lang || S.learnLang),
     phoneticEn: safeStr(d.phonetic_en || ''),
-    helpTtsPairs: Array.isArray(d.help_tts_pairs) ? d.help_tts_pairs : [],
-    helpExamples: Array.isArray(d.help_examples) ? d.help_examples : [],
-    helpStructure: (d.help_structure && typeof d.help_structure === 'object') ? d.help_structure : null,
+    helpTtsPairs,
+    helpExamples: examplesForUi,
+    helpStructure: sanitizeHelpStructure(d.help_structure || d.helpStructure),
     type: safeStr(d.type),
     newWord: d.new_word && typeof d.new_word === 'object' && !Array.isArray(d.new_word) && d.new_word.word
       ? { word: safeStr(d.new_word.word), meaningTr: safeStr(d.new_word.meaningTr) }
