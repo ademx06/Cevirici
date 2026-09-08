@@ -1153,6 +1153,32 @@ body {
   letter-spacing: 0.02em;
 }
 
+.chat-help-ex-lang {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: #94A3B8;
+  text-transform: uppercase;
+}
+
+.chat-help-ex-tr span,
+.chat-phonetic span {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: #94A3B8;
+  margin-bottom: 2px;
+}
+
+.chat-help-ex-target,
+.chat-help-ex-tr,
+.chat-phonetic {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .chat-help-teach {
   margin: 10px 0 6px;
   padding: 10px 12px;
