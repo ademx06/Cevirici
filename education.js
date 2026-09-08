@@ -17,12 +17,18 @@ const HISTORY_KEY = 'edu_history_v2';
 const CHAT_KEY = 'edu_chat_v3';
 
 const STATES = {
-  IDLE: { text: 'Türkçe veya İngilizce konuş', mic: 'Basılı Tut ve Konuş', live: false },
+  IDLE: { text: 'Hedef dilde konuş', mic: 'Basılı Tut ve Konuş', live: false },
   LISTENING: { text: 'Dinleniyor...', mic: 'Konuşun...', live: true },
   PROCESSING: { text: 'Düşünüyor...', mic: 'Düşünüyor...', live: true },
   SPEAKING: { text: 'Öğretmen konuşuyor...', mic: 'Dinleyin...', live: true },
   ERROR: { text: 'Tekrar deneyin', mic: 'Basılı Tut ve Konuş', live: false },
 };
+
+function idleStatusText() {
+  const lg = getLang(S.learnLang);
+  const name = lg?.name || 'hedef dil';
+  return `${name} konuş — Bas Konuş`;
+}
 
 const audio = document.createElement('audio');
 audio.setAttribute('playsinline', 'true');
@@ -266,7 +272,8 @@ function saveHistory() {
 function setUiState(name) {
   S.uiState = name;
   const st = STATES[name] || STATES.IDLE;
-  safeText('statusText', st.text);
+  const text = name === 'IDLE' ? idleStatusText() : st.text;
+  safeText('statusText', text);
   safeClass('statusDot', 'toggle', 'active', st.live);
   safeText('micTitle', st.mic);
 }
@@ -1057,12 +1064,15 @@ async function sendTextMessage() {
 async function fetchListenEducation(blob) {
   const last = (S.lastUserLang === 'tr' || S.lastUserLang === S.learnLang)
     ? S.lastUserLang
-    : 'tr';
+    : S.learnLang;
+  // Bas Konuş ile aynı: hedef dil kilitli forced STT (auto-detect değil)
+  const source = S.learnLang || 'en';
   await ApiClient.wakeServer(12000);
   const url = `/api/listen?${new URLSearchParams({
     my: 'tr',
     other: S.learnLang,
     last,
+    source,
   })}`;
   const { ok, data: d } = await ApiClient.fetchJson(url, {
     method: 'POST',
@@ -1070,7 +1080,7 @@ async function fetchListenEducation(blob) {
     headers: { 'Content-Type': blob.type || 'audio/mp4' },
   }, { timeoutMs: VOICE_FETCH_MS, retries: 2, wakeFirst: false });
   if (!ok) throw new Error(d.error || 'Konuşma anlaşılamadı — tekrar dene');
-  return { ...d, _last: last };
+  return { ...d, _last: last, from: d.from || source };
 }
 
 async function processEducationVoice(blob) {
