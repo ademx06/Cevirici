@@ -112,13 +112,23 @@
       </section>
 
       <section class="controls edu-mic-section">
-        <button id="micBtn" class="mic-btn mic-btn-edu" type="button">
-          <span class="mic-icon">🎤</span>
-          <span class="mic-text">
-            <strong id="micTitle">Basılı Tut ve Konuş</strong>
-            <small id="conversationSubtitle">Sesli cevap ver</small>
-          </span>
-        </button>
+        <p class="dual-mic-hint edu-mic-hint">Hedef dilde konuş · Türkçe yardım iste</p>
+        <div class="dual-mic-row edu-dual-mic-row" role="group" aria-label="Eğitim mikrofonları">
+          <button id="micBtn" class="mic-btn mic-btn-edu dual-mic" type="button" data-role="speak">
+            <span class="mic-icon">🎤</span>
+            <span class="mic-text">
+              <strong id="micTitle">Konuş</strong>
+              <small id="conversationSubtitle">Hedef dil</small>
+            </span>
+          </button>
+          <button id="helpMicBtn" class="mic-btn mic-btn-edu dual-mic mic-btn-help" type="button" data-role="help">
+            <span class="mic-icon">💡</span>
+            <span class="mic-text">
+              <strong id="helpMicTitle">Yardım</strong>
+              <small id="helpMicSubtitle">🇹🇷 Türkçe</small>
+            </span>
+          </button>
+        </div>
       </section>
     </div>
   </div>
@@ -163,6 +173,6 @@
   <script src="api-client.js?v=3"></script>
   <script src="keepalive.js?v=2"></script>
   <script src="mic-hold.js?v=3"></script>
-  <script src="education.js?v=53"></script>
+  <script src="education.js?v=55"></script>
 </body>
 </html>

@@ -195,7 +195,6 @@ EN_CANONICAL: dict[str, str] = {
     "can": "ken",
     "bottle": "bat-ıl",
     "regular": "reg-yu-lır",
-    "usually": "yu-zhu-ali",
     "meal": "miil",
     "please": "pliz",
     "put": "put",
@@ -786,7 +785,7 @@ LESSON_VOCAB_CANONICAL: dict[str, str] = {
     "never": "ne-vır",
     "sometimes": "sam-taymz",
     "often": "o-fın",
-    "usually": "yu-zhu-vi",
+    "usually": "yujuıli",
     "rarely": "rer-li",
     "already": "ol-re-di",
     "yet": "yet",
@@ -1028,6 +1027,8 @@ JENNY_TTS_CANONICAL: dict[str, str] = {
     "new": "nu",
     "day": "dey",
     "on": "an",
+    # Jenny /ˈjuːʒuəli/ ≈ yujuıli — override any earlier usually variants
+    "usually": "yujuıli",
 }
 EN_CANONICAL.update(JENNY_TTS_CANONICAL)
 
