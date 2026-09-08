@@ -67,6 +67,7 @@ const S = {
   greetingLoaded: false,
   greetingBusy: false,
   greetingAbort: null,
+  spokenMessageIds: {},
   sessionSaved: false,
   softMsgTimer: null,
   processWatchdog: null,
@@ -735,11 +736,18 @@ const TR_HELP_TYPES = new Set(['help', 'confusion_help', 'explain_tr']);
 const SKIP_TTS_TYPES = new Set(['intent_guess', 'practice_retry']);
 
 function englishTextForTts(d) {
-  let text = safeStr(d.teacher_en || d.teacher_text || d.robot_target || '');
+  // Prefer explicit question / speak_text so teacher questions are always audible
+  let text = safeStr(d.question_text || d.speak_text || d.teacher_en || d.teacher_text || d.robot_target || '');
   text = text.replace(/[\u{1F300}-\u{1FAFF}\u{02700}-\u{027BF}\u2600-\u26FF\uFE0F]+/gu, ' ');
+  text = text.replace(/🇩🇪|🇪🇸|🇷🇺|🇫🇷|🇮🇹|🇬🇧|🇹🇷|🇺🇸/g, ' ');
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
-  const conv = lines.filter((l) => !/^(🎯|📌|📖|🧩|✅|💡|🔄|❌|🤔)/.test(l));
+  const conv = lines.filter((l) => !/^(🎯|📌|📖|🧩|✅|💡|🔄|❌|🤔|🇩🇪|🇪🇸|🇷🇺)/.test(l));
   text = (conv.length ? conv.join(' ') : lines.join(' ')).replace(/\s+/g, ' ').trim();
+  // Prefer last question sentence when present in the blob
+  const qs = text.match(/[^.!?]*\?/g);
+  if (qs && qs.length && !safeStr(d.question_text).trim()) {
+    text = qs[qs.length - 1].trim();
+  }
   const parts = text.match(/[^.!?]+[.!?]?/g) || [text];
   return parts.slice(0, 3).join(' ').trim().slice(0, EN_TTS_MAX);
 }
@@ -762,25 +770,40 @@ async function playHelpTts(d) {
 
 async function playTeacherAudio(d) {
   if (!d || typeof d !== 'object') return;
+  const msgId = safeStr(d.message_id || d.messageId);
+  if (msgId && S.spokenMessageIds[msgId]) return;
+  if (msgId) {
+    S.spokenMessageIds[msgId] = true;
+    // keep map bounded
+    const keys = Object.keys(S.spokenMessageIds);
+    if (keys.length > 40) keys.slice(0, keys.length - 30).forEach((k) => { delete S.spokenMessageIds[k]; });
+  }
+
   const level = Number(d.correction_level) || 1;
   const type = safeStr(d.type);
+  const ttsLang = safeStr(d.tts_language || d.target_lang || S.learnLang) || S.learnLang;
 
   try {
     if (level >= 2) {
+      // TR tip first (optional), then target-language correction + question
       const cd = d.correction_detail || {};
       const corrTr = safeStr(cd.correctTr || d.correct_tr || '').trim();
-      const corr = corrTr || trTextForTts(d.speak_tr || '');
-      if (corr) {
-        await fetchAndPlayTts(corr.slice(0, TR_TTS_MAX), 'tr', S.speakSlow);
-        return;
+      const tip = corrTr || trTextForTts(d.speak_tr || '');
+      if (tip && d.speak_tr_first !== false) {
+        await fetchAndPlayTts(tip.slice(0, TR_TTS_MAX), 'tr', S.speakSlow);
       }
+      const targetPhrase = safeStr(d.correction || cd.correctEn || '').trim();
+      if (targetPhrase) await fetchAndPlayTts(targetPhrase.slice(0, EN_TTS_MAX), ttsLang, S.speakSlow);
+      const q = safeStr(d.question_text).trim() || englishTextForTts({ ...d, speak_text: '', correction: '' });
+      if (q && q !== targetPhrase) await fetchAndPlayTts(q.slice(0, EN_TTS_MAX), ttsLang, S.speakSlow);
+      return;
     }
     if (TR_HELP_TYPES.has(type)) {
       if (type === 'confusion_help') {
         const tr = safeStr(d.speak_tr).trim();
         if (tr && d.speak_tr_first) await fetchAndPlayTts(tr.slice(0, TR_TTS_MAX), 'tr', S.speakSlow);
-        const en = safeStr(d.speak_text).trim();
-        if (en) await fetchAndPlayTts(en, S.learnLang, S.speakSlow);
+        const en = safeStr(d.speak_text || d.question_text).trim();
+        if (en) await fetchAndPlayTts(en, ttsLang, S.speakSlow);
         return;
       }
       await playHelpTts(d);
@@ -789,13 +812,19 @@ async function playTeacherAudio(d) {
     if (SKIP_TTS_TYPES.has(type)) return;
     if (type === 'intent_guess' || type === 'intent_retry') {
       const en = safeStr(d.speak_text || d.teacher_en).trim();
-      if (en) await fetchAndPlayTts(en, S.learnLang, S.speakSlow);
+      if (en) await fetchAndPlayTts(en, ttsLang, S.speakSlow);
       const tr = trTextForTts(d.speak_tr || '');
       if (tr) await fetchAndPlayTts(tr, 'tr', S.speakSlow);
       return;
     }
+    if (type === 'stt_clarify') {
+      const en = safeStr(d.speak_text || d.question_text || d.teacher_en).trim();
+      if (en) await fetchAndPlayTts(en, ttsLang, S.speakSlow);
+      return;
+    }
+    // Normal conversation: speak teacher reply (includes question)
     const en = englishTextForTts(d);
-    if (en) await fetchAndPlayTts(en, S.learnLang, S.speakSlow);
+    if (en) await fetchAndPlayTts(en, ttsLang, S.speakSlow);
   } catch { /* ignore */ }
   finally {
     if (!S.holdActive && !isRecording() && S.busyCount === 0) {
@@ -946,6 +975,10 @@ function appendTeacherMsg(d) {
     targetLang: safeStr(d.target_lang || S.learnLang),
     speakTr: safeStr(d.speak_tr || ''),
     speakText: safeStr(d.speak_text || ''),
+    questionText: safeStr(d.question_text || ''),
+    hasQuestion: !!d.has_question,
+    messageId: safeStr(d.message_id || ''),
+    ttsLanguage: safeStr(d.tts_language || d.target_lang || S.learnLang),
     phoneticEn: safeStr(d.phonetic_en || ''),
     helpTtsPairs: Array.isArray(d.help_tts_pairs) ? d.help_tts_pairs : [],
     type: safeStr(d.type),

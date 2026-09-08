@@ -607,8 +607,12 @@ def _should_exit_practice_mode(user_text: str, pending: str) -> bool:
     return False
 
 
-def _sanitize_ai_correction(user_text: str, parsed: dict) -> dict:
-    """AI bazen gereksiz düzeltme üretir — selam/teşekkür ve doğru cümleleri temizle."""
+def _sanitize_ai_correction(user_text: str, parsed: dict, target_lang: str = "en") -> dict:
+    """AI bazen gereksiz düzeltme üretir — selam/teşekkür ve doğru cümleleri temizle.
+
+    ENGLISH grammar rules (check_english) ONLY when target_lang == 'en'.
+    Never inject English corrections into German/Spanish/… lessons.
+    """
     if _is_polite_acknowledgment(user_text) or _is_greeting_or_small_talk(user_text):
         out = dict(parsed)
         out["correction_level"] = 1
@@ -629,6 +633,25 @@ def _sanitize_ai_correction(user_text: str, parsed: dict) -> dict:
         out["grammar_tr"] = None
         out["word_breakdown_tr"] = None
         out["speak_tr"] = None
+        return out
+
+    # Ban English curriculum/practice leaks for non-English targets
+    if target_lang != "en":
+        out = dict(parsed)
+        for key in ("correct_phrase", "suggested_practice", "teach_new_phrase", "build_on_phrase"):
+            val = safe_str(out.get(key)).strip()
+            if val and (_is_strong_english(val) or _EN_CURRICULUM_LEAK_RE.search(val)):
+                out[key] = None
+        te = safe_str(out.get("teacher_en"))
+        if te and _teacher_response_wrong_language(te, target_lang):
+            # Soft-clear EN curriculum phrases inside teacher reply; keep for later localize
+            out["teacher_en"] = re.sub(
+                _EN_CURRICULUM_LEAK_RE,
+                "",
+                te,
+            ).strip() or te
+            out["_needs_lang_fix"] = True
+        # Never run English grammar engine on non-English learner text
         return out
 
     if _is_likely_correct_english(user_text):
@@ -2432,7 +2455,7 @@ def _repeated_mistakes_summary(profile: dict, limit: int = 4) -> str:
 
 
 def _is_garbled_stt(text: str) -> bool:
-    """STT anlamsız/bozuk — kullanıcı hatası sanma."""
+    """STT anlamsız/bozuk — kullanıcı hatası sanma (çok dilli)."""
     if not text or len(text.strip()) < 6:
         return False
     ul = text.lower().strip()
@@ -2441,13 +2464,42 @@ def _is_garbled_stt(text: str) -> bool:
     if re.search(r"\b(dizzy|law)\b", ul) and re.search(r"\b(film|english|yes)\b", ul):
         if not re.search(r"\b(i|i'm|i am|love|like|watch)\b", ul):
             return True
-    words = re.findall(r"[a-z']+", ul)
-    if len(words) >= 4 and not re.search(
-        r"\b(i|i'm|am|is|are|was|were|have|has|do|did|will|can|want|like|love|went|go)\b", ul,
+    # Nonsense word salad: rare content words with no verbs/connectors
+    words = re.findall(r"[a-zA-Zàâäáéèêëíîïóôöúùûüçñßа-яёა-ჰ\u0600-\u06FF']+", ul, re.I)
+    if len(words) >= 5:
+        # Very low function-word density → likely ASR garbage
+        funcs = sum(1 for w in words if w in _EN_FUNCTION_WORDS or w in {
+            "ich", "du", "und", "nicht", "ist", "ein", "eine", "der", "die", "das",
+            "je", "tu", "et", "pas", "une", "le", "la", "les",
+            "yo", "el", "la", "y", "no", "un", "una",
+            "и", "не", "я", "ты", "это",
+        })
+        if funcs == 0 and not re.search(r"[.!?]", text):
+            return True
+    words_en = re.findall(r"[a-z']+", ul)
+    if len(words_en) >= 4 and not re.search(
+        r"\b(i|i'm|am|is|are|was|were|have|has|do|did|will|can|want|like|love|went|go|"
+        r"ich|du|ist|habe|je|suis|est|yo|soy|я|это)\b", ul,
     ):
-        if re.search(r"\b(yes|english|law|film|or|dizzy|and|the|a)\b", ul):
+        if re.search(r"\b(yes|english|law|film|or|dizzy|and|the|a|orange|elephant)\b", ul):
             return True
     return False
+
+
+def _try_stt_clarify_turn(
+    user_text: str,
+    target_lang: str,
+    profile: dict,
+    session_delta: dict,
+    history: list[dict],
+    translate_fn: Callable[[str, str, str], str] | None,
+) -> dict[str, Any] | None:
+    """Bozuk STT — kesin cümle uydurma, kısa doğrulama sor."""
+    if not _is_garbled_stt(user_text):
+        return None
+    return _asr_mismatch_clarify_turn(
+        user_text, target_lang, profile, session_delta, translate_fn,
+    )
 
 
 def _detect_tr_meaning_mismatch(phrase_tr: str) -> dict[str, str] | None:
@@ -2964,7 +3016,7 @@ def _try_en_rule_teach_turn(
     if cat == "naturalness":
         teacher_tr = (
             f"Anlaşılır — ne demek istediğini anladım 🙂\n\n"
-            f"Daha doğal İngilizcede:\n**{correct}**\n\n"
+            f"Daha doğal şekilde:\n**{correct}**\n\n"
             f"{explain_tr or 'Biraz daha doğal söyleyelim.'}\n\n"
             f"Şimdi sen söyle: **{correct}**"
         )
@@ -3041,12 +3093,23 @@ def _mark_known_and_advance(
             e["mastery"] = max(int(e.get("mastery") or 0), 80)
     repeated = _sync_repeated_mistakes(errors)
     next_prompt = "What did you do yesterday?" if "past" in topic else "Tell me about your day."
+    next_prompt = _localize_teacher_text(next_prompt, target_lang, translate_fn)
+    lang_name = LANG_NAMES.get(target_lang, target_lang)
     teacher_tr = (
         "Tamam — bu konuyu biliyorsun, işaretledim ✅\n\n"
         "Biraz daha ileri gidelim.\n\n"
-        f"Şimdi İngilizce cevapla: **{next_prompt}**"
+        f"Şimdi {lang_name} cevapla: **{next_prompt}**"
     )
-    teacher_en = f"Great — you've got this. Let's level up.\n\n{next_prompt}"
+    teacher_en = _localize_teacher_text(
+        f"Great — you've got this. Let's level up.\n\n{next_prompt}",
+        target_lang,
+        translate_fn,
+    )
+    if target_lang != "en" and next_prompt:
+        teacher_en = next_prompt if looks_like_lang(next_prompt, target_lang) else (
+            _localize_teacher_text("Great — you've got this. Let's continue.", target_lang, translate_fn)
+            + "\n\n" + next_prompt
+        )
     delta = {
         **session_delta,
         "masteredTopics": mastered[-20:],
@@ -3062,54 +3125,6 @@ def _mark_known_and_advance(
         waiting=True, user_text=user_text, teacher_en=teacher_en, speak_text=next_prompt,
         speak_tr="Bir üst seviyeye geçelim.", speak_tr_first=True,
         translate_fn=translate_fn, target_lang=target_lang,
-    )
-
-
-def _try_stt_clarify_turn(
-    user_text: str,
-    target_lang: str,
-    profile: dict,
-    session_delta: dict,
-    history: list[dict],
-    translate_fn: Callable[[str, str, str], str] | None,
-) -> dict[str, Any] | None:
-    """Bozuk STT — kesin cümle uydurma, kısa doğrulama sor."""
-    if not _is_garbled_stt(user_text):
-        return None
-    lang_name = LANG_NAMES.get(target_lang, target_lang)
-    last_q = profile.get("lastTeacherText") or _last_teacher_question(history, profile) or ""
-    hint = ""
-    if re.search(r"\b(film|movie|series|english)\b", last_q, re.I) or re.search(
-        r"\b(film|english|series)\b", user_text, re.I,
-    ):
-        hint = "English films and series"
-    teacher_en = (
-        "I think you said something about "
-        + (hint or f"{lang_name}")
-        + ", but the audio wasn't very clear.\n\n"
-        "Did you mean something like: \"Yes, I love English films and series\"?\n\n"
-        "Try saying it again slowly, or type it if you prefer."
-    )
-    teacher_tr = (
-        "Ses tam net gelmedi — emin olmak istiyorum.\n\n"
-        "Filmler/diziler hakkında mı konuşuyordun?\n"
-        "Tekrar yavaşça söyleyebilir misin?"
-    )
-    delta = {
-        **session_delta,
-        "lastTeacherText": teacher_en,
-        "pendingIntentConfirm": hint or "unclear speech",
-        "pendingIntentUserSaid": user_text,
-        "pendingIntentReason": "STT belirsiz — doğrulama bekleniyor",
-    }
-    merged = merge_profile(profile, delta)
-    return _pack(
-        merged, delta, teacher_en, teacher_tr, None, 1, "stt_clarify",
-        waiting=True, user_text=user_text, teacher_en=teacher_en, speak_text=teacher_en,
-        speak_tr="Ses net gelmedi. Tekrar yavaşça söyler misin?",
-        speak_tr_first=True,
-        translate_fn=translate_fn,
-        target_lang=target_lang,
     )
 
 
@@ -3239,7 +3254,7 @@ def _format_compact_help(
         parts.append(note_tr)
     else:
         parts.append(f"Sanırım «{phrase_tr.strip()}» demek istiyorsun.")
-    parts.append(f"\nİngilizcede bunu şöyle söyleyebiliriz:\n**{natural}**")
+    parts.append(f"\n{lang_name} dilinde bunu şöyle söyleyebiliriz:\n**{natural}**")
 
     en_l = natural.lower()
     structure = ""
@@ -3895,7 +3910,8 @@ def looks_like_lang(text: str, lang: str) -> bool:
             r"i|a|an|book|read|went|work|tired|today|yesterday|park|home|ate|had|"
             r"played|watched|walked|studied|spoke|said|asked|already|talked|about|"
             r"like|want|need|have|did|don't|we|my|me|subject|right|"
-            r"understand|run|ran|running|very|so|just|only|also|then|well|now)\b",
+            r"understand|run|ran|running|very|so|just|only|also|then|well|now|"
+            r"buy|bought|shopping|coffee|from|live|lived|going|would|could)\b",
             t,
             re.I,
         ))
@@ -3904,18 +3920,201 @@ def looks_like_lang(text: str, lang: str) -> bool:
     if lang == "ru":
         return bool(re.search(r"[\u0400-\u04FF]", t))
     if lang == "de":
-        return bool(re.search(r"\b(hallo|guten|danke|bitte|ja|nein)\b", t, re.I))
+        return bool(re.search(
+            r"[äöüßÄÖÜ]|"
+            r"\b(hallo|guten|danke|bitte|ja|nein|ich|du|sie|wir|ihr|ist|bin|bist|sind|"
+            r"habe|hast|hat|haben|geht|wie|was|wo|warum|nicht|auch|heute|morgen|"
+            r"arbeit|gut|sehr|mein|dein|der|die|das|ein|eine|mir|dir|es|nach|zur|"
+            r"gemacht|gearbeitet|wohnen|komme|schön|tag|abend)\b",
+            t,
+            re.I,
+        ))
     if lang == "fr":
-        return bool(re.search(r"\b(bonjour|merci|oui|non|comment)\b", t, re.I))
+        return bool(re.search(
+            r"[àâçéèêëîïôùûüÿœæÀÂÇÉÈÊËÎÏÔÙÛÜŸ]|"
+            r"\b(bonjour|salut|merci|oui|non|comment|je|tu|il|elle|nous|vous|"
+            r"suis|est|ai|as|avons|avez|pas|très|aujourd|demain|travail|"
+            r"habite|bien|quoi|où|parce)\b",
+            t,
+            re.I,
+        ))
     if lang == "es":
-        return bool(re.search(r"\b(hola|gracias|buenos|sí|si|no)\b", t, re.I))
+        return bool(re.search(
+            r"[áéíóúñüÁÉÍÓÚÑÜ¿¡]|"
+            r"\b(hola|gracias|buenos|buenas|sí|si|no|cómo|como|estás|estas|"
+            r"yo|tú|tu|él|ella|nosotros|soy|eres|es|tengo|tiene|muy|"
+            r"hoy|mañana|trabajo|vivo|bien|qué|que|dónde|donde)\b",
+            t,
+            re.I,
+        ))
     if lang == "ar":
         return bool(re.search(r"[\u0600-\u06FF]", t))
     if lang == "it":
-        return bool(re.search(r"\b(ciao|grazie|buongiorno|si|no)\b", t, re.I))
+        return bool(re.search(
+            r"\b(ciao|grazie|buongiorno|buonasera|sì|si|no|come|sto|stai|"
+            r"io|tu|lui|lei|noi|sono|sei|è|ho|hai|ha|molto|oggi|domani|"
+            r"lavoro|abito|bene|cosa|dove|perché|perche)\b",
+            t,
+            re.I,
+        ))
     if lang == "zh":
         return bool(re.search(r"[\u4e00-\u9fff]", t))
     return False
+
+
+_EN_CURRICULUM_LEAK_RE = re.compile(
+    r"\b("
+    r"i'?d like to buy|how much(?: is)?|check[- ]?in|turn (?:left|right)|"
+    r"nice to meet you|i am from|i'?m fine[, ]?thank you|what did you do yesterday|"
+    r"i usually|every day i|can i have|the bill please|i have a reservation|"
+    r"hello\.? how are you|i'?m pretty good|what are you doing"
+    r")\b",
+    re.I,
+)
+
+_EN_FUNCTION_WORDS = frozenset({
+    "i", "i'm", "im", "the", "a", "an", "is", "are", "am", "you", "to", "and", "of",
+    "my", "do", "did", "have", "has", "what", "how", "where", "when", "why", "want",
+    "like", "buy", "from", "going", "would", "could", "will", "was", "were", "this",
+    "that", "with", "for", "your", "me", "we", "they", "he", "she", "it", "not",
+    "don't", "didn't", "can", "please", "thanks", "thank", "hello", "hi",
+})
+
+
+def _is_strong_english(text: str) -> bool:
+    """Clearly English (curriculum leak / ASR drift) — not just shared Latin letters."""
+    t = safe_str(text).strip()
+    if not t:
+        return False
+    if _EN_CURRICULUM_LEAK_RE.search(t):
+        return True
+    if re.search(r"[\u0400-\u04FF\u10A0-\u10FF\u0600-\u06FF\u4e00-\u9fff]", t):
+        return False
+    if not looks_like_lang(t, "en"):
+        return False
+    words = re.findall(r"[a-zA-Z']+", t.lower())
+    if len(words) < 2:
+        return False
+    hits = sum(1 for w in words if w in _EN_FUNCTION_WORDS)
+    return hits >= max(2, len(words) // 3)
+
+
+def _asr_wrong_language(user_text: str, target_lang: str) -> bool:
+    """ASR likely produced a different language than selected target — not a learner error."""
+    t = safe_str(user_text).strip()
+    if not t or len(t) < 3:
+        return False
+    tl = (target_lang or "en").strip().lower()
+    if looks_like_lang(t, tl):
+        return False
+    if tl == "en":
+        # Non-Latin scripts while learning English
+        if re.search(r"[\u0400-\u04FF\u10A0-\u10FF\u0600-\u06FF\u4e00-\u9fff]", t):
+            return True
+        return False
+    # Non-English target: strong English / curriculum English is ASR drift
+    if _is_strong_english(t):
+        return True
+    # Script targets: Latin-only ASR when learning ru/ar/ka/zh
+    if tl in ("ru", "ar", "ka", "zh"):
+        if not looks_like_lang(t, tl) and re.search(r"[A-Za-z]{3,}", t):
+            return True
+    return False
+
+
+def _teacher_response_wrong_language(teacher_text: str, target_lang: str) -> bool:
+    """AI replied in English (or wrong script) while target is another language."""
+    t = safe_str(teacher_text).strip()
+    if not t:
+        return False
+    tl = (target_lang or "en").strip().lower()
+    if tl == "en":
+        return False
+    # Strip Turkish support lines before judging
+    lines = []
+    for line in t.split("\n"):
+        s = line.strip()
+        if not s:
+            continue
+        if re.search(r"[ğüşıöçĞÜŞİÖÇ]", s) and not looks_like_lang(s, tl):
+            continue
+        if s.startswith("🇹🇷") or s.startswith("💡"):
+            continue
+        lines.append(s)
+    body = " ".join(lines)
+    if not body:
+        return False
+    if looks_like_lang(body, tl):
+        return False
+    if _is_strong_english(body) or _EN_CURRICULUM_LEAK_RE.search(body):
+        return True
+    if tl in ("ru", "ar", "ka", "zh") and not looks_like_lang(body, tl):
+        return True
+    return False
+
+
+def _extract_teacher_question(teacher_text: str) -> str:
+    """Last interrogative sentence for TTS / has_question."""
+    t = safe_str(teacher_text).strip()
+    if not t:
+        return ""
+    # Prefer last line with ?
+    lines = [ln.strip() for ln in t.split("\n") if ln.strip()]
+    for ln in reversed(lines):
+        clean = re.sub(r"^[\U0001F300-\U0001FAFF✅❌🎯📌📖🧩💡🔄🤔🇩🇪🇪🇸🇷🇺🇫🇷🇮🇹🇬🇧🇹🇷]+", "", ln).strip()
+        if "?" in clean:
+            return clean[:280]
+    parts = re.findall(r"[^.!?]*\?", t)
+    if parts:
+        return parts[-1].strip()[:280]
+    return ""
+
+
+def _asr_mismatch_clarify_turn(
+    user_text: str,
+    target_lang: str,
+    profile: dict,
+    session_delta: dict,
+    translate_fn: Callable[[str, str, str], str] | None,
+) -> dict[str, Any]:
+    """ASR wrong-language / unreliable — never grade as learner grammar error."""
+    lang_name = LANG_NAMES.get(target_lang, target_lang)
+    teacher_en = (
+        "I didn't catch that clearly. Could you say it again?"
+    )
+    teacher_en = _localize_teacher_text(teacher_en, target_lang, translate_fn)
+    # Prefer native clarify lines when known
+    clarify = {
+        "de": "Das habe ich nicht klar verstanden. Kannst du es bitte noch einmal sagen?",
+        "fr": "Je n'ai pas bien compris. Peux-tu répéter, s'il te plaît ?",
+        "es": "No te entendí claramente. ¿Puedes decirlo otra vez?",
+        "ru": "Я не совсем расслышал(а). Можешь повторить?",
+        "it": "Non ho capito bene. Puoi ripeterlo, per favore?",
+        "ka": "კარგად ვერ გავიგე. შეგიძლია გაიმეორო?",
+        "ar": "لم أفهم بوضوح. هل يمكنك الإعادة؟",
+        "zh": "我没听清楚。你可以再说一遍吗？",
+        "en": "I didn't catch that clearly. Could you say it again?",
+    }
+    if target_lang in clarify:
+        teacher_en = clarify[target_lang]
+    teacher_tr = (
+        f"Söylediğini net olarak anlayamadım ({lang_name}). "
+        "Tekrar söyleyebilir misin?"
+    )
+    delta = {
+        **session_delta,
+        "lastTeacherText": teacher_en,
+        "waitingForUser": True,
+        "pendingPracticePhrase": None,
+        "awaitingTargetPhrase": None,
+    }
+    return _pack(
+        profile, delta, teacher_en, teacher_tr, None, 1, "stt_clarify",
+        waiting=True, user_text=user_text, teacher_en=teacher_en, speak_text=teacher_en,
+        speak_tr=teacher_tr, speak_tr_first=True,
+        translate_fn=translate_fn, target_lang=target_lang,
+        user_lang=target_lang,
+    )
 
 
 def _last_teacher_question(history: list[dict], profile: dict) -> str:
@@ -6014,12 +6213,35 @@ def _try_ai_tutor_turn(
     if not parsed:
         return None
 
-    parsed = _sanitize_ai_correction(user_text, parsed)
+    parsed = _sanitize_ai_correction(user_text, parsed, target_lang=target_lang)
 
     teacher_en = safe_str(parsed.get("teacher_en")).strip()
     teacher_tr = _lock_tr_person_for_english(teacher_en, _trim_teacher_tr(teacher_en, safe_str(parsed.get("teacher_tr")).strip()))
     if not teacher_en:
         return None
+
+    # Final language lock — never ship English curriculum/teacher reply for non-EN targets
+    if target_lang != "en" and (
+        parsed.get("_needs_lang_fix")
+        or _teacher_response_wrong_language(teacher_en, target_lang)
+    ):
+        fixed = _localize_teacher_text(teacher_en, target_lang, translate_fn)
+        # Prefer native generic continue if localization still looks English
+        if _teacher_response_wrong_language(fixed, target_lang):
+            native_continue = {
+                "de": "Alles klar! Erzähl mir bitte mehr — was hast du heute gemacht?",
+                "fr": "D'accord ! Dis-moi en plus — qu'as-tu fait aujourd'hui ?",
+                "es": "¡De acuerdo! Cuéntame más — ¿qué hiciste hoy?",
+                "ru": "Хорошо! Расскажи ещё — что ты делал(а) сегодня?",
+                "it": "Va bene! Dimmi di più — cosa hai fatto oggi?",
+                "ka": "კარგი! მითხარი მეტი — დღეს რა გააკეთე?",
+                "ar": "حسنًا! أخبرني المزيد — ماذا فعلت اليوم؟",
+                "zh": "好的！再多说一点——你今天做了什么？",
+            }
+            fixed = native_continue.get(target_lang) or fixed
+        teacher_en = fixed
+        if not teacher_tr:
+            teacher_tr = f"Yanıt {lang_name} dilinde devam ediyor."
 
     corr_level = int(parsed.get("correction_level") or 1)
     corr_level = max(1, min(3, corr_level))
@@ -6027,9 +6249,26 @@ def _try_ai_tutor_turn(
     teach_new = safe_str(parsed.get("teach_new_phrase")).strip() or None
     teach_new_tr = safe_str(parsed.get("teach_new_phrase_tr")).strip() or None
     build_on = safe_str(parsed.get("build_on_phrase")).strip() or None
+    # Drop EN practice leaks for non-EN
+    if target_lang != "en":
+        for cand in (correct_phrase, teach_new, build_on):
+            if cand and (_is_strong_english(cand) or _EN_CURRICULUM_LEAK_RE.search(cand)):
+                if cand == correct_phrase:
+                    correct_phrase = None
+                    corr_level = 1
+                if cand == teach_new:
+                    teach_new = None
+                if cand == build_on:
+                    build_on = None
     suggested = safe_str(parsed.get("suggested_practice")).strip() or teach_new or build_on or correct_phrase
+    if target_lang != "en" and suggested and (_is_strong_english(suggested) or _EN_CURRICULUM_LEAK_RE.search(suggested)):
+        suggested = None
     category = safe_str(parsed.get("category")).strip() or None
     grammar_tr = safe_str(parsed.get("grammar_tr")).strip()
+    # Turkish explanation must refer to target language, not English
+    if target_lang != "en" and grammar_tr:
+        grammar_tr = re.sub(r"\bİngilizce(?:de|nin|yi|ye|yi)?\b", lang_name, grammar_tr, flags=re.I)
+        grammar_tr = re.sub(r"\bEnglish\b", lang_name, grammar_tr, flags=re.I)
     word_breakdown_tr = safe_str(parsed.get("word_breakdown_tr")).strip() or None
     speak_tr = _lock_tr_person_for_english(teacher_en, safe_str(parsed.get("speak_tr")).strip())
     inferred = safe_str(parsed.get("inferred_meaning")).strip()
@@ -6058,12 +6297,13 @@ def _try_ai_tutor_turn(
             taught.append(teach_new[:80])
         profile_patch["taughtPatterns"] = taught[-15:]
 
-    if bool(parsed.get("lesson_advance")):
+    # English curriculum/micro-chain advances ONLY for English
+    if target_lang == "en" and bool(parsed.get("lesson_advance")):
         step = int(profile.get("lessonStep") or 0)
         if step < len(LESSON_CURRICULUM) - 1:
             profile_patch["lessonStep"] = step + 1
 
-    if bool(parsed.get("micro_advance")):
+    if target_lang == "en" and bool(parsed.get("micro_advance")):
         mstep = int(profile.get("microStep") or 0)
         if mstep < len(GREETING_MICRO_CHAIN) - 1:
             profile_patch["microStep"] = mstep + 1
@@ -6075,9 +6315,13 @@ def _try_ai_tutor_turn(
             if build_on:
                 profile_patch["sentenceBuildBase"] = build_on[:120]
 
+    question_text = _extract_teacher_question(teacher_en)
+    speak_for_tts = question_text or suggested or teacher_en.split("\n")[0]
+
     delta: dict[str, Any] = {
         **session_delta,
         "lastTeacherText": teacher_en,
+        "targetLang": target_lang,
         **_topic_memory_delta(profile, user_text, teacher_en),
     }
     if suggested and (corr_level >= 2 or teach_new or build_on):
@@ -6088,6 +6332,7 @@ def _try_ai_tutor_turn(
 
     merged = merge_profile(profile, {**session_delta, **profile_patch})
     merged["currentLevel"] = estimate_level(merged)
+    merged["targetLang"] = target_lang
 
     msg_type = "ai_tutor"
     if suggested and corr_level >= 2:
@@ -6100,7 +6345,7 @@ def _try_ai_tutor_turn(
     result = _pack(
         merged, delta, teacher_en, teacher_tr, correct_phrase, corr_level, msg_type,
         waiting=True, user_text=user_text, speak_slow=speak_slow,
-        teacher_en=teacher_en, speak_text=suggested or teacher_en,
+        teacher_en=teacher_en, speak_text=speak_for_tts,
         speak_tr=speak_tr or None,
         grammar_tr=grammar_tr or None,
         word_breakdown_tr=word_breakdown_tr,
@@ -6118,8 +6363,12 @@ def _try_ai_tutor_turn(
         } if corr_level >= 2 else None,
         translate_fn=translate_fn,
         target_lang=target_lang,
+        user_lang=user_lang,
     )
     result["ai_powered"] = True
+    result["has_question"] = bool(question_text)
+    result["question_text"] = question_text or None
+    result["tts_language"] = target_lang
     return result
 
 
@@ -6182,15 +6431,15 @@ def _resume_after_help(
         return None
 
     follow = _contextual_continue_question(history, pending, profile)
+    follow = _localize_teacher_text(follow, target_lang, translate_fn)
     clear_delta = {
         "pendingPracticePhrase": None,
         "pendingPracticeTr": None,
         "awaitingTargetPhrase": None,
         "waitingForUser": True,
     }
-    teacher_en = (
-        "Perfect! You said it well: \"" + user_text.strip() + "\"\n\n" + follow
-    )
+    praise = _localize_teacher_text("Perfect! You said it well.", target_lang, translate_fn)
+    teacher_en = f'{praise} "{user_text.strip()}"\n\n{follow}'
     teacher_tr = (
         "🎉 Harika! Doğru söyledin: \"" + user_text.strip() + "\"\n\n"
         "Sohbete devam edelim."
@@ -6728,7 +6977,7 @@ def _build_correction_tr(
     if corr_level >= 2:
         parts.append(f"❌ Senin cümlen:\n\"{user_text}\"")
         if correct:
-            parts.append(f"✅ Doğrusu (İngilizce):\n\"{correct}\"")
+            parts.append(f"✅ Doğrusu:\n\"{correct}\"")
         if explain_tr:
             parts.append(f"💡 Türkçe açıklama:\n{explain_tr}")
         elif explain_en:
@@ -6829,9 +7078,15 @@ def process_turn(
 ) -> dict[str, Any]:
     profile = merge_profile(profile, None)
     profile = reset_daily_if_needed(profile)
+    # Selected language must never disappear from the pipeline
+    target_lang = (target_lang or profile.get("targetLang") or "en").strip().lower() or "en"
+    if target_lang == "tr":
+        target_lang = "en"
+    profile["targetLang"] = target_lang
     original_text = user_text.strip()
     session_delta: dict[str, Any] = {
         "totalSentences": profile.get("totalSentences", 0) + (1 if original_text else 0),
+        "targetLang": target_lang,
     }
 
     # Cümle-kurma iskelesi BAŞLAT — learner_clarify'dan ÖNCE
@@ -6864,6 +7119,14 @@ def process_turn(
     last_teacher = profile.get("lastTeacherText") or ""
     if not user_text:
         return greeting(target_lang, profile, translate_fn=translate_fn)
+
+    # ASR wrong-language / curriculum leak — NEVER grade as learner grammar error
+    if user_text and _asr_wrong_language(user_text, target_lang):
+        result = _asr_mismatch_clarify_turn(
+            user_text, target_lang, profile, session_delta, translate_fn,
+        )
+        result["weekly_progress"] = weekly_progress(result["profile"])
+        return result
 
     if SPECIAL_TR.search(user_text):
         low = user_text.lower()
@@ -7416,12 +7679,17 @@ def _pack(
     translate_fn: Callable[[str, str, str], str] | None = None,
     target_lang: str = "en",
     phonetic_en: str | None = None,
+    user_lang: str | None = None,
 ) -> dict:
+    import uuid
     p = merge_profile(profile, delta)
+    if target_lang:
+        p["targetLang"] = target_lang
     en = teacher_en or teacher
     p["lastTeacherText"] = en
     p["waitingForUser"] = waiting
-    speak = speak_text or (correction if corr_level >= 3 and correction else en)
+    question_text = _extract_teacher_question(en)
+    speak = speak_text or question_text or (correction if corr_level >= 3 and correction else en)
     gtr = safe_str(grammar_tr or "")
     wtr = safe_str(word_breakdown_tr or "")
     inferred = ""
@@ -7455,10 +7723,12 @@ def _pack(
     ph_main = safe_str(phonetic_en).strip()
     if not ph_main and en and target_lang != "tr":
         ph_main = _simple_en_phonetic(en.split("\n")[0])
+    msg_id = str(uuid.uuid4())
     return {
         "type": msg_type,
+        "message_id": msg_id,
         "user_text": user_text,
-        "user_lang": profile.get("targetLang", "en"),
+        "user_lang": user_lang or profile.get("lastUserLang") or target_lang or profile.get("targetLang", "en"),
         "teacher_text": teacher,
         "teacher_en": en,
         "teacher_tr": explain_tr or "",
@@ -7468,7 +7738,7 @@ def _pack(
         "correction": correction,
         "correction_level": corr_level,
         "correction_detail": correction_detail,
-        "target_lang": profile.get("targetLang", "en"),
+        "target_lang": target_lang or profile.get("targetLang", "en"),
         "current_level": p.get("currentLevel", "A1"),
         "profile": p,
         "waiting_for_user": waiting,
@@ -7479,6 +7749,9 @@ def _pack(
         "word_breakdown_tr": wtr,
         "speak_tr_first": tr_first,
         "phonetic_en": ph_main,
+        "has_question": bool(question_text),
+        "question_text": question_text or None,
+        "tts_language": target_lang or profile.get("targetLang", "en"),
     }
 
 
