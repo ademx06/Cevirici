@@ -2454,7 +2454,13 @@ def _extract_user_facts(user_text: str) -> list[str]:
         facts.append("likes:coffee")
     if re.search(r"\btea\b", low):
         facts.append("likes:tea")
-    return facts[:6]
+    if re.search(r"\b(vegetarian|vejetaryen|vegan)\b", low):
+        facts.append("diet:vegetarian")
+    if re.search(r"\b(i don'?t like spicy|no spicy|baharatlı.*sevmem)\b", low):
+        facts.append("dislike:spicy")
+    if re.search(r"\b(dessert|tatlı)\b", low):
+        facts.append("likes:dessert")
+    return facts[:8]
 
 
 def _infer_topic_key(text: str) -> str:
@@ -3261,12 +3267,28 @@ def _history_chronological(history: list[dict], limit: int = 12) -> list[dict]:
 def _format_history_for_ai(history: list[dict], limit: int = 10) -> str:
     """Compact chronological conversation history for AI tutor prompt."""
     lines: list[str] = []
-    for h in _history_chronological(history, limit=limit):
+    help_meta = re.compile(
+        r"^(yardım|help)\b|natural ways to answer|birkaç (?:farklı )?şekilde|"
+        r"here are (?:a few )?natural|örneklerden birini",
+        re.I,
+    )
+    for h in _history_chronological(history, limit=max(limit * 2, 16)):
         msg = (h.get("text") or "").strip()
         if not msg:
             continue
+        # HELP_REQUEST is an intent — not a target-language student utterance
+        if h.get("role") == "user" and (
+            _is_yardim_request(msg) or HELP_CMD_RE.match(msg) or HELP_RE.search(msg)
+        ):
+            continue
+        if h.get("role") == "teacher" and help_meta.search(msg) and "?" not in msg.split("\n")[0]:
+            # Skip pure help scaffolding turns (keep real teacher questions)
+            if "❓" in msg or "Kolay" in msg or "help_examples" in msg.lower():
+                continue
         role = "Teacher" if h.get("role") == "teacher" else "Student"
         lines.append(f"{role}: {msg[:400]}")
+        if len(lines) >= limit:
+            break
     return "\n".join(lines) if lines else "(start of conversation)"
 
 
@@ -3349,6 +3371,68 @@ def _localize_example_to_target(
     return en_sentence
 
 
+
+def _help_phrase_is_question_intent(phrase_tr: str) -> bool:
+    """Turkish help phrase looks like a question the learner wants to ASK (not an answer)."""
+    p = safe_str(phrase_tr).strip().lower()
+    if not p:
+        return False
+    if "?" in p:
+        return True
+    return bool(re.search(
+        r"\b(ne var|nedir|nasıl|nerede|ne kadar|ne zaman|kim|hangi|var mı|var mi|"
+        r"başka ne|ne istiyorsun|ne önerirsin|ne diyebilirim)\b",
+        p,
+    ))
+
+
+def _example_fits_active_question(example: str, question: str) -> bool:
+    """Filter: example should answer THIS teacher question (not a random scenario seed)."""
+    ex = safe_str(example).lower().strip()
+    q = safe_str(question).lower().strip()
+    if not ex:
+        return False
+    if not q or "?" not in q:
+        return True
+    # Closing / anything-else questions must NOT get food-order seeds
+    if re.search(r"anything else|is that all|that(?:'s| is) all|anything more", q):
+        if re.search(r"chicken sandwich|fries|pasta|soup of the day|salad and a glass", ex):
+            return False
+        if re.search(
+            r"\b(that(?:'s| is) all|no,? thank|will be all|dessert|coffee|for now|"
+            r"everything for me|yes,? i(?:'?d| would) like)\b",
+            ex,
+        ):
+            return True
+        if re.match(r"^(yes|no)\b", ex):
+            return True
+        return False
+    if re.search(r"\bbill\b|check please|hesap", q):
+        return bool(re.search(r"bill|check|hesap|pay", ex))
+    if re.search(r"how many people|party", q):
+        return bool(re.search(r"\b(one|two|three|people|table for|just one)\b", ex))
+    if re.search(r"something to drink|beverage", q):
+        return bool(re.search(r"water|coffee|tea|juice|drink|sparkling|no,? thank", ex))
+    if re.search(r"would you like to order|what would you like to order|ready to order", q):
+        if re.search(r"that(?:'s| is) all|will be all", ex) and "like" not in ex:
+            return False
+        return True
+    return True
+
+
+def _classify_help_phrase_vs_question(phrase_tr: str, question: str) -> str:
+    """answer_question | ask_as_customer | say_phrase | ask_or_answer"""
+    p = safe_str(phrase_tr).strip()
+    if not p:
+        return "answer_question"
+    if _help_phrase_is_question_intent(p):
+        q = safe_str(question).lower()
+        if re.search(r"anything else|is that all", q) and re.search(r"başka ne|ne var", p, re.I):
+            return "ask_or_answer"
+        return "ask_as_customer"
+    return "say_phrase"
+
+
 def _build_how_to_say_examples(
     teacher_q: str,
     target_lang: str,
@@ -3393,23 +3477,51 @@ def _build_how_to_say_examples(
                 ("I like tea.", "Çayı severim."),
                 ("I like pasta.", "Makarnayı severim."),
             ]
-    elif sid == "restaurant" or re.search(
-        r"would you like to order|what would you like|what can i get you|"
-        r"ready to order|sipariş|bestellen|ordenar",
-        tq,
+    elif (
+        sid == "restaurant"
+        or re.search(
+            r"would you like to order|what would you like|what can i get you|"
+            r"ready to order|sipariş|bestellen|ordenar|anything else|is that all|"
+            r"dessert|the bill|check please|menu|how many people|table for",
+            tq,
+        )
     ):
-        seeds = [
-            ("I'd like a chicken sandwich, please.", "Bir tavuklu sandviç istiyorum, lütfen."),
-            (
-                "I'd like to order a chicken sandwich and some fries, please.",
-                "Bir tavuklu sandviç ve biraz patates kızartması sipariş etmek istiyorum, lütfen.",
-            ),
-            (
-                "I'll have the chicken sandwich with fries, please.",
-                "Tavuklu sandviç ve patates kızartması alayım, lütfen.",
-            ),
-        ]
-        if re.search(r"drink|beverage|içecek|trinken|beber|something to drink", tq):
+        # Match THIS teacher question — never dump generic order seeds for every restaurant turn
+        if re.search(
+            r"anything else|is that all|that(?:'s| is) all|anything more|"
+            r"başka bir şey|hepisi bu|başka ister|sonst noch|algo más",
+            tq,
+        ):
+            seeds = [
+                ("No, that's all, thank you.", "Hayır, hepsi bu, teşekkürler."),
+                ("That's all for now, thank you.", "Şimdilik hepsi bu, teşekkürler."),
+                ("No, thank you. That will be all.", "Hayır, teşekkürler. Hepsi bu kadar."),
+            ]
+            if variant in ("more", "natural"):
+                seeds = [
+                    ("Yes, I'd like some dessert, please.", "Evet, biraz tatlı istiyorum, lütfen."),
+                    ("Could I also have a coffee, please?", "Bir de kahve alabilir miyim, lütfen?"),
+                    ("That's everything for me, thanks.", "Benim için hepsi bu, teşekkürler."),
+                ]
+            elif variant == "easier":
+                seeds = [
+                    ("No, thank you.", "Hayır, teşekkürler."),
+                    ("That's all.", "Hepsi bu."),
+                    ("Yes, dessert please.", "Evet, tatlı lütfen."),
+                ]
+        elif re.search(r"\bbill\b|check please|hesap|die rechnung|la cuenta|pay", tq):
+            seeds = [
+                ("Can I have the bill, please?", "Hesabı alabilir miyim, lütfen?"),
+                ("The bill, please.", "Hesap, lütfen."),
+                ("Could we get the check, please?", "Hesabı getirebilir misiniz, lütfen?"),
+            ]
+        elif re.search(r"dessert|tatlı|nachtisch|postre", tq):
+            seeds = [
+                ("I'd like some dessert, please.", "Biraz tatlı istiyorum, lütfen."),
+                ("Could I see the dessert menu?", "Tatlı menüsüne bakabilir miyim?"),
+                ("No dessert for me, thank you.", "Tatlı istemiyorum, teşekkürler."),
+            ]
+        elif re.search(r"drink|beverage|içecek|trinken|beber|something to drink", tq):
             seeds = [
                 ("Yes, I'd like some water.", "Evet, biraz su istiyorum."),
                 ("Yes, I'd like a bottle of water, please.", "Evet, bir şişe su istiyorum, lütfen."),
@@ -3418,21 +3530,72 @@ def _build_how_to_say_examples(
                     "Evet, bir şişe sodalı su alayım, lütfen.",
                 ),
             ]
-        if variant in ("more", "natural"):
+            if variant in ("more", "natural"):
+                seeds = [
+                    ("Just water for me, please.", "Benim için sadece su, lütfen."),
+                    ("Could I get an orange juice, please?", "Portakal suyu alabilir miyim, lütfen?"),
+                    ("I'll have a coffee, please.", "Bir kahve alayım, lütfen."),
+                ]
+            elif variant == "easier":
+                seeds = [
+                    ("Water, please.", "Su, lütfen."),
+                    ("Coffee, please.", "Kahve, lütfen."),
+                    ("No, thank you.", "Hayır, teşekkürler."),
+                ]
+        elif re.search(r"menu|menü|karte", tq):
             seeds = [
-                ("Could I get the pasta, please?", "Makarna alabilir miyim, lütfen?"),
-                ("I'll have the soup of the day, please.", "Günün çorbasını alayım, lütfen."),
+                ("Yes, please.", "Evet, lütfen."),
+                ("Yes, I'd like to see the menu.", "Evet, menüye bakmak istiyorum."),
+                ("Could I have the menu, please?", "Menüyü alabilir miyim, lütfen?"),
+            ]
+        elif re.search(r"how many|party|kaç kişi|wie viele|cuántos", tq):
+            seeds = [
+                ("Two people.", "İki kişi."),
+                ("A table for two, please.", "İki kişilik masa, lütfen."),
+                ("Just one, please.", "Sadece bir kişi, lütfen."),
+            ]
+        elif re.search(r"window|table|quiet|masa|pencere", tq):
+            seeds = [
+                ("By the window, please.", "Pencere kenarı, lütfen."),
+                ("Somewhere quieter, please.", "Daha sessiz bir yer, lütfen."),
+                ("Either is fine, thank you.", "İkisi de olur, teşekkürler."),
+            ]
+        else:
+            # Ordering / generic restaurant question
+            seeds = [
+                ("I'd like a chicken sandwich, please.", "Bir tavuklu sandviç istiyorum, lütfen."),
                 (
-                    "I'd like a salad and a glass of orange juice, please.",
-                    "Bir salata ve bir bardak portakal suyu istiyorum, lütfen.",
+                    "I'd like to order a chicken sandwich and some fries, please.",
+                    "Bir tavuklu sandviç ve biraz patates kızartması sipariş etmek istiyorum, lütfen.",
+                ),
+                (
+                    "I'll have the chicken sandwich with fries, please.",
+                    "Tavuklu sandviç ve patates kızartması alayım, lütfen.",
                 ),
             ]
-        elif variant == "easier":
-            seeds = [
-                ("Chicken, please.", "Tavuk, lütfen."),
-                ("I'd like chicken.", "Tavuk istiyorum."),
-                ("Water, please.", "Su, lütfen."),
-            ]
+            # Respect vegetarian preference from learner profile
+            facts = " ".join(str(f) for f in ((profile or {}).get("userFacts") or [])).lower()
+            if "vegetarian" in facts or "vejetaryen" in facts or "no:meat" in facts:
+                seeds = [
+                    ("I'd like a vegetarian salad, please.", "Vejetaryen bir salata istiyorum, lütfen."),
+                    ("Could I get the pasta without meat, please?", "Etsiz makarna alabilir miyim, lütfen?"),
+                    ("I'll have the vegetable soup, please.", "Sebze çorbası alayım, lütfen."),
+                ]
+            if variant in ("more", "natural"):
+                seeds = [
+                    ("Could I get the pasta, please?", "Makarna alabilir miyim, lütfen?"),
+                    ("I'll have the soup of the day, please.", "Günün çorbasını alayım, lütfen."),
+                    (
+                        "I'd like a salad and a glass of orange juice, please.",
+                        "Bir salata ve bir bardak portakal suyu istiyorum, lütfen.",
+                    ),
+                ]
+            elif variant == "easier":
+                seeds = [
+                    ("Chicken, please.", "Tavuk, lütfen."),
+                    ("I'd like chicken.", "Tavuk istiyorum."),
+                    ("Water, please.", "Su, lütfen."),
+                ]
     elif re.search(
         r"coffee|kahve|with milk|sütlü|drink it with|trinkst.*milch|café.*leche|"
         r"\btea\b|\bçay\b|black coffee",
@@ -3575,9 +3738,11 @@ def _build_how_to_say_examples(
         seeds = [(re.sub(r"\s+", " ", a).strip(" .") + ".", b) for a, b in short] or seeds
 
     out: list[tuple[str, str]] = []
-    for en, tr in seeds[:4]:
+    for en, tr in seeds[:6]:
         target = _localize_example_to_target(en, target_lang, translate_fn)
         tr_clean = _turkish_gloss_clean(tr)
+        if not _example_fits_active_question(target, teacher_q):
+            continue
         if target_lang != "en" and re.search(
             r"i'?d like to buy|how much(?: is)?|check[- ]?in|the bill please|"
             r"i have a reservation|can i have",
@@ -3585,16 +3750,33 @@ def _build_how_to_say_examples(
             re.I,
         ) and sid not in ("shop", "hotel", "restaurant"):
             continue
+        # Deduplicate near-identical targets
+        if any(target.lower() == t.lower() for t, _ in out):
+            continue
         out.append((target, tr_clean))
+        if len(out) >= 3:
+            break
     if len(out) < 3:
         for en, tr in seeds:
-            if any(en.lower() == t.lower() or en.lower() in t.lower() for t, _ in out):
-                continue
             target = _localize_example_to_target(en, target_lang, translate_fn)
+            if not _example_fits_active_question(target, teacher_q):
+                continue
+            if any(target.lower() == t.lower() for t, _ in out):
+                continue
             out.append((target, _turkish_gloss_clean(tr)))
             if len(out) >= 3:
                 break
-    return out or [(seeds[0][0], _turkish_gloss_clean(seeds[0][1]))]
+    if not out:
+        # Safe contextual fallback — never invent off-topic restaurant order lines
+        if re.search(r"anything else|is that all", (teacher_q or "").lower()):
+            out = [
+                ("No, that's all, thank you.", "Hayır, hepsi bu, teşekkürler."),
+                ("That's all for now, thank you.", "Şimdilik hepsi bu, teşekkürler."),
+                ("Yes, I'd like some dessert, please.", "Evet, biraz tatlı istiyorum, lütfen."),
+            ]
+        else:
+            out = [(seeds[0][0], _turkish_gloss_clean(seeds[0][1]))]
+    return out
 
 
 def _help_question_structure(question: str, target_lang: str) -> dict[str, str]:
@@ -3711,6 +3893,7 @@ def _help_examples_response(
 
     # HELP_WITH_EXPRESSION / translation: user gave Turkish content
     if phrase_tr and len(phrase_tr.strip()) >= 3:
+        intent = _classify_help_phrase_vs_question(phrase_tr, last_q)
         analysis = _analyze_for_teaching(phrase_tr, target_lang, translate_fn)
         primary = safe_str(analysis.get("natural_target")).strip()
         if not primary:
@@ -3721,26 +3904,88 @@ def _help_examples_response(
             if a and a.lower() != primary.lower():
                 alts.append(a)
         phrase_clean = _turkish_gloss_clean(phrase_tr)
-        examples = [(primary, phrase_clean)] + [(a, phrase_clean) for a in alts]
-        if len(examples) < 3 and last_q:
-            for en, tr in _build_how_to_say_examples(
-                last_q, target_lang, translate_fn, variant=variant, roleplay=sid, profile=profile,
-            ):
-                if en.lower() != primary.lower():
-                    examples.append((en, tr))
-                if len(examples) >= 3:
-                    break
+        examples: list[tuple[str, str]] = []
         pattern_tip = ""
-        if re.search(r"\bi want to\b", primary, re.I):
-            pattern_tip = "Aynı kalıp: I want to + fiil → I want to eat / sleep / study."
-        elif re.search(r"\bi usually\b", primary, re.I):
-            pattern_tip = "Aynı kalıp: I usually + fiil → I usually go home / drink tea."
-        elif re.search(r"\bi'?d like\b", primary, re.I):
-            pattern_tip = "Aynı kalıp: I'd like + noun → I'd like water / pasta / coffee."
+
+        if intent in ("ask_as_customer", "ask_or_answer") and primary:
+            # Learner wants to SAY this (possibly a question to the waiter), not dump order seeds
+            examples = [(primary, phrase_clean)] + [(a, phrase_clean) for a in alts]
+            if intent == "ask_or_answer" and last_q:
+                # Also offer answers to the ACTIVE teacher question
+                for en, tr in _build_how_to_say_examples(
+                    last_q, target_lang, translate_fn, variant=variant, roleplay=sid, profile=profile,
+                ):
+                    if not _example_fits_active_question(en, last_q):
+                        continue
+                    if en.lower() == primary.lower():
+                        continue
+                    if any(en.lower() == e[0].lower() for e in examples):
+                        continue
+                    examples.append((en, tr))
+                    if len(examples) >= 3:
+                        break
+                pattern_tip = (
+                    f"«{phrase_clean}» bir soru gibi. Bunu müşteri olarak söyleyebilirsin: «{primary}». "
+                    f"Öğretmenin sorusuna («{last_q}») cevap vermek istersen aşağıdaki örnekleri de kullan."
+                )
+            else:
+                # Only phrase variants — do NOT pad with unrelated scenario seeds
+                while len(examples) < 3 and alts:
+                    a = alts.pop(0)
+                    if a.lower() != primary.lower() and not any(a.lower() == e[0].lower() for e in examples):
+                        examples.append((a, phrase_clean))
+                if len(examples) < 3:
+                    # Soft paraphrases of the SAME intent only
+                    soft = [
+                        (primary, phrase_clean),
+                    ]
+                    if "else" in primary.lower() or "başka" in phrase_clean.lower():
+                        soft = [
+                            (primary, phrase_clean),
+                            ("What else do you have?", "Başka ne var?"),
+                            ("Do you have anything else?", "Başka bir şeyiniz var mı?"),
+                        ]
+                    for en, tr in soft:
+                        if not any(en.lower() == e[0].lower() for e in examples):
+                            examples.append((en, tr))
+                        if len(examples) >= 3:
+                            break
+                pattern_tip = (
+                    f"Bunu {lang_name} dilinde şöyle söyleyebilirsin. "
+                    "Aktif soruya cevap değilse, önce öğretmenin sorusunu cevapla."
+                )
+        else:
+            examples = [(primary, phrase_clean)] + [(a, phrase_clean) for a in alts]
+            if len(examples) < 3 and last_q:
+                for en, tr in _build_how_to_say_examples(
+                    last_q, target_lang, translate_fn, variant=variant, roleplay=sid, profile=profile,
+                ):
+                    if not _example_fits_active_question(en, last_q):
+                        continue
+                    if en.lower() == primary.lower():
+                        continue
+                    if any(en.lower() == e[0].lower() for e in examples):
+                        continue
+                    examples.append((en, tr))
+                    if len(examples) >= 3:
+                        break
+            if re.search(r"\bi want to\b", primary, re.I):
+                pattern_tip = "Aynı kalıp: I want to + fiil → I want to eat / sleep / study."
+            elif re.search(r"\bi usually\b", primary, re.I):
+                pattern_tip = "Aynı kalıp: I usually + fiil → I usually go home / drink tea."
+            elif re.search(r"\bi'?d like\b", primary, re.I):
+                pattern_tip = "Aynı kalıp: I'd like + noun → I'd like water / pasta / coffee."
+        # Final safety filter
+        if last_q and intent != "ask_as_customer":
+            filtered = [(e, tr) for e, tr in examples if _example_fits_active_question(e, last_q) or e == primary]
+            if len(filtered) >= 2:
+                examples = filtered
     else:
         examples = _build_how_to_say_examples(
             last_q, target_lang, translate_fn, variant=variant, roleplay=sid, profile=profile,
         )
+        # Drop any residual off-topic seeds
+        examples = [(e, tr) for e, tr in examples if _example_fits_active_question(e, last_q)]
         pattern_tip = ""
 
     examples = examples[:4]
@@ -3801,11 +4046,14 @@ def _help_examples_response(
         f"{teacher_tr_full}"
     )
     first = examples[0][0]
-    teacher_en = _localize_teacher_text(
-        "Sure! Here are a few natural ways to answer. Try one of them.",
-        target_lang,
-        translate_fn,
-    )
+    # Contextual help opener — avoid identical template every time
+    if last_q and re.search(r"anything else|is that all", last_q, re.I):
+        help_open = "Here are natural ways to answer that closing question. Try one:"
+    elif phrase_tr and _help_phrase_is_question_intent(phrase_tr):
+        help_open = "You can say it like this — or answer the teacher's question with one of these:"
+    else:
+        help_open = "Here are a few natural replies for this question. Try one:"
+    teacher_en = _localize_teacher_text(help_open, target_lang, translate_fn)
     speak = first
     delta = {
         **session_delta,
@@ -5699,7 +5947,7 @@ def _question_token_explain_tr(question: str) -> str:
         "do": "yardımcı fiil (geniş zaman)", "does": "yardımcı fiil (3. tekil)",
         "did": "yardımcı fiil (geçmiş)", "will": "gelecek yardımcı",
         "can": "yapabilmek / rica", "could": "rica / geçmiş yeterlilik",
-        "would": "rica / şart", "are": "be fiili", "is": "be fiili", "am": "be fiili",
+        "would": "nazik teklif (Would you like…?)", "are": "be fiili", "is": "be fiili", "am": "be fiili",
         "you": "özne (sen)", "i": "özne (ben)", "he": "o (erkek)", "she": "o (kadın)",
         "usually": "genellikle (sıklık)", "like": "sevmek / hoşlanmak",
         "want": "istemek", "prefer": "tercih etmek", "order": "sipariş vermek",
@@ -5732,6 +5980,8 @@ def _question_token_explain_tr(question: str) -> str:
             bits.append(f"{p} → fiil (to + V1)")
     if re.search(r"\bwhat\b.*\bdo you\b.*\blike\b", ql):
         tip = "Wh- sorusu: What + do + you + (usually) + like + …?"
+    elif re.search(r"\bwould you like\b", ql):
+        tip = "Nazik teklif / istek: Would you like + …? (rica; 'will' gelecek zamanı değil)"
     elif re.search(r"\bdo you\b", ql):
         tip = "Geniş zaman: Do + you + fiil (yalın) …?"
     elif re.search(r"\bdid you\b", ql):
