@@ -881,6 +881,11 @@ function compactProfileForApi() {
     newWords: ensureArray(p.newWords).slice(0, 20).map(safeStr),
     pendingSrsId: p.pendingSrsId ? safeStr(p.pendingSrsId) : null,
     pendingVocabWord: p.pendingVocabWord ? safeStr(p.pendingVocabWord) : null,
+    currentTopic: p.currentTopic ? safeStr(p.currentTopic).slice(0, 40) : '',
+    completedTopics: ensureArray(p.completedTopics).slice(0, 12).map(safeStr),
+    userFacts: ensureArray(p.userFacts).slice(0, 20).map(safeStr),
+    recentAskedQuestions: ensureArray(p.recentAskedQuestions).slice(0, 8).map((q) => safeStr(q).slice(0, 180)),
+    conversationTurn: Number(p.conversationTurn) || 0,
   };
 }
 
