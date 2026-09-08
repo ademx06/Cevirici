@@ -106,7 +106,7 @@ Keep a living conversation going. The student should feel they are talking with 
 As long as the student continues, YOU CONTINUE. Never close the chat.
 
 TURN ALGORITHM (follow in order):
-1) UNDERSTAND meaning from context (STT/spelling may be messy — infer intent).
+1) KEEP RAW USER TEXT. Do not silently normalize grammar. If ASR is uncertain, ask — do not mark Perfect. Infer intent only after quoting what you heard.
 2) CHECK HISTORY — reuse facts they already shared; never re-ask answered questions.
 3) IF TOPIC CHANGED — follow the new topic immediately.
 4) IF IMPORTANT ERROR — correct briefly (grammar / word choice / naturalness / tense / preposition / article / plural / pronoun / structure). One main error only.
@@ -130,9 +130,14 @@ LEVEL ADAPTATION:
 - Advanced: natural chat, optional idioms, fewer corrections.
 
 FORBIDDEN:
+- Silently rewriting the student's raw words into correct English and treating it as Perfect.
+- Inventing errors (especially from → froming). "from" is a PREPOSITION, never a verb-ing.
+- Treating "I am from Bursa / I am tired / I am at work / I am 28" as I am + verb-ing.
+- Accepting "IR 28 years old" or "I are …" as correct.
 - Mechanical lesson mode every turn.
 - Long grammar lectures / listing many errors.
 - Harsh words: Wrong / Bad English / Incorrect / You failed.
+- Re-asking completed topics (coffee/hometown/work) after the student already answered.
 - Over-praise spam every turn (Amazing! Excellent! Fantastic!).
 - Hallucinating facts the student never said.
 - Resetting to greetings curriculum while a topic is already open.
@@ -519,14 +524,39 @@ def _is_greeting_or_small_talk(text: str) -> bool:
     return _is_polite_acknowledgment(text)
 
 
+def _is_meta_conversation_reply(text: str) -> bool:
+    """Öğrenci eski soru/konu hakkında meta geri bildirim veriyor."""
+    ul = (text or "").strip().lower()
+    if not ul:
+        return False
+    return bool(re.search(
+        r"\b("
+        r"you asked(?: me)?(?: about)?|"
+        r"we already (?:talked|spoke|discussed)|"
+        r"i already (?:told|said|answered)|"
+        r"already talked about|"
+        r"that subject|that topic|"
+        r"we talked about that|"
+        r"you already asked"
+        r")\b",
+        ul,
+    ))
+
+
 def _should_exit_practice_mode(user_text: str, pending: str) -> bool:
-    """Bekleyen pratik varken öğrenci başka konuya geçtiyse pratiği bırak."""
+    """Bekleyen pratik varken öğrenci başka konuya / meta cevaba geçtiyse bırak."""
     if not pending:
         return False
     if _practice_phrase_match(user_text, pending):
         return False
     if _is_greeting_or_small_talk(user_text):
         return True
+    if _is_meta_conversation_reply(user_text):
+        return True
+    # Correct alternative that isn't the exact pending phrase still exits drill
+    if _is_likely_correct_english(user_text) and not _phrase_similar(user_text, pending):
+        if len(user_text.split()) >= 4:
+            return True
     if len(user_text.split()) >= 3 and not _is_fragment_attempt(user_text):
         if _phrase_similar(user_text, pending):
             return False
@@ -569,12 +599,54 @@ def _sanitize_ai_correction(user_text: str, parsed: dict) -> dict:
             out["speak_tr"] = None
         return out
 
+    # Deterministic grammar says ERROR — do not silently soft-rewrite as level 1
+    lvl, phrase, cat, ex_en, ex_tr = check_english(user_text)
+    if lvl >= 2 and phrase:
+        out = dict(parsed)
+        out["correction_level"] = max(int(out.get("correction_level") or 1), lvl)
+        if out["correction_level"] < 2:
+            out["correction_level"] = 2
+        out["correct_phrase"] = phrase
+        out["category"] = cat or out.get("category")
+        if not safe_str(out.get("grammar_tr")).strip() and ex_tr:
+            out["grammar_tr"] = ex_tr
+        # Ensure teacher_en reflects the RAW error (never pretend user said the correct form)
+        te = safe_str(out.get("teacher_en"))
+        raw = user_text.strip()
+        if phrase and raw and _norm(raw) != _norm(phrase):
+            if "i understood" not in te.lower() and raw.lower() not in te.lower():
+                out["teacher_en"] = (
+                    f'I understood you as: "{raw}"\n\n'
+                    f'There is a mistake:\n'
+                    f'❌ {raw}\n'
+                    f'✅ {phrase}\n\n'
+                    f'{(ex_en or "").strip()}\n\n'
+                    f'What else can you tell me?'
+                ).strip()
+        return out
+
+    # Ban invented froming in AI output
+    te = safe_str(parsed.get("teacher_en"))
+    cp = safe_str(parsed.get("correct_phrase"))
+    if re.search(r"\bfroming\b", te + " " + cp, re.I):
+        out = dict(parsed)
+        out["correct_phrase"] = re.sub(r"\bfroming\b", "from", cp, flags=re.I) or None
+        out["teacher_en"] = re.sub(r"\bfroming\b", "from", te, flags=re.I)
+        out["suggested_practice"] = None
+        if "from" in user_text.lower() and "froming" not in user_text.lower():
+            out["correction_level"] = 1
+            out["correct_phrase"] = None
+        return out
+
     return parsed
 
 
 def _is_likely_correct_english(text: str) -> bool:
     """Gramer olarak doğru bilinen kalıplar — gereksiz düzeltmeyi engelle."""
     ul = re.sub(r"[^\w\s'-]", "", text.lower()).strip()
+    # Hard reject known errors even if otherwise "looks ok"
+    if re.search(r"\bi\s+are\b|\bi am froming\b|^ir\s*\d|\bi\s+r\s*\d", ul):
+        return False
     ok_patterns = (
         r"^i'?m very tired today$",
         r"^i am very tired today$",
@@ -585,6 +657,17 @@ def _is_likely_correct_english(text: str) -> bool:
         r"^i went to work today$",
         r"^i'?m fine thanks$",
         r"^i'?m good thanks$",
+        r"^i'?m from .+$",
+        r"^i am from .+$",
+        r"^i live in .+$",
+        r"^i work in .+$",
+        r"^i work as .+$",
+        r"^i'?m \d{1,3} years old$",
+        r"^i am \d{1,3} years old$",
+        r"^i usually (like to )?(drink|eat|watch|read).+$",
+        r"^you asked me about .+$",
+        r"^we already talked about .+$",
+        r"^i already told you.+$",
     )
     return any(re.match(p, ul) for p in ok_patterns)
 
@@ -653,6 +736,11 @@ def default_profile(lang: str = "en") -> dict[str, Any]:
         "scaffoldTransferTr": None,
         "scaffoldTransferHint": None,
         "scaffoldHintAnswer": None,
+        "currentTopic": "",
+        "completedTopics": [],
+        "userFacts": [],
+        "recentAskedQuestions": [],
+        "conversationTurn": 0,
     }
 
 
@@ -662,6 +750,7 @@ def merge_profile(profile: dict | None, delta: dict | None) -> dict:
         "grammarErrors", "repeatedMistakes", "weakAreas", "strongAreas", "newWords",
         "sessions", "srsItems", "vocabularyBank", "dailyStats", "sessionLog",
         "vocabularyWeaknesses", "masteredTopics", "masteredLessonTopics", "taughtPatterns",
+        "completedTopics", "userFacts", "recentAskedQuestions",
     )
     if profile:
         for k, v in profile.items():
@@ -692,6 +781,7 @@ def merge_profile(profile: dict | None, delta: dict | None) -> dict:
         "microStep", "lastMasteredPhrase", "sentenceBuildBase", "awaitingTargetPhrase",
         "scaffoldMode", "scaffoldPattern", "scaffoldTarget",
         "scaffoldTransferEn", "scaffoldTransferTr", "scaffoldTransferHint", "scaffoldHintAnswer",
+        "currentTopic", "conversationTurn",
     )
     for key in scalar_keys:
         if key in delta:
@@ -999,8 +1089,56 @@ def check_english(text: str) -> tuple[int, str | None, str | None, str | None, s
             "Before adjectives, use I'm / I am: I'm very tired.",
             "Sıfattan önce I'm kullan.",
         )
+    # --- Early be-verb / age ASR checks (before missing_verb) ---
+    if re.search(r"\bi\s+are\b", ul):
+        age_m = re.search(r"\b(\d{1,3})\s*years?\s*old\b", ul)
+        if age_m:
+            rest = ""
+            idx = ul.find("old")
+            if idx >= 0:
+                rest = t[t.lower().find("old") + 3:].strip(" .,!")
+            correct = f"I am {age_m.group(1)} years old"
+            if rest:
+                correct = f"{correct} {rest}"
+            if not correct.endswith("."):
+                correct += "."
+        else:
+            correct = re.sub(r"\bi\s+are\b", "I am", t, count=1, flags=re.I)
+            if correct and correct[0].islower():
+                correct = correct[0].upper() + correct[1:]
+            if not correct.endswith((".", "!", "?")):
+                correct = correct.rstrip() + "."
+        return (
+            3, correct, "be_verb",
+            "With I we use am, not are: I am …",
+            "'I' öznesinden sonra 'am' gelir; 'are' değil.",
+        )
+    ir_age_early = re.search(
+        r"^(?:ir|i\s+r|im)\s*(\d{1,3})\s*years?\s*old\b([\s\S]*)$",
+        ul,
+    )
+    if ir_age_early and not ul.startswith("i'm"):
+        n = ir_age_early.group(1)
+        rest = (ir_age_early.group(2) or "").strip(" .,!")
+        rest_clean = rest.lstrip(" ,.;:").strip()
+        if rest_clean.lower().startswith("and "):
+            rest_clean = "and " + rest_clean[4:].lstrip()
+        if rest_clean:
+            rest_clean = re.sub(r"\bi\b", "I", rest_clean)
+            correct = f"I am {n} years old {rest_clean}"
+        else:
+            correct = f"I am {n} years old"
+        correct = re.sub(r"\s+", " ", correct).strip()
+        if not correct.endswith("."):
+            correct += "."
+        return (
+            3, correct, "be_verb",
+            "Say I am / I'm + age. 'IR 28 years old' is not correct English.",
+            "Yaş için: I am 28 years old / I'm 28 years old.",
+        )
+
     if len(t.split()) >= 4 and not re.search(
-        r"\b(is|are|am|was|were|have|has|do|does|did|will|can|want|went|go|going|don't|didn't)\b", ul
+        r"\b(is|are|am|was|were|have|has|do|does|did|will|can|want|went|go|going|don't|didn't|i'?m|im)\b", ul
     ):
         return (
             2,
@@ -1009,6 +1147,66 @@ def check_english(text: str) -> tuple[int, str | None, str | None, str | None, s
             "Your sentence needs a clear verb (am, go, want, did...).",
             "Cümlede net bir fiil olmalı (am, go, want, did...).",
         )
+    # I are / I ar → I am (NEVER silently accept)
+    if re.search(r"\bi\s+are\b", ul):
+        fixed = re.sub(r"\bi\s+are\b", "I am", t, count=1, flags=re.I)
+        fixed = fixed[0].upper() + fixed[1:] if fixed else "I am"
+        # Prefer full age sentence when present
+        age_m = re.search(r"\b(\d{1,3})\s*years?\s*old\b", ul)
+        if age_m:
+            fixed = re.sub(r"\bi\s+are\s+(\d{1,3})\s*years?\s*old\b",
+                           rf"I am {age_m.group(1)} years old", t, count=1, flags=re.I)
+            if not fixed.lower().startswith("i am"):
+                fixed = f"I am {age_m.group(1)} years old."
+        return (
+            3,
+            fixed if fixed.endswith((".", "!", "?")) else fixed.rstrip() + ".",
+            "be_verb",
+            "With I we use am, not are: I am …",
+            "'I' öznesinden sonra 'am' gelir; 'are' değil.",
+        )
+
+    # ASR-ish ONLY: IR / I R / Im (no apostrophe) + age — NOT valid "I'm"
+    ir_age = re.search(
+        r"^(?:ir|i\s+r|im)\s*(\d{1,3})\s*years?\s*old\b([\s\S]*)$",
+        ul,
+    )
+    if ir_age and not ul.startswith("i'm"):
+        n = ir_age.group(1)
+        rest = (ir_age.group(2) or "").strip(" .,!")
+        correct = f"I am {n} years old"
+        if rest:
+            rest_clean = rest.lstrip(" ,.;:").strip()
+        if rest_clean.lower().startswith("and "):
+            rest_clean = "and " + rest_clean[4:].lstrip()
+        if rest_clean:
+            # keep "and I work..." lowercase and→and, fix leading i → I
+            rest_clean = re.sub(r"\bi\b", "I", rest_clean)
+            correct = f"I am {n} years old {rest_clean}"
+        else:
+            correct = f"I am {n} years old"
+        correct = re.sub(r"\s+", " ", correct).strip()
+        if not correct.endswith("."):
+            correct += "."
+        return (
+            3,
+            correct,
+            "be_verb",
+            "Say I am / I'm + age. 'IR 28 years old' is not correct English.",
+            "Yaş için: I am 28 years old / I'm 28 years old.",
+        )
+
+    # I am froming X → I am from X (invented continuous)
+    if re.search(r"\bi am froming\b", ul):
+        fixed = re.sub(r"\bi am froming\b", "I am from", t, count=1, flags=re.I)
+        return (
+            3,
+            fixed if fixed.endswith((".", "!", "?")) else fixed.rstrip() + ".",
+            "preposition",
+            "'from' is a preposition — it does not take -ing.",
+            "'from' edattır; -ing almaz. I am from Bursa.",
+        )
+
     if re.search(r"\b(me english|english me|turkish i|i turkish)\b", ul):
         return (
             2,
@@ -1017,7 +1215,10 @@ def check_english(text: str) -> tuple[int, str | None, str | None, str | None, s
             "Check word order — subject first, then verb.",
             "Kelime sırasını kontrol et — önce özne, sonra fiil.",
         )
-    if len(t.split()) >= 3 and not re.search(r"\b(is|are|am|was|were|have|has|do|does|did|will|can)\b", t, re.I):
+    # I'm / Im count as be-verb so real "I'm 28 years old" is not missing_verb
+    if len(t.split()) >= 3 and not re.search(
+        r"\b(is|are|am|was|were|have|has|do|does|did|will|can|i'?m|im)\b", t, re.I
+    ):
         if re.search(r"\b(tired|happy|sad|good|bad|busy|ready)\b", t, re.I):
             return 2, None, "be_verb", "Remember to use 'am/is/are' with adjectives.", None
     return 1, None, None, None, None
@@ -1067,26 +1268,227 @@ def _build_conversation_teach(
     return teacher_en, teacher_tr
 
 
-def _natural_followup_for(correct_or_topic: str, category: str | None = None) -> str:
-    """Konudan doğal follow-up — 'Now say this' robotikliğini azalt."""
+def _extract_user_facts(user_text: str) -> list[str]:
+    """Anlam tabanlı kullanıcı bilgileri — sohbet hafızası."""
+    ul = (user_text or "").strip()
+    if not ul:
+        return []
+    facts: list[str] = []
+    low = ul.lower()
+    m = re.search(r"\bi(?:'?m| am) from\s+([A-Za-zÇĞİÖŞÜçğıöşü .'-]{2,40})", ul, re.I)
+    if m:
+        facts.append(f"from:{m.group(1).strip(' .,!')}")
+    m = re.search(r"\bi live in\s+([A-Za-zÇĞİÖŞÜçğıöşü .'-]{2,40})", ul, re.I)
+    if m:
+        facts.append(f"lives_in:{m.group(1).strip(' .,!')}")
+    m = re.search(r"\bi work(?:\s+in)?\s+([A-Za-zÇĞİÖŞÜçğıöşü .'-]{2,40})", ul, re.I)
+    if m and "as" not in m.group(0).lower():
+        facts.append(f"works_in:{m.group(1).strip(' .,!')}")
+    m = re.search(r"\bi work as (?:a |an )?([A-Za-z][A-Za-z -]{2,40})", ul, re.I)
+    if m:
+        facts.append(f"job:{m.group(1).strip(' .,!')}")
+    m = re.search(r"\bi(?:'?m| am) (\d{1,3}) years? old\b", ul, re.I)
+    if m:
+        facts.append(f"age:{m.group(1)}")
+    if re.search(r"\bcoffee\b", low):
+        facts.append("likes:coffee")
+    if re.search(r"\btea\b", low):
+        facts.append("likes:tea")
+    return facts[:6]
+
+
+def _infer_topic_key(text: str) -> str:
+    t = (text or "").lower()
+    if re.search(r"\b(coffee|tea|drink|cup)\b", t):
+        return "coffee"
+    if re.search(r"\b(from|hometown|bursa|ankara|istanbul|warsaw|live in|city)\b", t):
+        return "hometown_city"
+    if re.search(r"\b(work|job|office|dietitian|busy|calm)\b", t):
+        return "work"
+    if re.search(r"\b(age|years? old)\b", t):
+        return "age"
+    if re.search(r"\b(food|eat|restaurant)\b", t):
+        return "food"
+    if re.search(r"\b(family|son|daughter|wife|husband)\b", t):
+        return "family"
+    return ""
+
+
+def _topic_memory_delta(profile: dict, user_text: str, teacher_en: str) -> dict:
+    """completed_topics / userFacts / recentAskedQuestions güncelle."""
+    facts = list(profile.get("userFacts") or [])
+    for f in _extract_user_facts(user_text):
+        if f not in facts:
+            facts.append(f)
+    facts = facts[-20:]
+
+    completed = list(profile.get("completedTopics") or [])
+    topic = _infer_topic_key(user_text) or _infer_topic_key(teacher_en)
+    # Mark topic completed if user already answered a related fact
+    fact_topics = {
+        "from:": "hometown_city", "lives_in:": "hometown_city", "works_in:": "work",
+        "job:": "work", "age:": "age", "likes:coffee": "coffee", "likes:tea": "coffee",
+    }
+    for f in facts:
+        for pref, top in fact_topics.items():
+            if f.startswith(pref) and top not in completed:
+                # need enough signal: fact exists counts as discussed
+                completed.append(top)
+    completed = completed[-12:]
+
+    asked = list(profile.get("recentAskedQuestions") or [])
+    for line in str(teacher_en or "").split("\n"):
+        line = line.strip()
+        if "?" in line and len(line) > 8:
+            q = line[:180]
+            if q not in asked:
+                asked.append(q)
+    asked = asked[-8:]
+
+    turn = int(profile.get("conversationTurn") or 0) + 1
+    return {
+        "userFacts": facts,
+        "completedTopics": completed,
+        "recentAskedQuestions": asked,
+        "currentTopic": topic or safe_str(profile.get("currentTopic")),
+        "conversationTurn": turn,
+    }
+
+
+def _meta_conversation_turn(
+    user_text: str,
+    target_lang: str,
+    profile: dict,
+    session_delta: dict,
+    history: list[dict],
+    translate_fn: Callable[[str, str, str], str] | None,
+) -> dict[str, Any]:
+    """You asked me about my work / we already talked — geçmişi kabul et, devam et."""
+    last = safe_str(profile.get("lastTeacherText")).strip()
+    completed = list(profile.get("completedTopics") or [])
+    # Prefer continuing unfinished topic or open a fresh one
+    follow_options = [
+        ("work", "Is your work usually busy or calm?"),
+        ("hometown_city", "How long have you lived there?"),
+        ("coffee", "Do you drink it mostly in the morning?"),
+        ("food", "What did you eat today?"),
+        ("family", "Do you live with your family?"),
+    ]
+    follow = "What would you like to talk about next?"
+    for key, q in follow_options:
+        if key not in completed:
+            follow = q
+            break
+    # If they mentioned work specifically, resume work
+    if re.search(r"\bwork\b", user_text, re.I):
+        follow = "Is your work usually busy or calm?"
+    teacher_en = (
+        "You're right — thanks for reminding me.\n\n"
+        f"{follow}"
+    )
+    teacher_tr = "Haklısın, teşekkürler. Konuya oradan devam edelim."
+    clear = {
+        **_clear_scaffold(),
+        "pendingPracticePhrase": None,
+        "pendingPracticeTr": None,
+        "awaitingTargetPhrase": None,
+        "waitingForUser": True,
+        **_topic_memory_delta(profile, user_text, teacher_en),
+    }
+    return _pack(
+        profile, {**session_delta, **clear}, teacher_en, teacher_tr, None, 1, "conversation",
+        waiting=True, user_text=user_text, teacher_en=teacher_en, speak_text=follow,
+    )
+
+
+def _lock_tr_person_for_english(en: str, tr: str) -> str:
+    """User I-statements → 1st person TR; teacher questions → 2nd person TR."""
+    if not tr:
+        return tr
+    en_l = (en or "").strip().lower()
+    out = tr
+    # Teacher questions to student
+    if en_l.endswith("?") or re.match(r"^(how|where|what|when|why|do|does|did|are|is|can)\b", en_l):
+        reps = (
+            (r"\byaşındayım\b", "yaşındasın"),
+            (r"\bçalışıyorum\b", "çalışıyorsun"),
+            (r"\byaşıyorum\b", "yaşıyorsun"),
+            (r"\bgeliyorum\b", "geliyorsun"),
+            (r"\bseviyorum\b", "seviyorsun"),
+            (r"\bistiyorum\b", "istiyorsun"),
+        )
+        for a, b in reps:
+            out = re.sub(a, b, out, flags=re.I)
+        return out
+    # User statements with I
+    if re.match(r"^i\b|^i'?m\b", en_l):
+        reps = (
+            (r"\byaşındasın\b", "yaşındayım"),
+            (r"\bçalışıyorsun\b", "çalışıyorum"),
+            (r"\byaşıyorsun\b", "yaşıyorum"),
+            (r"\bgeliyorsun\b", "geliyorum"),
+            (r"\bseviyorsun\b", "seviyorum"),
+            (r"\bistiyorsun\b", "istiyorum"),
+        )
+        for a, b in reps:
+            out = re.sub(a, b, out, flags=re.I)
+    return out
+
+
+def _natural_followup_for(
+    correct_or_topic: str,
+    category: str | None = None,
+    profile: dict | None = None,
+) -> str:
+    """Konudan doğal follow-up — tamamlanmış konuları / son soruları tekrarlama."""
     t = (correct_or_topic or "").lower()
+    completed = set((profile or {}).get("completedTopics") or [])
+    recent = " ".join((profile or {}).get("recentAskedQuestions") or []).lower()
+
+    def ok(q: str) -> bool:
+        ql = q.lower()
+        # avoid near-duplicate recent questions
+        if recent and ql[:24] in recent:
+            return False
+        return True
+
+    candidates: list[tuple[str, str]] = []
     if "book" in t:
-        return "What kind of book are you going to buy?"
+        candidates.append(("book", "What kind of book are you going to buy?"))
     if "home" in t and ("go" in t or "want" in t or "went" in t):
-        return "Why do you want to go home?"
+        candidates.append(("home", "Why do you want to go home?"))
     if "tired" in t:
-        return "Why are you tired today?"
-    if "work" in t or "worked" in t:
-        return "What kind of work do you do?"
-    if "coffee" in t or "tea" in t:
-        return "How often do you drink it?"
+        candidates.append(("tired", "Why are you tired today?"))
+    if ("work" in t or "worked" in t) and "work" not in completed:
+        candidates.append(("work", "What kind of work do you do?"))
+    if ("coffee" in t or "tea" in t) and "coffee" not in completed:
+        candidates.append(("coffee", "How often do you drink it?"))
     if "talking to" in t or "speaking with" in t:
-        return "What are you talking about?"
+        candidates.append(("talk", "What are you talking about?"))
     if "yesterday" in t or "went" in t or category == "past_tense":
-        return "What did you do after that?"
+        candidates.append(("past", "What did you do after that?"))
     if "pizza" in t or "eat" in t or "ate" in t:
-        return "What did you eat?"
-    return "What else is going on today?"
+        candidates.append(("food", "What did you eat?"))
+    if ("from" in t or "bursa" in t or "ankara" in t) and "hometown_city" not in completed:
+        candidates.append(("hometown_city", "How long have you lived there?"))
+    if "years old" in t or "age" in t:
+        candidates.append(("age", "What do you do for work?"))
+
+    for _, q in candidates:
+        if ok(q):
+            return q
+
+    fallbacks = [
+        "What else is going on today?",
+        "Tell me more about that.",
+        "What do you usually do after work?",
+        "What are your plans for this weekend?",
+        "Who do you usually spend time with?",
+    ]
+    for q in fallbacks:
+        if ok(q):
+            return q
+    return fallbacks[0]
 
 
 def _norm(s: str) -> str:
@@ -2029,12 +2431,30 @@ def _detect_sentence_scaffold(user_text: str) -> dict[str, Any] | None:
             "wrong": t,
         }
 
-    # I am + base verb (+ object)
+    # I am + base ACTION verb (+ object) ONLY
+    # NEVER treat prepositions/adjectives/numbers as verbs (from→froming YASAK)
     m = re.search(r"\bi am (\w+)(?:\s+(.+))?$", ul)
     if m:
         verb = m.group(1)
         rest = (m.group(2) or "").strip()
-        if verb.endswith("ing") or verb in ("a", "an", "the", "very", "so", "not", "happy", "tired", "busy", "fine", "good"):
+        # Non-verbs / adjectives / prepositions / articles / numbers — NOT continuous
+        non_verbs = {
+            "a", "an", "the", "very", "so", "not", "really", "quite",
+            "happy", "tired", "busy", "fine", "good", "sad", "ready", "hungry",
+            "sleepy", "bored", "late", "early", "here", "there", "home",
+            "from", "in", "at", "on", "to", "for", "with", "about", "of", "into",
+            "like", "as", "near", "after", "before", "between", "under", "over",
+            "turkish", "english", "student", "teacher", "doctor", "dietitian",
+        }
+        if verb.endswith("ing") or verb in non_verbs or verb.isdigit():
+            return None
+        # Only known action verbs may enter present-continuous scaffold
+        action_verbs = {
+            "read", "watch", "work", "eat", "go", "play", "drink", "run", "write",
+            "swim", "walk", "listen", "study", "cook", "drive", "sleep", "wait",
+            "learn", "speak", "talk", "sing", "dance", "draw", "paint", "clean",
+        }
+        if verb not in action_verbs:
             return None
         irregular = {"run": "running", "swim": "swimming", "write": "writing", "sit": "sitting", "get": "getting"}
         if verb in irregular:
@@ -2045,7 +2465,6 @@ def _detect_sentence_scaffold(user_text: str) -> dict[str, Any] | None:
             ing = verb + "ing"
         obj = rest if rest else ("a book" if verb == "read" else ("TV" if verb == "watch" else ("coffee" if verb == "drink" else "")))
         target = f"I am {ing}" + (f" {obj}" if obj else "") + "."
-        # Transfer prompts
         transfers = {
             "read": ("I am watching TV.", "Ben televizyon izliyorum.", "watch = izlemek"),
             "watch": ("I am reading a book.", "Ben kitap okuyorum.", "read = okumak"),
@@ -2057,6 +2476,21 @@ def _detect_sentence_scaffold(user_text: str) -> dict[str, Any] | None:
             "run": ("I am walking.", "Ben yürüyorum.", "walk = yürümek"),
             "write": ("I am reading a book.", "Ben kitap okuyorum.", "read = okumak"),
             "swim": ("I am running.", "Ben koşuyorum.", "run = koşmak"),
+            "walk": ("I am running.", "Ben koşuyorum.", "run = koşmak"),
+            "listen": ("I am reading a book.", "Ben kitap okuyorum.", "read = okumak"),
+            "study": ("I am working.", "Ben çalışıyorum.", "work = çalışmak"),
+            "cook": ("I am eating.", "Ben yemek yiyorum.", "eat = yemek"),
+            "drive": ("I am walking.", "Ben yürüyorum.", "walk = yürümek"),
+            "sleep": ("I am resting.", "Ben dinleniyorum.", "rest = dinlenmek"),
+            "wait": ("I am walking.", "Ben yürüyorum.", "walk = yürümek"),
+            "learn": ("I am studying.", "Ben ders çalışıyorum.", "study = ders çalışmak"),
+            "speak": ("I am listening.", "Ben dinliyorum.", "listen = dinlemek"),
+            "talk": ("I am listening.", "Ben dinliyorum.", "listen = dinlemek"),
+            "sing": ("I am dancing.", "Ben dans ediyorum.", "dance = dans etmek"),
+            "dance": ("I am singing.", "Ben şarkı söylüyorum.", "sing = şarkı söylemek"),
+            "draw": ("I am writing.", "Ben yazıyorum.", "write = yazmak"),
+            "paint": ("I am drawing.", "Ben çiziyorum.", "draw = çizmek"),
+            "clean": ("I am cooking.", "Ben yemek yapıyorum.", "cook = yemek yapmak"),
         }
         ten, ttr, th = transfers.get(verb, ("I am working.", "Ben çalışıyorum.", "work = çalışmak"))
         return {
@@ -2072,7 +2506,6 @@ def _detect_sentence_scaffold(user_text: str) -> dict[str, Any] | None:
             "wrong": t,
         }
 
-    # I am work (without full match above already covered)
     return None
 
 
@@ -2211,6 +2644,11 @@ def _continue_sentence_scaffold(
     if not mode:
         return None
     target = safe_str(profile.get("scaffoldTarget")).strip()
+    # Kullanıcı meta cevap verdiyse / konu değiştirdiyse eski scaffold'u bırak
+    if target and _should_exit_practice_mode(user_text, target):
+        return None
+    if _is_meta_conversation_reply(user_text):
+        return None
     pattern = safe_str(profile.get("scaffoldPattern")).strip()
     transfer_en = safe_str(profile.get("scaffoldTransferEn")).strip()
     transfer_tr = safe_str(profile.get("scaffoldTransferTr")).strip()
@@ -3305,7 +3743,8 @@ def looks_like_lang(text: str, lang: str) -> bool:
             r"\b(what|how|are|you|doing|hello|thanks|thank|yes|no|good|please|fine|"
             r"where|when|who|why|the|this|that|is|are|was|were|your|holiday|i'm|im|"
             r"i|a|an|book|read|went|work|tired|today|yesterday|park|home|ate|had|"
-            r"played|watched|walked|studied|spoke|said|like|want|need|have|did|don't|"
+            r"played|watched|walked|studied|spoke|said|asked|already|talked|about|"
+            r"like|want|need|have|did|don't|we|my|me|subject|right|"
             r"understand|run|ran|running|very|so|just|only|also|then|well|now)\b",
             t,
             re.I,
@@ -3542,12 +3981,13 @@ def _is_fragment_attempt(text: str) -> bool:
     ul = t.lower()
     has_verb = bool(re.search(
         r"\b(is|are|am|was|were|have|has|had|do|does|did|will|can|could|"
-        r"went|go|going|read|played|ate|watched|walked|studied|spoke|said|"
+        r"went|go|going|read|played|ate|watched|walked|studied|spoke|said|asked|"
+        r"work|works|worked|working|live|lives|lived|living|tell|told|talk|"
         r"don't|didn't|wasn't|i'm|i've)\b",
         ul,
     ))
     has_noun_only = bool(re.search(
-        r"\b(book|books|park|work|home|food|movie|tv|game|gym|school|friend)\b",
+        r"\b(book|books|park|home|food|movie|tv|game|gym|school|friend)\b",
         ul,
     ))
     if has_noun_only and not has_verb:
@@ -4295,6 +4735,13 @@ def _to_tr(text: str, translate_fn: Callable[[str, str, str], str], from_lang: s
         return translate_fn(text.strip(), from_lang, "tr")
     except Exception:
         return ""
+
+
+def _to_tr_locked(text: str, translate_fn, target_lang: str, en_for_person: str | None = None) -> str:
+    """EN→TR with person lock for I-statements vs teacher questions."""
+    tr = _to_tr(text, translate_fn, target_lang) if translate_fn else ""
+    return _lock_tr_person_for_english(en_for_person or text, tr)
+
 
 
 def _teacher_tr_from_en(
@@ -5399,7 +5846,7 @@ def _try_ai_tutor_turn(
     parsed = _sanitize_ai_correction(user_text, parsed)
 
     teacher_en = safe_str(parsed.get("teacher_en")).strip()
-    teacher_tr = _trim_teacher_tr(teacher_en, safe_str(parsed.get("teacher_tr")).strip())
+    teacher_tr = _lock_tr_person_for_english(teacher_en, _trim_teacher_tr(teacher_en, safe_str(parsed.get("teacher_tr")).strip()))
     if not teacher_en:
         return None
 
@@ -5413,7 +5860,7 @@ def _try_ai_tutor_turn(
     category = safe_str(parsed.get("category")).strip() or None
     grammar_tr = safe_str(parsed.get("grammar_tr")).strip()
     word_breakdown_tr = safe_str(parsed.get("word_breakdown_tr")).strip() or None
-    speak_tr = safe_str(parsed.get("speak_tr")).strip()
+    speak_tr = _lock_tr_person_for_english(teacher_en, safe_str(parsed.get("speak_tr")).strip())
     inferred = safe_str(parsed.get("inferred_meaning")).strip()
     phonetic_en = safe_str(parsed.get("phonetic_en")).strip() or _simple_en_phonetic(teacher_en.split("\n")[0])
 
@@ -5460,6 +5907,7 @@ def _try_ai_tutor_turn(
     delta: dict[str, Any] = {
         **session_delta,
         "lastTeacherText": teacher_en,
+        **_topic_memory_delta(profile, user_text, teacher_en),
     }
     if suggested and (corr_level >= 2 or teach_new or build_on):
         delta["pendingPracticePhrase"] = suggested
@@ -6271,6 +6719,14 @@ def process_turn(
         result["weekly_progress"] = weekly_progress(result["profile"])
         return result
 
+    # Meta: "You asked me about my work" / "we already talked…"
+    if _is_meta_conversation_reply(user_text):
+        result = _meta_conversation_turn(
+            user_text, target_lang, profile, session_delta, history, translate_fn,
+        )
+        result["weekly_progress"] = weekly_progress(result["profile"])
+        return result
+
     # Kısa doğal cevap: "Tired." after "How are you?" — yanlış sayma
     if target_lang == "en" and _is_short_natural_reply(user_text, last_teacher):
         result = _short_natural_reply_turn(
@@ -6336,7 +6792,12 @@ def process_turn(
 
     pending = safe_str(profile.get("pendingPracticePhrase")).strip()
     if pending and _should_exit_practice_mode(user_text, pending):
-        clear_practice = {"pendingPracticePhrase": None, "pendingPracticeTr": None, "awaitingTargetPhrase": None}
+        clear_practice = {
+            **_clear_scaffold(),
+            "pendingPracticePhrase": None,
+            "pendingPracticeTr": None,
+            "awaitingTargetPhrase": None,
+        }
         session_delta = {**session_delta, **clear_practice}
         profile = merge_profile(profile, session_delta)
         pending = ""
