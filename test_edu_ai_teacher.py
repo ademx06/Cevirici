@@ -48,8 +48,17 @@ def test_restaurant_greeting_not_how_are_you():
 def test_hotel_greeting():
     r = greeting("en", default_profile(), translate_fn=fake, roleplay="hotel")
     te = (r.get("teacher_en") or "").lower()
-    assert "reservation" in te or "welcome" in te
+    # AI opener preferred; seed fallback: Welcome / reservation. Never free-chat greeting.
+    assert (
+        "reservation" in te
+        or "welcome" in te
+        or "check" in te
+        or "room" in te
+        or "help" in te
+        or "front desk" in te
+    )
     assert "how are you today" not in te
+    assert "favorite" not in te
     print("TEST hotel greeting OK", r.get("teacher_en"))
 
 
