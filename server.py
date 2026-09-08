@@ -29,7 +29,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.09.06-v72.24"
+APP_VERSION = "2026.09.06-v72.25"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -3503,13 +3503,18 @@ class Handler(SimpleHTTPRequestHandler):
         speak_slow = bool(state.get("speak_slow"))
         last_lang = state.get("last_lang") or lang
         try:
-            original, detected = transcribe_dual(data, "tr", lang, last_lang)
+            # Same Bas Konuş forced STT as education listen / translate hold-to-talk
+            if lang in STT_LANG:
+                original, detected = transcribe_forced(data, lang)
+            else:
+                original, detected = transcribe_dual(data, "tr", lang, last_lang)
             result = process_turn(
                 original, detected, lang, history, profile,
                 roleplay=roleplay, speak_slow=speak_slow, translate_fn=translate_text,
             )
             result["user_text"] = original
             result["user_lang"] = detected
+            result["target_lang"] = lang
             result = self._education_tts(result, lang)
             body = json.dumps(result, ensure_ascii=False).encode()
             self.send_response(200)
