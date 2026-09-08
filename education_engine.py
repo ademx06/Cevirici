@@ -131,6 +131,7 @@ STYLE BALANCE:
 - Turkish help / "yardım"? Give the {lang_name} phrasing, ask them to say it, then continue chatting.
 - Student asks a meaning? Explain simply with one example, then continue.
 - Vary follow-ups. Avoid repeating the same question.
+- If the student's answer is unclear or wrong for YOUR question: stay on the SAME question, offer a simpler example or suggest Help — do NOT jump to a new topic (food, shopping, hobbies) just because they struggled.
 
 LEVEL ADAPTATION:
 - Beginner: short sentences, simple words, more Turkish support in teacher_tr.
@@ -405,7 +406,10 @@ VOCAB_LIBRARY: dict[str, list[dict[str, str]]] = {
 HELP_RE = re.compile(
     r"(^\s*yardım\b|nasıl\s+(?:söylerim|derim|denir|söyleyeceğim)|ingilizcede|ne\s+demek|çevirir\s+misin|"
     r"kısmını\s+söyle(?:y)?emiyorum|how\s+do\s+i\s+say|what\s+is\s+.+\s+in\s+english|"
-    r"bunu\s+nasıl\s+söylerim|anlatır\s+mısın|ne\s+söyleyeceğimi|cümleyi\s+nasıl\s+kur)",
+    r"bunu\s+nasıl\s+söylerim|anlatır\s+mısın|ne\s+söyleyeceğimi|cümleyi\s+nasıl\s+kur|"
+    r"ne\s+cevap\s+vere(?:bilirim|yim)|ne\s+cevap\s+vermem(?:\s+gerekiyor)?|"
+    r"yardım\s+eder\s+misin|bu\s+soruya\s+ne|nasıl\s+cevap\s+vere|"
+    r"demek\s+istiyorum|söylemek\s+istiyorum)",
     re.I,
 )
 
@@ -2336,70 +2340,251 @@ def _extract_phrase_from_how_to_say_stuck(text: str) -> str | None:
     return phrase
 
 
+def _localize_example_to_target(
+    en_sentence: str,
+    target_lang: str,
+    translate_fn: Callable[[str, str, str], str] | None,
+) -> str:
+    """EN example seed → selected target language (no EN fallback in output)."""
+    en_sentence = safe_str(en_sentence).strip()
+    if not en_sentence:
+        return ""
+    if target_lang == "en" or not translate_fn:
+        return en_sentence
+    try:
+        out = translate_fn(en_sentence, "en", target_lang)
+        out = safe_str(out).strip()
+        if out and not _is_strong_english(out):
+            return out
+        if out:
+            return out
+    except Exception:
+        pass
+    return en_sentence
+
+
 def _build_how_to_say_examples(
     teacher_q: str,
     target_lang: str,
     translate_fn: Callable[[str, str, str], str] | None,
 ) -> list[tuple[str, str]]:
-    """Son soruya göre söyleyebileceği örnek cümleler."""
-    tq = teacher_q.lower()
-    time_word = "yesterday" if "yesterday" in tq else "today"
-    defaults_tr = {
-        "I was tired today.": "Bugün yorgundum.",
-        "I went to work today.": "Bugün işe gittim.",
-        "I stayed at home today.": "Bugün evde kaldım.",
-        "I read a book today.": "Bugün kitap okudum.",
-    }
+    """Son soruya göre 3+ doğal cevap (kısa / orta / gelişmiş) — tüm diller."""
+    tq = (teacher_q or "").lower()
+    time_word = "yesterday" if "yesterday" in tq or "gestern" in tq or "ayer" in tq else "today"
 
-    if _is_daily_activity_question(tq) or re.search(
-        r"what did you do|what do you do|how was your day|tell me about your day", tq,
+    if re.search(
+        r"after work|işten sonra|nach (?:der )?arbeit|después del trabajo|"
+        r"après le travail|после работы",
+        tq,
     ):
-        candidates = [
-            (f"I was tired {time_word}.", defaults_tr["I was tired today."]),
-            (f"I went to work {time_word}.", defaults_tr["I went to work today."]),
-            (f"I stayed at home {time_word}.", defaults_tr["I stayed at home today."]),
-            (f"I read a book {time_word}.", defaults_tr["I read a book today."]),
-            ("It was good, thanks.", "İyiydi, teşekkürler."),
+        seeds = [
+            ("I usually go home after work.", "Genellikle işten sonra eve giderim."),
+            ("I usually go home and relax after work.", "Genellikle işten sonra eve giderim ve dinlenirim."),
+            (
+                "After work, I usually have dinner and relax with my family.",
+                "İşten sonra genellikle yemek yerim ve ailemle dinlenirim.",
+            ),
         ]
-    elif re.search(r"book|read|reading", tq):
-        candidates = [
-            ("Yes, I like reading books.", "Evet, kitap okumayı seviyorum."),
-            ("I read a book today.", "Bugün bir kitap okudum."),
-            ("My favorite book is Harry Potter.", "En sevdiğim kitap Harry Potter."),
+    elif re.search(
+        r"wochenende|weekend|hafta\s*sonu|fin de semana|week-end|выходн",
+        tq,
+    ):
+        seeds = [
+            ("I usually stay at home on weekends.", "Hafta sonları genellikle evde kalırım."),
+            ("I meet my friends at the weekend.", "Hafta sonu arkadaşlarımla buluşurum."),
+            (
+                "At the weekend I like to rest and watch a film.",
+                "Hafta sonu dinlenmeyi ve film izlemeyi severim.",
+            ),
         ]
-    elif re.search(r"how are you|how do you feel|how'?s it going", tq):
-        candidates = [
+    elif re.search(
+        r"what did you do|what do you do|how was your day|tell me about your day|"
+        r"was hast du|was machst du|qué hiciste|что ты|qu'?as[- ]tu fait|"
+        r"bugün ne|dün ne|neler yapt",
+        tq,
+    ) or _is_daily_activity_question(tq):
+        seeds = [
+            (f"I went to work {time_word}.", "İşe gittim."),
+            (f"I stayed at home and watched TV {time_word}.", "Evde kaldım ve televizyon izledim."),
+            (f"I went out with my friends {time_word}.", "Arkadaşlarımla dışarı çıktım."),
+        ]
+    elif re.search(r"where do you live|wo wohnst|dónde vives|где ты жив|où habites|nerede yaşıyorsun", tq):
+        seeds = [
+            ("I live in Ankara.", "Ankara'da yaşıyorum."),
+            ("I live in Ankara with my family.", "Ailemle Ankara'da yaşıyorum."),
+            ("I've lived in Ankara for a few years.", "Birkaç yıldır Ankara'da yaşıyorum."),
+        ]
+    elif re.search(r"how are you|how do you feel|wie geht|cómo estás|как дела|comment ça va|nasılsın", tq):
+        seeds = [
             ("I'm fine, thanks. And you?", "İyiyim, teşekkürler. Sen nasılsın?"),
             ("I'm good.", "İyiyim."),
             ("I'm a bit tired today.", "Bugün biraz yorgunum."),
         ]
-    elif re.search(r"what are you|what will you|plan|going to do", tq):
-        candidates = [
+    elif re.search(r"work|job|arbeit|trabajo|работа|travail|meslek|iş", tq):
+        seeds = [
+            ("I work in an office.", "Ofiste çalışıyorum."),
+            ("I work every day until six.", "Her gün saat altıya kadar çalışıyorum."),
+            ("My work is sometimes busy, but I like it.", "İşim bazen yoğun ama seviyorum."),
+        ]
+    elif re.search(r"book|read|reading|buch|libro|книг|livre", tq):
+        seeds = [
+            ("Yes, I like reading books.", "Evet, kitap okumayı seviyorum."),
+            ("I read a book today.", "Bugün bir kitap okudum."),
+            ("My favorite book is Harry Potter.", "En sevdiğim kitap Harry Potter."),
+        ]
+    elif re.search(r"what are you|what will you|plan|going to do|planst|vas a|планир", tq):
+        seeds = [
             ("I'm going to work tomorrow.", "Yarın işe gideceğim."),
             ("I will stay at home.", "Evde kalacağım."),
-            ("I want to rest.", "Dinlenmek istiyorum."),
-        ]
-    elif re.search(r"understand|mean", tq):
-        candidates = [
-            ("Yes, I understand.", "Evet, anlıyorum."),
-            ("No, I don't understand.", "Hayır, anlamıyorum."),
-            ("Can you explain again?", "Tekrar açıklar mısın?"),
+            ("I want to rest and relax.", "Dinlenmek ve rahatlamak istiyorum."),
         ]
     else:
-        candidates = [
-            ("Yes.", "Evet."),
-            ("No, not really.", "Hayır, pek sayılmaz."),
-            ("I think so.", "Sanırım öyle."),
-            ("Can you repeat, please?", "Tekrar eder misin?"),
+        seeds = [
+            ("Yes, that's right.", "Evet, doğru."),
+            ("I'm not sure, but I can try.", "Emin değilim ama deneyebilirim."),
+            ("Can you say the question again, please?", "Soruyu tekrar söyler misin?"),
         ]
 
     out: list[tuple[str, str]] = []
-    for en, tr_default in candidates[:5]:
-        tr = tr_default
+    for en, tr in seeds[:4]:
+        target = _localize_example_to_target(en, target_lang, translate_fn)
+        # Drop shopping/check-in curriculum leaks only — not legitimate "I usually…" answers
+        if target_lang != "en" and re.search(
+            r"i'?d like to buy|how much(?: is)?|check[- ]?in|the bill please|"
+            r"i have a reservation|can i have",
+            target,
+            re.I,
+        ):
+            continue
+        out.append((target, tr))
+    # Always return ≥3 when seeds exist (pad with remaining seeds if filters removed some)
+    if len(out) < 3:
+        for en, tr in seeds:
+            if any(en.lower() == t.lower() or en.lower() in t.lower() for t, _ in out):
+                continue
+            target = _localize_example_to_target(en, target_lang, translate_fn)
+            out.append((target, tr))
+            if len(out) >= 3:
+                break
+    return out or [(seeds[0][0], seeds[0][1])]
+
+
+def _help_examples_response(
+    user_text: str,
+    target_lang: str,
+    profile: dict,
+    session_delta: dict,
+    translate_fn: Callable[[str, str, str], str] | None,
+    history: list[dict] | None = None,
+    *,
+    phrase_tr: str | None = None,
+) -> dict[str, Any]:
+    """HELP_ONLY / HELP_WITH_ANSWER — 3+ örnek + telaffuz + Dinle çiftleri."""
+    lang_name = LANG_NAMES.get(target_lang, target_lang)
+    history = history or []
+    last_q = (
+        _last_teacher_question(history, profile)
+        or safe_str(profile.get("lastTeacherText")).strip()
+    )
+
+    # HELP_WITH_EXPRESSION / translation: user gave Turkish content
+    if phrase_tr and len(phrase_tr.strip()) >= 3:
+        analysis = _analyze_for_teaching(phrase_tr, target_lang, translate_fn)
+        primary = safe_str(analysis.get("natural_target")).strip()
+        if not primary:
+            primary = _rule_natural_translate_tr(phrase_tr, target_lang, translate_fn)
+        alts: list[str] = []
+        for a in (analysis.get("alternatives") or [])[:2]:
+            a = safe_str(a).strip()
+            if a and a.lower() != primary.lower():
+                alts.append(a)
+        # Pad to 3 with soft variants via translate if needed
+        while len(alts) < 2 and translate_fn and primary:
+            # slight natural variants from TR
+            break
+        examples = [(primary, phrase_tr)] + [(a, phrase_tr) for a in alts]
+        if len(examples) < 3 and last_q:
+            for en, tr in _build_how_to_say_examples(last_q, target_lang, translate_fn):
+                if en.lower() != primary.lower():
+                    examples.append((en, tr))
+                if len(examples) >= 3:
+                    break
+    else:
+        examples = _build_how_to_say_examples(last_q, target_lang, translate_fn)
+
+    examples = examples[:4]
+    if not examples:
+        examples = [("Okay.", "Tamam.")]
+
+    labels = ["1️⃣ Kısa", "2️⃣ Biraz daha detaylı", "3️⃣ Daha doğal"]
+    parts = [f"Tabii! Bu soruya birkaç farklı şekilde cevap verebilirsin ({lang_name}):\n"]
+    if last_q:
+        parts.append(f"💬 Soru: \"{last_q}\"")
         if translate_fn:
-            tr = _to_tr(en, translate_fn, target_lang) or tr_default
-        out.append((en, tr))
-    return out
+            tr_q = _to_tr(last_q, translate_fn, target_lang)
+            if tr_q:
+                parts.append(f"🇹🇷 {tr_q}")
+        parts.append("")
+
+    help_tts: list[dict[str, str]] = []
+    phonetics: list[str] = []
+    for i, (target, tr) in enumerate(examples):
+        label = labels[i] if i < len(labels) else f"{i+1}️⃣"
+        phon = pronounce_text(target, target_lang) or ""
+        phonetics.append(phon)
+        block = f"{label}\n{target}\n🇹🇷 {tr}"
+        if phon:
+            block += f"\n🔊 Türkçe okunuş: {phon}"
+        parts.append(block)
+        help_tts.append({"tr": tr, "en": target, "phonetic": phon})
+
+    parts.append(
+        "\nBunlardan birini seçip Konuş mikrofonuyla söyleyebilirsin. "
+        "Kendi cümleni de Türkçe yazabilirsin: yardım, …"
+    )
+    # Short TR intro for UI; structured cards carry full examples + Dinle
+    q_line = f'💬 "{last_q}"\n' if last_q else ""
+    teacher_tr = (
+        f"Tabii! Bu soruya birkaç farklı şekilde cevap verebilirsin ({lang_name}).\n"
+        f"{q_line}\n"
+        "Örnekleri aşağıda dinleyebilirsin. Birini seçip Konuş mikrofonuyla söyle; "
+        "veya Türkçe yazarak yardım iste: yardım, …"
+    )
+    # Keep long text available for TTS-less clients / history
+    teacher_tr_full = "\n\n".join(parts)
+    first = examples[0][0]
+    teacher_en = _localize_teacher_text(
+        "Sure! Here are a few natural ways to answer. Try one of them.",
+        target_lang,
+        translate_fn,
+    )
+    # Prefer speaking first example in target language
+    speak = first
+    delta = {
+        **session_delta,
+        "lastTeacherText": last_q or first,
+        "pendingPracticePhrase": first,
+        "pendingPracticeTr": examples[0][1],
+        "awaitingTargetPhrase": first,
+        "failedAnswerStreak": 0,
+    }
+    result = _pack(
+        profile, delta, teacher_en, teacher_tr, None, 1, "help",
+        waiting=True, user_text=user_text, teacher_en=teacher_en, speak_text=speak,
+        speak_tr="Örneklerden birini dene.", speak_tr_first=False,
+        phonetic_en=phonetics[0] if phonetics else pronounce_text(first, target_lang),
+        translate_fn=translate_fn, target_lang=target_lang, user_lang="tr",
+    )
+    result["help_tts_pairs"] = help_tts
+    result["help_examples"] = [
+        {"target": t, "tr": tr, "phonetic": p}
+        for (t, tr), p in zip(examples, phonetics)
+    ]
+    result["teacher_tr_full"] = teacher_tr_full
+    result["has_question"] = False
+    result["question_text"] = None
+    result["tts_language"] = target_lang
+    return result
 
 
 def _curriculum_block(profile: dict) -> str:
@@ -3784,63 +3969,10 @@ def _how_to_say_help_mode(
     translate_fn: Callable[[str, str, str], str] | None,
     history: list[dict],
 ) -> dict[str, Any]:
-    """Ne söyleyeceğini / nasıl kuracağını bilmiyor — bağlama göre örnek cümleler."""
-    lang_name = LANG_NAMES.get(target_lang, target_lang)
-    last_teacher = profile.get("lastTeacherText") or _last_teacher_question(history, profile) or ""
-    examples = _build_how_to_say_examples(last_teacher, target_lang, translate_fn)
-
-    parts = ["🤔 Anladım — ne söyleyeceğini bulmak zor olabilir.\n"]
-    if last_teacher:
-        parts.append(f"💬 Son {lang_name} sorum:\n\"{last_teacher}\"")
-        if translate_fn:
-            tr_q = _to_tr(last_teacher, translate_fn, target_lang)
-            if tr_q:
-                parts.append(f"🇹🇷 {tr_q}")
-        parts.append("")
-
-    parts.append("📝 Söyleyebileceğin örnek cümleler:\n")
-    for i, (en, tr) in enumerate(examples[:4], 1):
-        parts.append(f"{i}️⃣ \"{en}\"\n   🇹🇷 {tr}")
-
-    parts.append(
-        "\n🧩 Cümle nasıl kurulur?\n"
-        "• Özne (I) + fiil (am/was/went/read/like...) + detay\n"
-        "• Zaman kelimesi genelde sonda: today, yesterday, tomorrow\n"
-        "• Örnek kalıp: I + was/went/read + today"
+    """Ne söyleyeceğini bilmiyor — çok örnekli yardım."""
+    return _help_examples_response(
+        user_text, target_lang, profile, session_delta, translate_fn, history,
     )
-    parts.append(
-        "\n\n💡 Kendi cümleni kurmak için Türkçe yaz:\n"
-        "\"yardım ben bugün işe gittim\" — sana özel cümle kurarım.\n\n"
-        "🔄 Yukarıdan birini dene veya yardım ile kendi cümleni sor!"
-    )
-
-    teacher_tr = "\n".join(parts)
-    first_en = examples[0][0] if examples else ""
-    clear = {
-        "pendingPracticePhrase": None,
-        "pendingPracticeTr": None,
-        "pendingIntentConfirm": None,
-        "pendingIntentUserSaid": None,
-        "pendingIntentReason": None,
-    }
-    delta = {
-        **session_delta,
-        **clear,
-        "lastTeacherText": first_en or last_teacher,
-    }
-    merged = merge_profile(profile, delta)
-    result = _pack(
-        merged, delta, first_en, teacher_tr, None, 1, "help",
-        waiting=True, user_text=user_text, teacher_en=first_en,
-        speak_text=first_en,
-        speak_tr="",
-        speak_tr_first=False,
-        phonetic_en=_simple_en_phonetic(first_en) if first_en else "",
-        translate_fn=translate_fn,
-        target_lang=target_lang,
-    )
-    result["help_tts_pairs"] = [{"tr": tr, "en": en} for en, tr in examples[:4]]
-    return result
 
 
 def _normalize_stt_text(text: str) -> str:
@@ -5270,17 +5402,31 @@ def llm_available() -> bool:
 
 
 def pronounce_text(text: str, lang: str = "en") -> str:
-    """Turkish-style phonetic spelling for foreign text (display + fallback TTS hint)."""
+    """Turkish-style phonetic spelling for foreign text (display + fallback TTS hint).
+
+    Prefer the shared PronunciationEngine (pronunciation_service) so Eğitim / Çevirici /
+    Kelime / Cümle show the same TTS-aligned Turkish-readable pronunciation.
+    """
     text = safe_str(text).strip()
     if not text or lang == "tr":
         return ""
-    try:
-        from pronunciation_service import romanize_for_tr_reader
-        roma = romanize_for_tr_reader(text, lang)
-        if roma:
-            return roma[:2500]
-    except Exception:
-        pass
+    # English: Jenny-aligned sentence engine (avoids circular call for non-EN)
+    if lang == "en":
+        try:
+            from pronunciation_service import build_sentence_natural
+            roma = build_sentence_natural(text, "en")
+            if roma:
+                return roma[:2500]
+        except Exception:
+            pass
+    else:
+        try:
+            from pronunciation_service import romanize_for_tr_reader
+            roma = romanize_for_tr_reader(text, lang)
+            if roma:
+                return roma[:2500]
+        except Exception:
+            pass
     lang_name = LANG_NAMES.get(lang, lang)
     if llm_available():
         sys_msg = (
@@ -5328,7 +5474,7 @@ def _simple_en_phonetic(text: str) -> str:
         "the": "dı", "you": "yu", "your": "yor", "are": "ar", "was": "vaz",
         "were": "vör", "have": "hev", "has": "hez", "had": "hed", "would": "vud",
         "could": "kud", "should": "şud", "because": "bikoz", "through": "thru",
-        "though": "tho", "people": "pipıl", "really": "rili", "usually": "yuğuali",
+        "though": "tho", "people": "pipıl", "really": "rili", "usually": "yujuıli",
         "beautiful": "byutiful", "comfortable": "kamftıbıl", "interesting": "intresting",
         "yesterday": "yestırdey", "today": "tudey", "tomorrow": "tumoro",
         "work": "vörk", "walk": "vok", "water": "votır", "where": "ver",
@@ -6616,69 +6762,38 @@ def _fallback_reply(
 def _help_mode(
     user_text: str, target_lang: str, translate_fn: Callable[[str, str, str], str],
     profile: dict, session_delta: dict,
+    history: list[dict] | None = None,
 ) -> dict[str, Any]:
     phrase_tr = _extract_turkish_phrase(user_text)
     lang_name = LANG_NAMES.get(target_lang, target_lang)
+    history = history or []
 
-    # Sadece "yardım" / "help" — Türkçe niyet iste, çeviri makinesi olma
-    if not phrase_tr or len(phrase_tr.strip()) < 3:
-        last_q = _last_teacher_question([], profile) or safe_str(profile.get("lastTeacherText")).strip()
-        pending = safe_str(profile.get("pendingPracticePhrase") or profile.get("awaitingTargetPhrase")).strip()
-        if pending:
-            teacher_tr = (
-                f"Tabii — hedef cümlemiz:\n\n**{pending}**\n\n"
-                f"Şimdi sen bunu yazmayı dene."
-            )
-            teacher_en = pending
-            delta = {
-                **session_delta,
-                "lastTeacherText": pending,
-                "pendingPracticePhrase": pending,
-                "awaitingTargetPhrase": pending,
-            }
-            return _pack(
-                profile, delta, teacher_en, teacher_tr, None, 1, "help",
-                waiting=True, user_text=user_text, teacher_en=teacher_en, speak_text=pending,
-                speak_tr="Şimdi sen dene.", speak_tr_first=True,
-                phonetic_en=pronounce_text(pending, target_lang),
-                translate_fn=translate_fn, target_lang=target_lang,
-            )
-        if last_q and ("?" in last_q or re.search(r"\b(what|how|where|when|why|did|do)\b", last_q, re.I)):
-            teacher_tr = (
-                f"Tabii. Önce Türkçe düşünelim.\n\n"
-                f"Soru: **{last_q}**\n\n"
-                f"Örneğin:\n"
-                f"• Evde kaldım.\n"
-                f"• İşe gittim.\n"
-                f"• Arkadaşımla buluştum.\n"
-                f"• Film izledim.\n\n"
-                f"Hangisini söylemek istiyorsun? Türkçe yaz — ben {lang_name} karşılığını öğreteyim."
-            )
-            teacher_en = _localize_teacher_text(
-                f"Sure. Think in Turkish first.\nQuestion: {last_q}\n"
-                f"Tell me what you want to say in Turkish — I'll teach the {lang_name}.",
-                target_lang,
-                translate_fn,
-            )
-        else:
-            teacher_tr = (
-                f"Tabii 😊 Ne söylemek istediğini Türkçe yazabilirsin. "
-                f"Ben sana {lang_name} dilinde nasıl söyleyebileceğini öğreteceğim.\n\n"
-                "Örnek: «Çok yoruldum, eve gitmek istiyorum»"
-            )
-            teacher_en = _localize_teacher_text(
-                f"Sure! Write what you want to say in Turkish — "
-                f"I'll teach you how to say it in {lang_name}.",
-                target_lang,
-                translate_fn,
-            )
-        delta = {**session_delta, "lastTeacherText": teacher_en}
-        return _pack(
-            profile, delta, teacher_en, teacher_tr, None, 1, "help",
-            waiting=True, user_text=user_text, teacher_en=teacher_en, speak_text=teacher_en,
-            speak_tr="Ne demek istediğini Türkçe yaz.", speak_tr_first=True,
-            translate_fn=translate_fn, target_lang=target_lang,
+    # Strip meta help wrappers that leave empty / short intent
+    meta_only = re.match(
+        r"^\s*yardım\b(?:\s*[,:]?\s*(?:eder\s+misin|lütfen)?)?\s*$",
+        user_text.strip(),
+        re.I,
+    ) or re.search(
+        r"ne\s+cevap\s+vere|bu\s+soruya\s+ne|nasıl\s+cevap\s+vere|ne\s+söyleyebilirim",
+        user_text,
+        re.I,
+    )
+
+    # HELP_ONLY / answer-to-question — multi examples for last teacher question
+    if meta_only or not phrase_tr or len(phrase_tr.strip()) < 3:
+        # If phrase_tr is just help meta noise, treat as HELP_ONLY
+        noisy = re.sub(
+            r"yardım|eder\s+misin|lütfen|bu\s+soruya|ne\s+cevap\s+vere(?:bilirim|yim)?|"
+            r"ne\s+söyleyebilirim|nasıl\s+cevap",
+            " ",
+            phrase_tr or "",
+            flags=re.I,
         )
+        noisy = re.sub(r"\s+", " ", noisy).strip()
+        if len(noisy) < 3:
+            return _help_examples_response(
+                user_text, target_lang, profile, session_delta, translate_fn, history,
+            )
 
     mismatch = _detect_tr_meaning_mismatch(phrase_tr)
     if mismatch:
@@ -6686,41 +6801,24 @@ def _help_mode(
             phrase_tr, mismatch, target_lang, profile, session_delta, translate_fn,
         )
 
-    analysis = _analyze_for_teaching(phrase_tr, target_lang, translate_fn)
-    translated = safe_str(analysis.get("natural_target")).strip()
-    if not translated:
-        translated = _rule_natural_translate_tr(phrase_tr, target_lang, translate_fn)
-        analysis["natural_target"] = translated
-
-    teacher_en = translated
-    teacher_tr = _format_compact_help(phrase_tr, translated, lang_name)
-    first_chunk = translated.split(".")[0].strip() if "." in translated else translated
-    delta = {
-        **session_delta,
-        "lastTeacherText": translated,
-        "pendingPracticePhrase": first_chunk or translated,
-        "pendingPracticeTr": phrase_tr,
-        "awaitingTargetPhrase": first_chunk or translated,
-    }
-    pairs = analysis.get("phrase_pairs") or []
-    help_tts = [{"tr": p["tr"], "en": p["en"]} for p in pairs[:3] if p.get("tr") and p.get("en")]
-    if not help_tts:
-        help_tts = [{"tr": phrase_tr, "en": translated}]
-    result = _pack(
-        profile, delta, teacher_en, teacher_tr, None, 1, "help",
-        waiting=True, user_text=user_text, teacher_en=teacher_en, speak_text=first_chunk or translated,
-        speak_tr="",
-        speak_tr_first=False,
-        phonetic_en=pronounce_text(first_chunk or translated, target_lang),
-        translate_fn=translate_fn,
-        target_lang=target_lang,
+    # HELP_WITH_EXPRESSION — Turkish sentence → target + alternatives + pronunciation
+    return _help_examples_response(
+        user_text, target_lang, profile, session_delta, translate_fn, history,
+        phrase_tr=phrase_tr,
     )
-    result["help_tts_pairs"] = help_tts
-    taught = list(profile.get("taughtPatterns") or [])
-    if translated and translated not in taught:
-        taught.append(translated[:80])
-        result["profile"] = merge_profile(result.get("profile", profile), {"taughtPatterns": taught[-15:]})
-    return result
+
+
+def _yardim_help_mode(
+    user_text: str,
+    target_lang: str,
+    profile: dict,
+    session_delta: dict,
+    translate_fn: Callable[[str, str, str], str] | None,
+    history: list[dict] | None = None,
+) -> dict[str, Any]:
+    return _help_mode(
+        user_text, target_lang, translate_fn, profile, session_delta, history=history or [],
+    )
 
 
 def _is_dont_know_reply(text: str) -> bool:
@@ -6745,91 +6843,9 @@ def _dont_know_help_mode(
     translate_fn: Callable[[str, str, str], str] | None,
     history: list[dict],
 ) -> dict[str, Any]:
-    """bilmiyorum — konuşmayı kesme; seçenek ver, üretmeye yönlendir."""
-    last_q = _last_teacher_question(history, profile) or safe_str(profile.get("lastTeacherText")).strip()
-    target = safe_str(profile.get("pendingPracticePhrase") or profile.get("awaitingTargetPhrase")).strip()
-
-    if target:
-        teacher_tr = (
-            f"Sorun değil. Sana bir seçenek vereyim.\n\n"
-            f"**{target}**\n\n"
-            f"Şimdi bunu sen söylemeyi dene."
-        )
-        teacher_en = f"No problem. Try this: {target}"
-        delta = {
-            **session_delta,
-            "lastTeacherText": target,
-            "pendingPracticePhrase": target,
-            "awaitingTargetPhrase": target,
-        }
-        return _pack(
-            profile, delta, teacher_en, teacher_tr, None, 1, "dont_know_help",
-            waiting=True, user_text=user_text, teacher_en=teacher_en, speak_text=target,
-            speak_tr="Şimdi sen dene.", speak_tr_first=True,
-            phonetic_en=pronounce_text(target, target_lang),
-            translate_fn=translate_fn, target_lang=target_lang,
-        )
-
-    options = [
-        ("Evde kaldım.", "I stayed at home."),
-        ("İşe gittim.", "I went to work."),
-        ("Arkadaşımla buluştum.", "I met my friend."),
-        ("Film izledim.", "I watched a movie."),
-    ]
-    q_l = last_q.lower()
-    if "today" in q_l or "bugün" in q_l:
-        options = [
-            ("Bugün evde kaldım.", "I stayed at home today."),
-            ("Bugün çalıştım.", "I worked today."),
-            ("Bugün dinlendim.", "I rested today."),
-        ]
-    elif "weekend" in q_l or "hafta sonu" in q_l:
-        options = [
-            ("Hafta sonu evde kaldım.", "I stayed at home at the weekend."),
-            ("Arkadaşlarımla buluştum.", "I met my friends."),
-            ("Film izledim.", "I watched a movie."),
-        ]
-    elif "yesterday" in q_l or "dün" in q_l:
-        options = [
-            ("Dün evde kaldım.", "I stayed at home yesterday."),
-            ("Dün işe gittim.", "I went to work yesterday."),
-            ("Dün film izledim.", "I watched a movie yesterday."),
-        ]
-
-    lines = "\n".join(f"• {tr} → **{en}**" for tr, en in options)
-    hint_en = options[0][1]
-    if last_q:
-        teacher_tr = (
-            f"Sorun değil. Sana birkaç seçenek vereyim.\n\n"
-            f"Soru: **{last_q}**\n\n"
-            f"{lines}\n\n"
-            f"Hangisini söylemek istiyorsun? Türkçe yaz veya İngilizcesini dene."
-        )
-        teacher_en = (
-            f"No problem. Here are some options for: {last_q}\n"
-            + "\n".join(en for _, en in options)
-        )
-    else:
-        teacher_tr = (
-            "Sorun değil. Ne demek istediğini Türkçe yaz — "
-            "ben İngilizcesini kurmana yardım edeyim.\n\n"
-            f"{lines}"
-        )
-        teacher_en = "No problem. Tell me in Turkish what you want to say."
-
-    delta = {
-        **session_delta,
-        "lastTeacherText": hint_en,
-        "awaitingTargetPhrase": hint_en,
-        "pendingPracticePhrase": hint_en,
-        "pendingPracticeTr": options[0][0],
-    }
-    return _pack(
-        profile, delta, teacher_en, teacher_tr, None, 1, "dont_know_help",
-        waiting=True, user_text=user_text, teacher_en=teacher_en, speak_text=hint_en,
-        speak_tr="Bir seçenek seç veya Türkçe yaz.", speak_tr_first=True,
-        phonetic_en=pronounce_text(hint_en, target_lang),
-        translate_fn=translate_fn, target_lang=target_lang,
+    """bilmiyorum — konuşmayı kesme; çok örnekli yardım ile aynı konuda kal."""
+    return _help_examples_response(
+        user_text, target_lang, profile, session_delta, translate_fn, history or [],
     )
 
 
@@ -6921,13 +6937,6 @@ def _confusion_help_mode(
         phonetic_en=pronounce_text(speak_en, target_lang) if speak_en else "",
     )
     return result
-
-
-def _yardim_help_mode(
-    user_text: str, target_lang: str, profile: dict, session_delta: dict,
-    translate_fn: Callable[[str, str, str], str],
-) -> dict[str, Any]:
-    return _help_mode(user_text, target_lang, translate_fn, profile, session_delta)
 
 
 def _turkish_in_conversation(
@@ -7249,11 +7258,19 @@ def process_turn(
 
     # "yardım" ile başlayan istek → cümle kurma öğretimi
     if translate_fn and _is_yardim_request(user_text):
-        return _yardim_help_mode(user_text, target_lang, profile, session_delta, translate_fn)
+        result = _yardim_help_mode(
+            user_text, target_lang, profile, session_delta, translate_fn, history=history,
+        )
+        result["weekly_progress"] = weekly_progress(result["profile"])
+        return result
 
-    # Açık yardım ifadeleri (nasıl söylerim, kısmını söyleyemiyorum…)
+    # Açık yardım ifadeleri (nasıl söylerim, ne cevap verebilirim…)
     if translate_fn and HELP_RE.search(user_text):
-        return _help_mode(user_text, target_lang, translate_fn, profile, session_delta)
+        result = _help_mode(
+            user_text, target_lang, translate_fn, profile, session_delta, history=history,
+        )
+        result["weekly_progress"] = weekly_progress(result["profile"])
+        return result
 
     pending = safe_str(profile.get("pendingPracticePhrase")).strip()
     if pending and _should_exit_practice_mode(user_text, pending):
@@ -7393,6 +7410,16 @@ def process_turn(
             if result:
                 result["weekly_progress"] = weekly_progress(result["profile"])
                 return result
+
+    # Anlamsız / sorudan sapmış cevap — konuyu değiştirme, yardım teklif et
+    # (grammar rules first so "I am work tomorrow" gets correction, not only help-offer)
+    if user_lang == target_lang or user_lang == "en":
+        keep = _off_topic_keep_question_help(
+            original_text, target_lang, profile, session_delta, history, translate_fn,
+        )
+        if keep:
+            keep["weekly_progress"] = weekly_progress(keep["profile"])
+            return keep
 
     # AI öğretmen — ana beyin
     ai_result = _try_ai_tutor_turn(
@@ -7610,7 +7637,7 @@ def _wrong_practice_after_help(
     session_delta: dict,
     translate_fn: Callable[[str, str, str], str] | None,
 ) -> dict[str, Any] | None:
-    """Yardım sonrası yanlış pratik — kontrollü düzeltme."""
+    """Yardım sonrası yanlış pratik — aynı konuda kal, yardım teklif et."""
     pending = safe_str(profile.get("pendingPracticePhrase")).strip()
     pending_tr = safe_str(profile.get("pendingPracticeTr")).strip()
     if not pending:
@@ -7635,26 +7662,44 @@ def _wrong_practice_after_help(
         except Exception:
             pass
 
+    streak = int(profile.get("failedAnswerStreak") or 0) + 1
+    offer_help = streak >= 2
     teacher_tr = (
-        f"Henüz tam olmadı.\n\n"
+        f"Henüz tam olmadı — sorun değil, aynı konudayız.\n\n"
         f"Sen dedin: \"{user_text.strip()}\"\n\n"
-        f"Beklenen cümle: \"{pending}\"\n"
-        f"Türkçesi: {meaning_tr}\n\n"
-        f"Tekrar dene — yüksek sesle doğru cümleyi söyle."
+        f"Beklenen: \"{pending}\"\n"
+        f"🇹🇷 {meaning_tr}\n"
     )
-    speak_tr = (
-        f"Henüz tam olmadı. Doğrusu: {meaning_tr}. Tekrar dene."
+    if offer_help:
+        teacher_tr += (
+            "\n💡 İstersen Yardım mikrofonuna basıp Türkçe sorabilirsin:\n"
+            "«Yardım» veya «Yardım, …»"
+        )
+    else:
+        teacher_tr += "\nTekrar dene — veya Yardım iste."
+
+    speak_tr = f"Henüz tam olmadı. Doğrusu: {meaning_tr}."
+    teacher_en = _localize_teacher_text(
+        f'Not quite yet. You said: "{user_text.strip()}"\n\n'
+        f'Try again: "{pending}"'
+        + ("\n\nWould you like some help with this?" if offer_help else ""),
+        target_lang,
+        translate_fn,
     )
-    teacher_en = (
-        f"Not quite yet. You said: \"{user_text.strip()}\"\n\n"
-        f"Try again: \"{pending}\"\n\n"
-        f"Say it out loud — I'm listening!"
-    )
-    merged = merge_profile(profile, session_delta)
+    delta = {
+        **session_delta,
+        "failedAnswerStreak": streak,
+        "pendingPracticePhrase": pending,
+        "pendingPracticeTr": meaning_tr or pending_tr,
+        "awaitingTargetPhrase": pending,
+        "lastTeacherText": pending,
+    }
+    merged = merge_profile(profile, delta)
     return _pack(
-        merged, session_delta, teacher_en, teacher_tr, pending, 2, "practice_retry",
+        merged, delta, teacher_en, teacher_tr, pending, 2, "practice_retry",
         waiting=True, user_text=user_text, teacher_en=teacher_en, speak_text=pending,
         speak_tr=speak_tr, speak_tr_first=True,
+        phonetic_en=pronounce_text(pending, target_lang),
         correction_detail={
             "userSaid": user_text,
             "correctEn": pending,
@@ -7663,6 +7708,79 @@ def _wrong_practice_after_help(
         },
         translate_fn=translate_fn,
         target_lang=target_lang,
+    )
+
+
+def _off_topic_keep_question_help(
+    user_text: str,
+    target_lang: str,
+    profile: dict,
+    session_delta: dict,
+    history: list[dict],
+    translate_fn: Callable[[str, str, str], str] | None,
+) -> dict[str, Any] | None:
+    """Anlamsız / sorudan sapmış cevap → konu değiştirme; yardım teklif et."""
+    last_q = _last_teacher_question(history, profile) or safe_str(profile.get("lastTeacherText")).strip()
+    if not last_q or "?" not in last_q:
+        return None
+    # Explicit topic change request — do not intercept
+    if re.search(
+        r"can we talk|let'?s talk about|başka\s+konu|konu\s+değiş|travel|seyahat|"
+        r"about\s+food|yemek\s+hakkında",
+        user_text,
+        re.I,
+    ):
+        return None
+    ul = user_text.strip().lower()
+    # Nonsense / clearly unrelated short salad
+    words = re.findall(r"[a-zA-Zà-üа-яё']+", ul, re.I)
+    if len(words) < 2:
+        return None
+    nonsense = _is_garbled_stt(user_text) or (
+        len(words) >= 3
+        and not re.search(
+            r"\b(i|i'm|am|was|were|went|go|like|live|work|home|yesterday|today|"
+            r"ich|bin|habe|war|gehe|wohn|arbeit|"
+            r"je|suis|ai|habito|vivo|trabajo|я|живу|работа)\b",
+            ul,
+        )
+    )
+    if not nonsense and not re.search(
+        r"\bcar blue coffee\b|\byesterday my car\b|\bblue coffee\b",
+        ul,
+    ):
+        # Mild grammar errors still OK for AI / rule path
+        return None
+
+    streak = int(profile.get("failedAnswerStreak") or 0) + 1
+    teacher_en = _localize_teacher_text(
+        "I didn’t quite understand your answer. No problem — let’s stay on this question.\n\n"
+        f"{last_q}\n\n"
+        "Would you like some help? Press the Help mic and say «Yardım» in Turkish.",
+        target_lang,
+        translate_fn,
+    )
+    teacher_tr = (
+        "Cevabını tam anlayamadım — sorun değil, aynı soruda kalıyoruz.\n\n"
+        f"Soru: **{last_q}**\n\n"
+        "💡 Yardım ister misin? Yardım mikrofonuna basıp Türkçe «Yardım» de."
+    )
+    delta = {
+        **session_delta,
+        "failedAnswerStreak": streak,
+        "lastTeacherText": last_q,
+    }
+    if streak >= 2:
+        # Auto-open multi-example help for the same question
+        return _help_examples_response(
+            "yardım", target_lang, profile, delta, translate_fn, history,
+        )
+    return _pack(
+        profile, delta, teacher_en, teacher_tr, None, 1, "help_offer",
+        waiting=True, user_text=user_text, teacher_en=teacher_en, speak_text=last_q,
+        speak_tr="Aynı sorudayız. Yardım ister misin?", speak_tr_first=True,
+        phonetic_en=pronounce_text(last_q, target_lang),
+        translate_fn=translate_fn, target_lang=target_lang,
     )
 
 

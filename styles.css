@@ -1085,6 +1085,15 @@ body {
   opacity: 0.85;
 }
 
+.edu-mic-hint {
+  margin: 0 4px 8px;
+}
+
+.edu-dual-mic-row {
+  padding: 0;
+  margin-bottom: 0;
+}
+
 .mic-btn-edu {
   border-color: rgba(167,139,250,0.4);
   touch-action: none;
@@ -1094,6 +1103,46 @@ body {
 .mic-btn-edu.recording {
   border-color: #A78BFA;
   background: rgba(167,139,250,0.2);
+}
+
+.mic-btn-help {
+  border-color: rgba(251, 191, 36, 0.45);
+  background: linear-gradient(135deg, rgba(251,191,36,0.14), rgba(167,139,250,0.10));
+}
+
+.mic-btn-help.recording {
+  border-color: #FBBF24;
+  background: rgba(251, 191, 36, 0.22);
+}
+
+.chat-help-examples {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 8px 0;
+}
+
+.chat-help-ex {
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(251, 191, 36, 0.28);
+  background: rgba(251, 191, 36, 0.08);
+}
+
+.chat-help-ex-target {
+  margin: 0 0 4px;
+  font-weight: 600;
+  color: #F8FAFC;
+}
+
+.chat-help-ex-tr {
+  margin: 0 0 6px;
+  color: #CBD5E1;
+  font-size: 13px;
+}
+
+.chat-help-listen {
+  margin-top: 2px;
 }
 
 .bubble.edu-robot {

@@ -27,7 +27,17 @@ const STATES = {
 function idleStatusText() {
   const lg = getLang(S.learnLang);
   const name = lg?.name || 'hedef dil';
-  return `${name} konuş — Bas Konuş`;
+  return `${name} konuş · 🇹🇷 Yardım`;
+}
+
+function syncMicLabels() {
+  const lg = getLang(S.learnLang);
+  const flag = lg?.flag || '🌐';
+  const name = lg?.name || 'Hedef dil';
+  safeText('micTitle', 'Konuş');
+  safeText('conversationSubtitle', `${flag} ${name}`);
+  safeText('helpMicTitle', 'Yardım');
+  safeText('helpMicSubtitle', '🇹🇷 Türkçe');
 }
 
 const audio = document.createElement('audio');
@@ -68,6 +78,8 @@ const S = {
   greetingBusy: false,
   greetingAbort: null,
   spokenMessageIds: {},
+  forcedSource: null,
+  helpMode: false,
   sessionSaved: false,
   softMsgTimer: null,
   processWatchdog: null,
@@ -346,17 +358,22 @@ function isRecording() {
 
 function showTranslating() {
   safeClass('micBtn', 'remove', 'recording');
+  safeClass('helpMicBtn', 'remove', 'recording');
   showTyping();
   setUiState('PROCESSING');
-  safeText('micTitle', 'Anlaşılıyor...');
-}
-
-function showThinking() {
-  showTranslating();
+  safeText('micTitle', S.helpMode ? 'Yardım…' : 'Anlaşılıyor...');
 }
 
 function showSpeaking() {
-  safeClass('micBtn', 'add', 'recording');
+  const speakBtn = $('micBtn');
+  const helpBtn = $('helpMicBtn');
+  if (S.helpMode) {
+    safeClass('helpMicBtn', 'add', 'recording');
+    safeClass('micBtn', 'remove', 'recording');
+  } else {
+    safeClass('micBtn', 'add', 'recording');
+    safeClass('helpMicBtn', 'remove', 'recording');
+  }
   hideTyping();
   setUiState('LISTENING');
 }
@@ -370,6 +387,7 @@ function resetIdle() {
   S.processWatchdog = null;
   S.holdActive = false;
   safeClass('micBtn', 'remove', 'recording');
+  safeClass('helpMicBtn', 'remove', 'recording');
   hideTyping();
   if (S.busyCount === 0) {
     const speaking = S.uiState === 'SPEAKING' && !audio.paused && audio.currentTime > 0 && !audio.ended;
@@ -618,7 +636,7 @@ function render() {
     const teacherTr = safeStr(m.teacherTr || m.explain || '');
     const corrLevel = Number(m.correctionLevel) || 1;
     // intent_teach / help: içerik teacher_en içinde — çift kart gösterme
-    const skipCorrCard = ['intent_teach', 'intent_soft_confirm', 'help', 'dont_know_help', 'conversation', 'greeting', 'natural_teach', 'scaffold_hint', 'scaffold_produce', 'scaffold_transfer', 'scaffold_success'].includes(safeStr(m.type));
+    const skipCorrCard = ['intent_teach', 'intent_soft_confirm', 'help', 'help_offer', 'dont_know_help', 'conversation', 'greeting', 'natural_teach', 'scaffold_hint', 'scaffold_produce', 'scaffold_transfer', 'scaffold_success', 'stt_clarify', 'practice_retry'].includes(safeStr(m.type));
     let corr = (!skipCorrCard && corrLevel >= 2 && m.correctionDetail) ? renderCorrectionCard(m.correctionDetail) : '';
     if (!corr && !skipCorrCard && m.correction && corrLevel >= 2) {
       corr = renderCorrectionCard({
@@ -631,8 +649,23 @@ function render() {
     const hideEnBlock = false;
     const vocab = m.newWord && m.newWord.word
       ? `<div class="chat-vocab">📚 <strong>${esc(safeStr(m.newWord.word))}</strong> = ${esc(safeStr(m.newWord.meaningTr))}</div>` : '';
+    const helpExamples = Array.isArray(m.helpExamples) ? m.helpExamples : [];
+    const helpBlocks = helpExamples.length
+      ? `<div class="chat-help-examples">${helpExamples.map((ex) => {
+          const tgt = safeStr(ex.target || ex.en || '');
+          const tr = safeStr(ex.tr || '');
+          const ph = safeStr(ex.phonetic || '');
+          if (!tgt) return '';
+          return `<div class="chat-help-ex">
+            <p class="chat-help-ex-target">${esc(tgt)}</p>
+            ${tr ? `<p class="chat-help-ex-tr">🇹🇷 ${esc(tr)}</p>` : ''}
+            ${ph ? `<p class="chat-phonetic">🔊 ${esc(ph)}</p>` : ''}
+            <button type="button" class="replay-btn chat-help-listen" data-text="${esc(tgt)}" data-lang="${esc(S.learnLang)}">🔊 Dinle</button>
+          </div>`;
+        }).join('')}</div>`
+      : '';
     const enBlock = teacherEn && !hideEnBlock
-      ? `<div class="chat-lang-block chat-en ${isTeaching ? 'chat-en-compact' : ''}"><span>${lg.flag} ${isTeaching ? 'Devam (EN)' : lg.name}</span><p>${esc(teacherEn).replace(/\n/g, '<br>')}</p>${m.phoneticEn ? `<p class="chat-phonetic">🔊 ${esc(m.phoneticEn)}</p>` : ''}</div>`
+      ? `<div class="chat-lang-block chat-en ${isTeaching ? 'chat-en-compact' : ''}"><span>${lg.flag} ${isTeaching ? 'Devam' : lg.name}</span><p>${esc(teacherEn).replace(/\n/g, '<br>')}</p>${(!helpBlocks && m.phoneticEn) ? `<p class="chat-phonetic">🔊 ${esc(m.phoneticEn)}</p>` : ''}</div>`
       : '';
     // Türkçe destek: teaching card yoksa veya kısa destek olarak göster; EN ile aynı uzun metni tekrarlama
     const trLooksDuplicate = teacherTr && teacherEn && teacherTr.length > 40 && (
@@ -643,14 +676,14 @@ function render() {
       : (teacherTr && !isTeaching && teacherTr.length <= 220
         ? `<div class="chat-lang-block chat-tr"><span>🇹🇷 Türkçe</span><p>${esc(teacherTr).replace(/\n/g, '<br>')}</p></div>`
         : '');
-    const replayBtn = shouldShowReplay({ correction_level: m.correctionLevel, speak_tr: m.speakTr, type: m.type, teacher_en: m.teacherEn, teacher_tr: m.teacherTr })
+    const replayBtn = shouldShowReplay({ correction_level: m.correctionLevel, speak_tr: m.speakTr, type: m.type, teacher_en: m.teacherEn, teacher_tr: m.teacherTr, help_tts_pairs: m.helpTtsPairs })
       ? `<button type="button" class="replay-btn chat-replay" data-idx="${i}">🔊 Dinle</button>`
       : '';
     return `<div class="chat-row chat-row-teacher">
         <div class="chat-avatar">🤖</div>
         <div class="chat-bubble chat-bubble-teacher ${isTeaching ? 'chat-bubble-teaching' : ''}">
           <div class="chat-meta">Öğretmen · ${time}</div>
-          ${corr}${enBlock}${trBlock}${vocab}${replayBtn}
+          ${corr}${enBlock}${helpBlocks}${trBlock}${vocab}${replayBtn}
         </div></div>`;
     } catch {
       return '';
@@ -671,7 +704,19 @@ function render() {
         teacher_tr: msg.teacherTr,
         explain_tr: msg.explain,
         speak_tr_first: msg.type === 'confusion_help',
+        question_text: msg.questionText,
+        message_id: msg.messageId,
+        tts_language: msg.ttsLanguage || S.learnLang,
       });
+    };
+  });
+  el.querySelectorAll('.chat-help-listen').forEach((btn) => {
+    btn.onclick = (e) => {
+      e.preventDefault();
+      unlockAudioSync();
+      const text = safeStr(btn.dataset.text);
+      const lang = safeStr(btn.dataset.lang || S.learnLang);
+      if (text) void fetchAndPlayTts(text, lang, S.speakSlow);
     };
   });
   requestAnimationFrame(() => {
@@ -732,7 +777,7 @@ async function fetchAndPlayTts(phrase, lang, slow = false) {
   ]);
 }
 
-const TR_HELP_TYPES = new Set(['help', 'confusion_help', 'explain_tr']);
+const TR_HELP_TYPES = new Set(['help', 'confusion_help', 'explain_tr', 'help_offer', 'dont_know_help']);
 const SKIP_TTS_TYPES = new Set(['intent_guess', 'practice_retry']);
 
 function englishTextForTts(d) {
@@ -981,6 +1026,7 @@ function appendTeacherMsg(d) {
     ttsLanguage: safeStr(d.tts_language || d.target_lang || S.learnLang),
     phoneticEn: safeStr(d.phonetic_en || ''),
     helpTtsPairs: Array.isArray(d.help_tts_pairs) ? d.help_tts_pairs : [],
+    helpExamples: Array.isArray(d.help_examples) ? d.help_examples : [],
     type: safeStr(d.type),
     newWord: d.new_word && typeof d.new_word === 'object' && !Array.isArray(d.new_word) && d.new_word.word
       ? { word: safeStr(d.new_word.word), meaningTr: safeStr(d.new_word.meaningTr) }
@@ -1095,11 +1141,11 @@ async function sendTextMessage() {
 }
 
 async function fetchListenEducation(blob) {
-  const last = (S.lastUserLang === 'tr' || S.lastUserLang === S.learnLang)
-    ? S.lastUserLang
-    : S.learnLang;
-  // Bas Konuş ile aynı: hedef dil kilitli forced STT (auto-detect değil)
-  const source = S.learnLang || 'en';
+  const help = !!S.helpMode || S.forcedSource === 'tr';
+  const source = help ? 'tr' : (S.forcedSource || S.learnLang || 'en');
+  const last = help
+    ? 'tr'
+    : ((S.lastUserLang === 'tr' || S.lastUserLang === S.learnLang) ? S.lastUserLang : S.learnLang);
   await ApiClient.wakeServer(12000);
   const url = `/api/listen?${new URLSearchParams({
     my: 'tr',
@@ -1113,17 +1159,29 @@ async function fetchListenEducation(blob) {
     headers: { 'Content-Type': blob.type || 'audio/mp4' },
   }, { timeoutMs: VOICE_FETCH_MS, retries: 2, wakeFirst: false });
   if (!ok) throw new Error(d.error || 'Konuşma anlaşılamadı — tekrar dene');
-  return { ...d, _last: last, from: d.from || source };
+  return { ...d, _last: last, from: d.from || source, _helpMode: help };
 }
 
 async function processEducationVoice(blob) {
+  const helpArmed = !!S.helpMode || S.forcedSource === 'tr';
   const stt = await fetchListenEducation(blob);
-  const original = safeStr(stt.original).trim();
-  const userLang = stt.from || detectInputLang(original);
+  S.forcedSource = null;
+  let original = safeStr(stt.original).trim();
+  let userLang = stt.from || detectInputLang(original);
   if (!original) throw new Error('Konuşma anlaşılamadı — tekrar dene');
+
+  // Help mic: always Turkish help intent — never grade as target-lang grammar error
+  if (helpArmed || stt._helpMode) {
+    userLang = 'tr';
+    const low = original.toLowerCase();
+    if (!/^\s*yardım\b/i.test(original)) {
+      original = /\byardım\b/i.test(low) ? `yardım ${original}` : `yardım, ${original}`;
+    }
+  }
 
   appendUserMsg(original, userLang);
   S.lastUserLang = userLang;
+  S.helpMode = false;
   render();
   safeText('statusText', `"${original.slice(0, 36)}${original.length > 36 ? '…' : ''}"`);
   showTyping();
@@ -1137,7 +1195,7 @@ async function processEducationVoice(blob) {
       body: JSON.stringify({
         text: original,
         profile: compactProfileForApi(),
-        history: sanitizeHistory(S.history), // chronological oldest→newest
+        history: sanitizeHistory(S.history),
         roleplay: S.roleplay || null,
         speak_slow: S.speakSlow,
         user_lang: userLang,
@@ -1382,7 +1440,7 @@ function syncLearnLang() {
   const sel = $('learnLang');
   if (sel) sel.value = S.learnLang;
   safeText('robotName', `${lg.flag} ${lg.name} Öğretmeni`);
-  safeText('conversationSubtitle', `${lg.name} konuş veya yaz`);
+  syncMicLabels();
   if (S.profile) {
     S.profile.targetLang = S.learnLang;
     saveProfile();
@@ -1521,7 +1579,22 @@ if (reportBackdrop) reportBackdrop.addEventListener('click', () => safeClass('re
 if (historyBackdrop) historyBackdrop.addEventListener('click', () => safeClass('historyModal', 'add', 'hidden'));
 
 const micBtn = $('micBtn');
-if (micBtn) mic.bindHold(micBtn);
+const helpMicBtn = $('helpMicBtn');
+
+function bindEduMic(btn, getSource, isHelp) {
+  if (!btn || !mic) return;
+  const arm = () => {
+    S.forcedSource = getSource();
+    S.helpMode = !!isHelp;
+  };
+  btn.addEventListener('touchstart', arm, { passive: true, capture: true });
+  btn.addEventListener('mousedown', arm, { capture: true });
+  btn.addEventListener('pointerdown', arm, { capture: true });
+  mic.bindHold(btn);
+}
+
+bindEduMic(micBtn, () => S.learnLang || 'en', false);
+bindEduMic(helpMicBtn, () => 'tr', true);
 
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') {
