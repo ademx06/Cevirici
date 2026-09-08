@@ -650,31 +650,51 @@ function render() {
     const vocab = m.newWord && m.newWord.word
       ? `<div class="chat-vocab">📚 <strong>${esc(safeStr(m.newWord.word))}</strong> = ${esc(safeStr(m.newWord.meaningTr))}</div>` : '';
     const helpExamples = Array.isArray(m.helpExamples) ? m.helpExamples : [];
+    const hs = (m.helpStructure && typeof m.helpStructure === 'object') ? m.helpStructure : null;
     const helpBlocks = helpExamples.length
       ? `<div class="chat-help-examples">${helpExamples.map((ex) => {
           const tgt = safeStr(ex.target || ex.en || '');
           const tr = safeStr(ex.tr || '');
           const ph = safeStr(ex.phonetic || '');
+          const label = safeStr(ex.label || '');
           if (!tgt) return '';
           return `<div class="chat-help-ex">
+            ${label ? `<p class="chat-help-ex-label">${esc(label)}</p>` : ''}
             <p class="chat-help-ex-target">${esc(tgt)}</p>
             ${tr ? `<p class="chat-help-ex-tr">🇹🇷 ${esc(tr)}</p>` : ''}
-            ${ph ? `<p class="chat-phonetic">🔊 ${esc(ph)}</p>` : ''}
+            ${ph ? `<p class="chat-phonetic">🔤 ${esc(ph)}</p>` : ''}
             <button type="button" class="replay-btn chat-help-listen" data-text="${esc(tgt)}" data-lang="${esc(S.learnLang)}">🔊 Dinle</button>
           </div>`;
         }).join('')}</div>`
       : '';
+    const helpTeach = hs ? `<div class="chat-help-teach">
+      ${hs.active_question ? `<p class="chat-help-active-q">❓ ${esc(safeStr(hs.active_question))}</p>` : ''}
+      ${hs.answer && hs.answer.structure ? `<p class="chat-help-struct"><strong>📚 Cümle yapısı</strong><br>${esc(safeStr(hs.answer.structure))}${hs.answer.explain_tr ? `<br><span class="chat-help-note">${esc(safeStr(hs.answer.explain_tr))}</span>` : ''}</p>` : ''}
+      ${hs.question && hs.question.structure ? `<p class="chat-help-struct"><strong>❓ Sorunun yapısı</strong><br>${esc(safeStr(hs.question.structure))}${hs.question.explain_tr ? `<br><span class="chat-help-note">${esc(safeStr(hs.question.explain_tr))}</span>` : ''}</p>` : ''}
+      ${hs.pattern_tip ? `<p class="chat-help-note">🔁 ${esc(safeStr(hs.pattern_tip))}</p>` : ''}
+      ${hs.commands ? `<pre class="chat-help-cmds">${esc(safeStr(hs.commands))}</pre>` : ''}
+    </div>` : '';
     const enBlock = teacherEn && !hideEnBlock
-      ? `<div class="chat-lang-block chat-en ${isTeaching ? 'chat-en-compact' : ''}"><span>${lg.flag} ${isTeaching ? 'Devam' : lg.name}</span><p>${esc(teacherEn).replace(/\n/g, '<br>')}</p>${(!helpBlocks && m.phoneticEn) ? `<p class="chat-phonetic">🔊 ${esc(m.phoneticEn)}</p>` : ''}</div>`
+      ? `<div class="chat-lang-block chat-en ${isTeaching ? 'chat-en-compact' : ''}"><span>${lg.flag} ${isTeaching ? 'Devam' : lg.name}</span><p>${esc(teacherEn).replace(/\n/g, '<br>')}</p>${(!helpBlocks && m.phoneticEn) ? `<p class="chat-phonetic">🔤 ${esc(m.phoneticEn)}</p>` : ''}</div>`
       : '';
-    // Türkçe destek: teaching card yoksa veya kısa destek olarak göster; EN ile aynı uzun metni tekrarlama
-    const trLooksDuplicate = teacherTr && teacherEn && teacherTr.length > 40 && (
-      teacherEn.includes(teacherTr.slice(0, 30)) || teacherTr.includes((m.correction || '').toString().slice(0, 20))
+    // When structured help cards exist, avoid dumping the full duplicate TR wall — show short cue
+    let trShow = teacherTr;
+    if (helpExamples.length && teacherTr && teacherTr.length > 280) {
+      const lines = teacherTr.split('\n').filter(Boolean);
+      trShow = lines.slice(0, 4).join('\n');
+      if (!/öğretmenin sorusu|yardım/i.test(trShow)) {
+        trShow = (hs && hs.active_question)
+          ? `❓ Öğretmenin sorusu: ${hs.active_question}\nÖrnekler aşağıda — birini Konuş mikrofonuyla söyle.`
+          : 'Örnekler aşağıda — birini Konuş mikrofonuyla söyle.';
+      }
+    }
+    const trLooksDuplicate = trShow && teacherEn && trShow.length > 40 && (
+      teacherEn.includes(trShow.slice(0, 30)) || trShow.includes((m.correction || '').toString().slice(0, 20))
     );
-    const trBlock = teacherTr && !isTeaching && !trLooksDuplicate
-      ? `<div class="chat-lang-block chat-tr"><span>🇹🇷 Türkçe</span><p>${esc(teacherTr).replace(/\n/g, '<br>')}</p></div>`
-      : (teacherTr && !isTeaching && teacherTr.length <= 220
-        ? `<div class="chat-lang-block chat-tr"><span>🇹🇷 Türkçe</span><p>${esc(teacherTr).replace(/\n/g, '<br>')}</p></div>`
+    const trBlock = trShow && !isTeaching && !trLooksDuplicate
+      ? `<div class="chat-lang-block chat-tr"><span>🇹🇷 Türkçe</span><p>${esc(trShow).replace(/\n/g, '<br>')}</p></div>`
+      : (trShow && !isTeaching && trShow.length <= 220
+        ? `<div class="chat-lang-block chat-tr"><span>🇹🇷 Türkçe</span><p>${esc(trShow).replace(/\n/g, '<br>')}</p></div>`
         : '');
     const replayBtn = shouldShowReplay({ correction_level: m.correctionLevel, speak_tr: m.speakTr, type: m.type, teacher_en: m.teacherEn, teacher_tr: m.teacherTr, help_tts_pairs: m.helpTtsPairs })
       ? `<button type="button" class="replay-btn chat-replay" data-idx="${i}">🔊 Dinle</button>`
@@ -683,7 +703,7 @@ function render() {
         <div class="chat-avatar">🤖</div>
         <div class="chat-bubble chat-bubble-teacher ${isTeaching ? 'chat-bubble-teaching' : ''}">
           <div class="chat-meta">Öğretmen · ${time}</div>
-          ${corr}${enBlock}${helpBlocks}${trBlock}${vocab}${replayBtn}
+          ${corr}${enBlock}${helpBlocks}${helpTeach}${trBlock}${vocab}${replayBtn}
         </div></div>`;
     } catch {
       return '';
@@ -938,6 +958,16 @@ function compactProfileForApi() {
     scaffoldTransferHint: p.scaffoldTransferHint ? safeStr(p.scaffoldTransferHint) : null,
     scaffoldHintAnswer: p.scaffoldHintAnswer ? safeStr(p.scaffoldHintAnswer) : null,
     lastTeacherText: safeStr(p.lastTeacherText).slice(0, 400),
+    activeTeacherQuestion: (p.activeTeacherQuestion && typeof p.activeTeacherQuestion === 'object')
+      ? {
+          originalText: safeStr(p.activeTeacherQuestion.originalText).slice(0, 220),
+          language: safeStr(p.activeTeacherQuestion.language || S.learnLang),
+          topic: safeStr(p.activeTeacherQuestion.topic).slice(0, 80),
+          questionType: safeStr(p.activeTeacherQuestion.questionType).slice(0, 40),
+        }
+      : null,
+    lastHelpExamples: ensureArray(p.lastHelpExamples).slice(0, 4),
+    failedAnswerStreak: Number(p.failedAnswerStreak) || 0,
     lessonStep: Number(p.lessonStep) || 0,
     microStep: Number(p.microStep) || 0,
     lastMasteredPhrase: p.lastMasteredPhrase ? safeStr(p.lastMasteredPhrase).slice(0, 120) : null,
@@ -1027,6 +1057,7 @@ function appendTeacherMsg(d) {
     phoneticEn: safeStr(d.phonetic_en || ''),
     helpTtsPairs: Array.isArray(d.help_tts_pairs) ? d.help_tts_pairs : [],
     helpExamples: Array.isArray(d.help_examples) ? d.help_examples : [],
+    helpStructure: (d.help_structure && typeof d.help_structure === 'object') ? d.help_structure : null,
     type: safeStr(d.type),
     newWord: d.new_word && typeof d.new_word === 'object' && !Array.isArray(d.new_word) && d.new_word.word
       ? { word: safeStr(d.new_word.word), meaningTr: safeStr(d.new_word.meaningTr) }
