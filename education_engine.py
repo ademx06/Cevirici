@@ -102,6 +102,16 @@ Adapt difficulty dynamically. For beginners: short simple sentences. As they imp
 Always use the selected target language for teacher_en. Never leak another language into the lesson.
 Phonetic approximations are NEVER spoken text.
 
+IMPROVISATION (ABSOLUTE — never violate):
+- You ARE the scenario character (waiter, receptionist, doctor, interviewer…) AND a language teacher.
+- NEVER follow a scripted question list. NEVER reuse canned openers mid-conversation.
+- NEVER say "How are you today?", "Let's learn something new", "Try saying it", or jump to a generic English lesson while a scenario is active.
+- If the learner already reported a problem/request (e.g. missing towel, broken AC, order food), acknowledge THAT and continue solving it in character.
+- Do NOT praise "Hello" as a grammar lesson and restart greetings.
+- Prefer: acknowledge → helpful response / solution → ONE natural follow-up (question or offer).
+- You may acknowledge WITHOUT asking a question sometimes.
+- Stay in the scenario world until the guest/learner changes topic or the issue is resolved.
+
 CRITICAL LANGUAGE RULE:
 - The student is learning {lang_name} (code: {target_lang}).
 - Your spoken reply (teacher_en) MUST be in {lang_name}, not English (unless target_lang is en).
@@ -1795,6 +1805,8 @@ def default_profile(lang: str = "en") -> dict[str, Any]:
         "failedAnswerStreak": 0,
         "activeScenario": "",
         "activeScenarioId": "",
+        "currentProblem": "",
+        "currentSubtopic": "",
     }
 
 
@@ -1836,7 +1848,7 @@ def merge_profile(profile: dict | None, delta: dict | None) -> dict:
         "scaffoldMode", "scaffoldPattern", "scaffoldTarget",
         "scaffoldTransferEn", "scaffoldTransferTr", "scaffoldTransferHint", "scaffoldHintAnswer",
         "currentTopic", "conversationTurn", "failedAnswerStreak", "activeTeacherQuestion",
-        "activeScenario", "activeScenarioId",
+        "activeScenario", "activeScenarioId", "currentProblem", "currentSubtopic",
     )
     for key in scalar_keys:
         if key in delta:
@@ -3447,12 +3459,41 @@ def _build_how_to_say_examples(
     sid = _scenario_id(roleplay, profile)
     time_word = "yesterday" if "yesterday" in tq or "gestern" in tq or "ayer" in tq else "today"
 
-    usually_eat_drink = bool(re.search(
+    # Hotel / front-desk last-resort seeds (AI help preferred when LLM available)
+    if sid in ("hotel_problem", "hotel") or re.search(
+        r"front desk|how can i help you|room number|what(?:'s| is) (?:the )?problem|"
+        r"maintenance|housekeeping|oda numaran|nasıl yardımcı",
+        tq,
+    ):
+        if re.search(r"room number|which room|oda numaran|what(?:'s| is) your room", tq):
+            seeds = [
+                ("My room number is 405.", "Oda numaram 405."),
+                ("I'm in room 405.", "405 numaralı odadayım."),
+                ("It's room 405.", "405 numaralı oda."),
+            ]
+        elif re.search(r"anything else|else wrong|başka.*sorun", tq):
+            seeds = [
+                ("No, that's everything. Thank you.", "Hayır, hepsi bu. Teşekkürler."),
+                ("Yes — the air conditioner is also noisy.", "Evet — klima da çok gürültülü."),
+                ("Also, the wifi isn't working.", "Bir de wifi çalışmıyor."),
+            ]
+        else:
+            seeds = [
+                ("There is no hot water in my room.", "Odamda sıcak su yok."),
+                ("I'm missing a towel in my room.", "Odamda havlu eksik."),
+                ("The air conditioner in my room isn't working.", "Odamdaki klima çalışmıyor."),
+            ]
+            if variant == "easier":
+                seeds = [
+                    ("No towels.", "Havlu yok."),
+                    ("No hot water.", "Sıcak su yok."),
+                    ("AC is broken.", "Klima bozuk."),
+                ]
+    elif re.search(
         r"what do you usually like to (eat|drink)|what do you like to (eat|drink)|"
         r"usually like to eat|like to eat or drink|yemek.*içmek|essen oder trinken",
         tq,
-    ))
-    if usually_eat_drink:
+    ):
         # Prefer real answers to THIS question (never echo "to eat or drink")
         seeds = [
             ("I usually like pizza.", "Genellikle pizzayı severim."),
@@ -3981,12 +4022,20 @@ def _help_examples_response(
             if len(filtered) >= 2:
                 examples = filtered
     else:
-        examples = _build_how_to_say_examples(
-            last_q, target_lang, translate_fn, variant=variant, roleplay=sid, profile=profile,
+        # AI-first answers to the ACTIVE question; seed lists are last resort only
+        ai_ex = _try_ai_help_examples(
+            last_q, target_lang, profile, sid or roleplay, variant=variant,
         )
-        # Drop any residual off-topic seeds
-        examples = [(e, tr) for e, tr in examples if _example_fits_active_question(e, last_q)]
-        pattern_tip = ""
+        if ai_ex:
+            examples = ai_ex
+            pattern_tip = ""
+        else:
+            examples = _build_how_to_say_examples(
+                last_q, target_lang, translate_fn, variant=variant, roleplay=sid, profile=profile,
+            )
+            # Drop any residual off-topic seeds
+            examples = [(e, tr) for e, tr in examples if _example_fits_active_question(e, last_q)]
+            pattern_tip = ""
 
     examples = examples[:4]
     if not examples:
@@ -8139,6 +8188,7 @@ def _try_ai_tutor_turn(
         )
     scenario_block += (
         f"\nCURRENT TOPIC: {safe_str(profile.get('currentTopic') or profile.get('activeTopic') or sid or 'open')}"
+        f"\nCURRENT PROBLEM / SUBTOPIC: {safe_str(profile.get('currentProblem') or profile.get('currentSubtopic') or '(none yet — discover from learner)')}"
         f"\nLEARNER LEVEL: {level}"
     )
 
@@ -8195,19 +8245,32 @@ def _try_ai_tutor_turn(
         or _teacher_response_wrong_language(teacher_en, target_lang)
     ):
         fixed = _localize_teacher_text(teacher_en, target_lang, translate_fn)
-        # Prefer native generic continue if localization still looks English
+        # Prefer native continue if localization still looks English — NEVER leak free-chat curriculum into scenarios
         if _teacher_response_wrong_language(fixed, target_lang):
-            native_continue = {
-                "de": "Alles klar! Erzähl mir bitte mehr — was hast du heute gemacht?",
-                "fr": "D'accord ! Dis-moi en plus — qu'as-tu fait aujourd'hui ?",
-                "es": "¡De acuerdo! Cuéntame más — ¿qué hiciste hoy?",
-                "ru": "Хорошо! Расскажи ещё — что ты делал(а) сегодня?",
-                "it": "Va bene! Dimmi di più — cosa hai fatto oggi?",
-                "ka": "კარგი! მითხარი მეტი — დღეს რა გააკეთე?",
-                "ar": "حسنًا! أخبرني المزيد — ماذا فعلت اليوم؟",
-                "zh": "好的！再多说一点——你今天做了什么？",
-            }
-            fixed = native_continue.get(target_lang) or fixed
+            if sid:
+                native_scenario = {
+                    "de": "Ich verstehe. Können Sie mir bitte mehr dazu sagen, damit ich helfen kann?",
+                    "fr": "Je comprends. Pouvez-vous m'en dire un peu plus pour que je puisse vous aider ?",
+                    "es": "Entiendo. ¿Puede contarme un poco más para poder ayudarle?",
+                    "ru": "Понял(а). Расскажите чуть подробнее, чтобы я мог(ла) помочь.",
+                    "it": "Capisco. Può dirmi qualcosa in più così posso aiutarla?",
+                    "ka": "გასაგებია. მითხარით ცოტა მეტი, რომ დაგეხმაროთ.",
+                    "ar": "مفهوم. هل يمكنك إخباري بالمزيد حتى أتمكن من المساعدة؟",
+                    "zh": "明白了。您能再多说一点，方便我帮您吗？",
+                }
+                fixed = native_scenario.get(target_lang) or fixed
+            else:
+                native_continue = {
+                    "de": "Alles klar! Erzähl mir bitte mehr — was hast du heute gemacht?",
+                    "fr": "D'accord ! Dis-moi en plus — qu'as-tu fait aujourd'hui ?",
+                    "es": "¡De acuerdo! Cuéntame más — ¿qué hiciste hoy?",
+                    "ru": "Хорошо! Расскажи ещё — что ты делал(а) сегодня?",
+                    "it": "Va bene! Dimmi di più — cosa hai fatto oggi?",
+                    "ka": "კარგი! მითხარი მეტი — დღეს რა გააკეთე?",
+                    "ar": "حسنًا! أخبرني المزيد — ماذا فعلت اليوم؟",
+                    "zh": "好的！再多说一点——你今天做了什么？",
+                }
+                fixed = native_continue.get(target_lang) or fixed
         teacher_en = fixed
         if not teacher_tr:
             teacher_tr = f"Yanıt {lang_name} dilinde devam ediyor."
@@ -8258,7 +8321,8 @@ def _try_ai_tutor_turn(
         session_delta["sessionCorrections"] = profile.get("sessionCorrections", 0) + 1
     elif corr_level == 1:
         session_delta["correctSentences"] = profile.get("correctSentences", 0) + 1
-        profile_patch.update(_advance_lesson_on_success(profile, user_text, corr_level))
+        if not sid:
+            profile_patch.update(_advance_lesson_on_success(profile, user_text, corr_level))
 
     if teach_new:
         taught = list(profile.get("taughtPatterns") or [])
@@ -8266,34 +8330,48 @@ def _try_ai_tutor_turn(
             taught.append(teach_new[:80])
         profile_patch["taughtPatterns"] = taught[-15:]
 
-    # English curriculum/micro-chain advances ONLY for English
-    if target_lang == "en" and bool(parsed.get("lesson_advance")):
+    # English curriculum/micro-chain advances ONLY for English free conversation (not scenarios)
+    if (not sid) and target_lang == "en" and bool(parsed.get("lesson_advance")):
         step = int(profile.get("lessonStep") or 0)
         if step < len(LESSON_CURRICULUM) - 1:
             profile_patch["lessonStep"] = step + 1
 
-    if target_lang == "en" and bool(parsed.get("micro_advance")):
+    if (not sid) and target_lang == "en" and bool(parsed.get("micro_advance")):
         mstep = int(profile.get("microStep") or 0)
         if mstep < len(GREETING_MICRO_CHAIN) - 1:
             profile_patch["microStep"] = mstep + 1
 
     if teach_new or build_on or (corr_level == 1 and correct_phrase):
         mastered = teach_new or build_on or correct_phrase or user_text.strip()
-        if mastered and corr_level <= 2:
+        if mastered and corr_level <= 2 and not sid:
             profile_patch["lastMasteredPhrase"] = mastered[:120]
             if build_on:
                 profile_patch["sentenceBuildBase"] = build_on[:120]
 
     question_text = _extract_teacher_question(teacher_en)
-    speak_for_tts = question_text or suggested or teacher_en.split("\n")[0]
+    # Scenario: speak the FULL teacher turn (not only the last question)
+    speak_for_tts = teacher_en.split("\n")[0]
+    if sid:
+        speak_for_tts = " ".join(
+            ln.strip() for ln in teacher_en.split("\n")
+            if ln.strip() and not ln.strip().startswith(("🎯", "📌", "📖", "❌", "✅"))
+        )[:480] or speak_for_tts
+    else:
+        speak_for_tts = question_text or suggested or speak_for_tts
 
     delta: dict[str, Any] = {
         **session_delta,
         "lastTeacherText": teacher_en,
         "targetLang": target_lang,
         **_topic_memory_delta(profile, user_text, teacher_en),
+        **_update_scenario_conversation_state(profile, user_text, teacher_en, sid),
     }
-    if suggested and (corr_level >= 2 or teach_new or build_on):
+    # During scenario improvisation do not force drill mode after every good turn
+    if sid and corr_level == 1:
+        delta["pendingPracticePhrase"] = None
+        delta["awaitingTargetPhrase"] = None
+        delta["pendingPracticeTr"] = None
+    elif suggested and (corr_level >= 2 or teach_new or build_on):
         delta["pendingPracticePhrase"] = suggested
         delta["awaitingTargetPhrase"] = suggested
         meaning = teach_new_tr or (_to_tr(suggested, translate_fn, target_lang) if translate_fn else "")
@@ -8433,6 +8511,197 @@ def _resume_after_help(
 
 
 
+def _scenario_fallback_reply(
+    user_text: str,
+    target_lang: str,
+    history: list[dict],
+    profile: dict,
+    roleplay: str | None,
+    translate_fn: Callable[[str, str, str], str] | None,
+) -> dict[str, Any] | None:
+    """Last-resort in-character continue when LLM is unavailable — NEVER curriculum / How are you."""
+    sid = _scenario_id(roleplay, profile)
+    if not sid:
+        return None
+    meta = get_scenario_meta(sid, profile) or {}
+    ul = safe_str(user_text).lower().strip()
+    facts = list(profile.get("userFacts") or [])
+    room_num = ""
+    for f in facts:
+        m = re.search(r"room:(\d+)", safe_str(f))
+        if m:
+            room_num = m.group(1)
+            break
+    rm = re.search(r"\broom\s*(?:number\s*)?(?:is\s*)?(\d{2,4})\b|\b(?:i'?m in\s+)?(?:room\s+)?(\d{3,4})\b", ul)
+    if rm:
+        room_num = rm.group(1) or rm.group(2) or room_num
+    has_room = bool(room_num)
+    problem = safe_str(profile.get("currentProblem") or profile.get("currentSubtopic"))
+
+    teacher_en = ""
+    if sid in ("hotel_problem", "hotel", "hotel_checkout"):
+        if re.search(r"\b(towel|havlu)\b", ul):
+            teacher_en = (
+                "I'm sorry about that. I'll send housekeeping with towels right away. "
+                + (
+                    f"Someone will bring them to room {room_num} shortly."
+                    if has_room
+                    else "Could you tell me your room number?"
+                )
+            )
+        elif re.search(r"\b(hot water|no water|cold water|sıcak su)\b", ul):
+            teacher_en = (
+                "I'm sorry about that. I'll look into it right away. "
+                + (
+                    f"I'll contact maintenance about room {room_num}. Has this just started?"
+                    if has_room
+                    else "Could you tell me your room number?"
+                )
+            )
+        elif re.search(r"\b(air[\s-]?cond(?:ition(?:er|ing)?)?|\bac\b|klima)\b", ul):
+            teacher_en = (
+                "I'm sorry the air conditioner isn't working. "
+                + (
+                    f"I'll ask maintenance to check the AC in room {room_num}."
+                    if has_room
+                    else "What's your room number?"
+                )
+            )
+        elif re.search(r"\b(noisy|noise|gürültü|loud)\b", ul):
+            teacher_en = (
+                "I'm sorry about the noise. I'll look into it. "
+                + (
+                    f"Which room is the noise coming from near room {room_num}?"
+                    if has_room
+                    else "What's your room number, and when did it start?"
+                )
+            )
+        elif re.search(r"\b(wifi|internet)\b", ul):
+            teacher_en = (
+                "I'm sorry about the wifi. I can reset the network access for your room. "
+                + ("What's your room number?" if not has_room else f"I'll check the connection for room {room_num}.")
+            )
+        elif re.search(r"\b(tv|television|minibar|smell|toilet|blocked|key|lost)\b", ul):
+            teacher_en = (
+                "I'm sorry you're having trouble. I'll help with that. "
+                + ("Could you tell me your room number?" if not has_room else f"I'll send someone to room {room_num} shortly.")
+            )
+        elif re.search(r"\b(change (?:my )?room|another room|oda değiş)\b", ul):
+            teacher_en = (
+                "I understand. I can look for another room for you. "
+                + ("May I confirm your current room number?" if not has_room else f"Let me check availability for a move from room {room_num}.")
+            )
+        elif re.search(r"\b(breakfast|kahvaltı)\b", ul):
+            teacher_en = (
+                "Breakfast is served from 7 to 10 in the restaurant. "
+                "Would you like me to arrange room service instead?"
+            )
+        elif re.search(r"\b(check[- ]?out)\b", ul):
+            teacher_en = "Check-out is at 11:00. Would you like a late check-out?"
+        elif re.search(r"\b(check[- ]?in|reservation)\b", ul) or sid == "hotel":
+            if re.search(r"\b(reservation|check[- ]?in)\b", ul) or (sid == "hotel" and not problem and not re.search(
+                r"towel|water|condition|noise|wifi|key|smell|toilet", ul
+            )):
+                if sid == "hotel" and not re.search(
+                    r"towel|water|condition|noise|wifi|key|smell|toilet|change|breakfast|check[- ]?out", ul
+                ):
+                    teacher_en = (
+                        "Of course. May I have the name on the reservation, please?"
+                        if not re.search(r"\b(name|under)\b", ul)
+                        else "Thank you. Do you prefer a quiet room or a room with a view?"
+                    )
+        if not teacher_en and (
+            has_room
+            and re.search(r"^\s*(?:i'?m in\s+)?(?:room\s*)?(?:number\s*(?:is\s*)?)?\d{2,4}\.?\s*$", ul)
+            or re.search(r"\broom\s*(?:number\s*)?(?:is\s*)?\d{2,4}", ul)
+        ):
+            teacher_en = (
+                f"Thank you. I'll contact maintenance about room {room_num}. "
+                "Is there anything else wrong with the room?"
+            )
+        if not teacher_en and re.search(r"\b(yes|please|evet|tamam|okay|ok)\b", ul):
+            teacher_en = (
+                "Of course. Someone will come up shortly. "
+                "Is there anything else I can help you with?"
+            )
+        if not teacher_en and re.search(r"\b(thank|teşekkür|goodbye|bye|görüşürüz)\b", ul):
+            teacher_en = "You're welcome. Please let us know if you need anything else."
+        if not teacher_en and re.search(r"\b(no|that's all|nothing else|hayır|hepsi bu)\b", ul):
+            teacher_en = "Alright. If anything else comes up, just call the front desk."
+        if not teacher_en:
+            if problem:
+                teacher_en = (
+                    f"I understand — about the {problem}. "
+                    + (
+                        f"I'll take care of that for room {room_num}. Is there anything else?"
+                        if has_room
+                        else "Could you tell me your room number so I can help?"
+                    )
+                )
+            else:
+                teacher_en = (
+                    "I understand. Could you tell me a little more about the problem so I can help?"
+                )
+    elif sid == "restaurant" or sid == "cafe":
+        if re.search(r"\b(vegetarian|vegan|vejetaryen)\b", ul):
+            teacher_en = "Of course. We have several vegetarian options. Would you like me to recommend something?"
+        elif re.search(r"\b(bill|hesap|check please|pay)\b", ul):
+            teacher_en = "Certainly. I'll bring the bill right away. Cash or card?"
+        elif re.search(r"\b(menu)\b", ul):
+            teacher_en = "Here's the menu. Would you like any recommendations?"
+        elif re.search(r"\b(water|coffee|tea|drink|içmek)\b", ul):
+            teacher_en = "Sure. Still or sparkling water — or would you prefer coffee or tea?"
+        elif re.search(r"\b(chicken|pasta|salad|pizza|sandwich|order|i'?d like|i would like)\b", ul):
+            teacher_en = "Excellent choice. Would you like anything to drink with that?"
+        elif re.search(r"\b(two|three|four|\d+|table|people|kiş)\b", ul):
+            teacher_en = "Perfect. Right this way. Can I get you something to drink while you look at the menu?"
+        elif re.search(r"\b(thank|teşekkür|bye)\b", ul):
+            teacher_en = "You're welcome. Enjoy your meal!"
+        else:
+            teacher_en = "Of course. How can I help you — a table, the menu, or placing an order?"
+    else:
+        role = safe_str(meta.get("teacherRole") or "assistant")
+        goal = safe_str(meta.get("goal") or "help the learner")
+        if problem:
+            teacher_en = f"I understand. Regarding {problem} — how can I help you further?"
+        elif re.search(r"\b(thank|teşekkür|bye|goodbye)\b", ul):
+            teacher_en = "You're welcome. Is there anything else I can help with?"
+        else:
+            teacher_en = (
+                f"I understand. As your {role.lower()}, I'm here to {goal.lower().rstrip('.')}. "
+                "Could you tell me a bit more?"
+            )
+
+    teacher_en = safe_str(teacher_en).strip()
+    if not teacher_en:
+        return None
+    if target_lang != "en":
+        teacher_en = _localize_teacher_text(teacher_en, target_lang, translate_fn)
+
+    state = _update_scenario_conversation_state(profile, user_text, teacher_en, sid)
+    delta = {
+        "lastTeacherText": teacher_en,
+        "activeScenarioId": sid,
+        "activeScenario": sid,
+        "targetLang": target_lang,
+        "pendingPracticePhrase": None,
+        "awaitingTargetPhrase": None,
+        "pendingPracticeTr": None,
+        **state,
+    }
+    title = safe_str(meta.get("title") or sid)
+    teacher_tr = (
+        f"🎭 Senaryo devam ediyor: {title}. "
+        f"AI yokken bağlama uygun kısa yanıt üretildi."
+    )
+    return _pack(
+        profile, delta, teacher_en, teacher_tr, None, 1, "scenario_fallback",
+        waiting=True, user_text=user_text, teacher_en=teacher_en, speak_text=teacher_en,
+        phonetic_en=pronounce_text(teacher_en.split("\n")[0], target_lang),
+        translate_fn=translate_fn, target_lang=target_lang,
+    )
+
+
 def _contextual_reply(
     user_text: str, lang: str, history: list[dict], profile: dict,
     roleplay: str | None, correction: tuple | None,
@@ -8440,6 +8709,16 @@ def _contextual_reply(
     vocab_hint: dict | None = None,
 ) -> str:
     """Bağlama uygun cevap — LLM yokken doğal sohbet için."""
+    sid = _scenario_id(roleplay, profile)
+    # Active scenario: never inject How are you / random curriculum
+    if sid:
+        fb = _scenario_fallback_reply(
+            user_text, lang, history, profile, roleplay, None,
+        )
+        if fb:
+            return safe_str(fb.get("teacher_en") or fb.get("teacher_text"))
+        return "I understand. Could you tell me a little more so I can help?"
+
     if correction and correction[0] >= 2:
         correct, ex_en = correction[1], correction[3]
         if correct:
@@ -8848,6 +9127,213 @@ def _localize_teacher_text(
         return text
 
 
+
+def _update_scenario_conversation_state(profile: dict, user_text: str, teacher_en: str, sid: str) -> dict:
+    """Lightweight dynamic topic/problem memory from the live conversation (not a script)."""
+    if not sid:
+        return {}
+    ul = safe_str(user_text).lower()
+    patch: dict[str, Any] = {"currentTopic": sid}
+    problem = ""
+    # Hotel / service problems
+    if re.search(r"\b(towel|havlu)\b", ul):
+        problem = "missing/need towel"
+    elif re.search(r"\b(hot water|sıcak su|no water|cold water)\b", ul):
+        problem = "no hot water"
+    elif re.search(r"\b(air[\s-]?cond(?:ition(?:er|ing)?)?|\bac\b|klima)\b", ul):
+        problem = "air conditioner not working"
+    elif re.search(r"\b(noisy|noise|gürültü|loud)\b", ul):
+        problem = "noise complaint"
+    elif re.search(r"\b(wifi|internet|tv|television|minibar|smell|toilet|blocked|key|lost)\b", ul):
+        m = re.search(r"\b(wifi|internet|tv|television|minibar|smell|toilet|blocked|key|lost)\b", ul)
+        problem = f"room issue: {m.group(1)}" if m else "room issue"
+    elif re.search(r"\b(change (?:my )?room|oda değiş|another room)\b", ul):
+        problem = "wants room change"
+    elif re.search(r"\b(breakfast|kahvaltı|check[- ]?out|check[- ]?in)\b", ul):
+        m = re.search(r"\b(breakfast|kahvaltı|check[- ]?out|check[- ]?in)\b", ul)
+        problem = f"asks about {m.group(1)}" if m else ""
+    # Restaurant
+    elif sid == "restaurant":
+        if re.search(r"\b(vegetarian|vejetaryen|vegan)\b", ul):
+            problem = "dietary: vegetarian"
+        elif re.search(r"\b(bill|hesap|check please|dessert|tatlı)\b", ul):
+            m = re.search(r"\b(bill|hesap|dessert|tatlı)\b", ul)
+            problem = f"guest wants {m.group(1)}" if m else ""
+        elif re.search(r"\b(order|chicken|pasta|salad|water|coffee|menu)\b", ul):
+            problem = "ordering / menu"
+    room = re.search(r"\broom\s*(?:number\s*)?(\d{2,4})\b|\b(\d{3,4})\b", ul)
+    if room:
+        num = room.group(1) or room.group(2)
+        if num:
+            facts = list(profile.get("userFacts") or [])
+            fact = f"room:{num}"
+            if fact not in facts:
+                facts.append(fact)
+            patch["userFacts"] = facts[-20:]
+    if problem:
+        patch["currentProblem"] = problem[:120]
+        patch["currentSubtopic"] = problem[:80]
+    elif safe_str(profile.get("currentProblem")):
+        patch["currentProblem"] = safe_str(profile.get("currentProblem"))[:120]
+        patch["currentSubtopic"] = safe_str(profile.get("currentSubtopic") or profile.get("currentProblem"))[:80]
+    # Clear lesson-drill traps while improvising in scenario
+    patch["pendingPracticePhrase"] = None
+    patch["awaitingTargetPhrase"] = None
+    patch["pendingPracticeTr"] = None
+    return patch
+
+
+def _ai_scenario_opener(
+    target_lang: str,
+    roleplay: str | None,
+    profile: dict,
+) -> str:
+    """LLM-generated first line in character — NOT a fixed script (seed opener is fallback only)."""
+    if not llm_available():
+        return ""
+    sid = _scenario_id(roleplay, profile)
+    meta = get_scenario_meta(sid or roleplay, profile)
+    if not meta:
+        return ""
+    lang_name = LANG_NAMES.get(target_lang, target_lang)
+
+    def _clean_opener(text: str) -> str:
+        text = safe_str(text).strip().strip('"').strip()
+        if not text:
+            return ""
+        # Model sometimes returns a JSON blob as plain text — extract spoken line
+        if text.startswith("{") and ("teacher_en" in text or "opener" in text):
+            try:
+                import json as _json
+                blob = _json.loads(text)
+                if isinstance(blob, dict):
+                    text = safe_str(
+                        blob.get("opener") or blob.get("teacher_en") or blob.get("text") or ""
+                    ).strip()
+            except Exception:
+                m = re.search(r'"(?:opener|teacher_en|text)"\s*:\s*"((?:\\.|[^"\\])*)"', text)
+                if m:
+                    text = m.group(1).replace('\\"', '"').replace("\\n", " ")
+                else:
+                    return ""
+        text = text.split("\n")[0].strip().strip('"')
+        if text.startswith("{") or "student_hint" in text.lower():
+            return ""
+        # Reject free-chat curriculum openers even from the model
+        low = text.lower()
+        if re.search(r"\bhow are you(?: today)?\b", low) and "help" not in low:
+            return ""
+        if "let's learn something new" in low or "favorite food" in low:
+            return ""
+        if target_lang != "en" and _teacher_response_wrong_language(text, target_lang):
+            return ""
+        if len(text) < 8:
+            return ""
+        return text[:280]
+
+    system = (
+        f"You open a spoken roleplay in {lang_name} (code: {target_lang}).\n"
+        f"{get_active_scenario_context(sid, profile, target_lang)}\n"
+        f"Write ONLY the first thing the {meta.get('teacherRole') or 'character'} says to the "
+        f"{meta.get('userRole') or 'guest'} — one short natural turn (1–2 sentences).\n"
+        f"Stay in character. Do NOT teach grammar. Do NOT say How are you / Let's learn something new.\n"
+        f"Do NOT output Turkish. Output ONLY the spoken {lang_name} line as JSON."
+    )
+    raw = _llm_json(
+        system + '\nReturn JSON: {"opener":"..."}',
+        "Respond with JSON only.",
+        max_tokens=120,
+    )
+    if isinstance(raw, dict):
+        text = _clean_opener(raw.get("opener") or raw.get("teacher_en") or "")
+        if text:
+            return text
+    try:
+        line = _llm(
+            [{"role": "user", "content": "Open the conversation now."}],
+            target_lang,
+            profile.get("currentLevel", "A1"),
+            sid,
+            extra=system,
+        )
+        text = _clean_opener(line)
+        if text:
+            return text
+    except Exception:
+        pass
+    return ""
+
+
+def _try_ai_help_examples(
+    last_q: str,
+    target_lang: str,
+    profile: dict,
+    roleplay: str | None,
+    *,
+    variant: str = "default",
+    phrase_tr: str | None = None,
+) -> list[tuple[str, str]] | None:
+    """AI-generated help answers for the ACTIVE question — seeds are last resort only."""
+    if not llm_available() or not last_q or "?" not in last_q:
+        return None
+    lang_name = LANG_NAMES.get(target_lang, target_lang)
+    sid = _scenario_id(roleplay, profile)
+    level_hint = {
+        "easier": "Use very short simple words (A1).",
+        "natural": "Use natural native phrasing.",
+        "more": "Give different alternatives, same meaning.",
+        "default": "Give easy / medium / natural variants.",
+    }.get(variant, "Give easy / medium / natural variants.")
+    phrase_note = ""
+    if phrase_tr and len(phrase_tr.strip()) >= 3:
+        phrase_note = (
+            f"\nThe learner also wrote in Turkish: \"{phrase_tr.strip()[:160]}\". "
+            "If it is a question they want to ASK as the guest, include that phrasing; "
+            "also include answers to the teacher's active question."
+        )
+    system = (
+        f"You help a Turkish learner answer ONE teacher question in {lang_name} ({target_lang}).\n"
+        f"{get_active_scenario_context(sid, profile, target_lang)}\n"
+        f"ACTIVE TEACHER QUESTION: {last_q}\n"
+        f"CURRENT PROBLEM/TOPIC: {safe_str(profile.get('currentProblem') or profile.get('currentTopic') or sid)}\n"
+        f"{level_hint}{phrase_note}\n"
+        "Return JSON only:\n"
+        '{"examples":[{"target":"...","tr":"..."},{"target":"...","tr":"..."},{"target":"...","tr":"..."}]}\n'
+        "Rules: each target MUST answer the active question (or be the learner's intended ask). "
+        "Stay in scenario. No chicken sandwich unless the question is about ordering food. "
+        "Turkish gloss must be real Turkish. target MUST be in the target language only."
+    )
+    parsed = _llm_json(system, "JSON only.", max_tokens=350)
+    if not isinstance(parsed, dict):
+        return None
+    rows = parsed.get("examples") or parsed.get("answers") or []
+    out: list[tuple[str, str]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        tgt = safe_str(row.get("target") or row.get("en") or row.get("text")).strip()
+        tr = _turkish_gloss_clean(safe_str(row.get("tr") or row.get("turkish") or ""))
+        if not tgt:
+            continue
+        if target_lang != "en" and _is_strong_english(tgt):
+            continue
+        if last_q and not _example_fits_active_question(tgt, last_q) and not (
+            phrase_tr and _help_phrase_is_question_intent(phrase_tr)
+        ):
+            # allow if it's clearly answering room-number etc. via AI — soft accept when filter unknown
+            if re.search(r"anything else|order|drink|bill|menu|party|how many", last_q, re.I):
+                continue
+        if any(tgt.lower() == e[0].lower() for e in out):
+            continue
+        if not tr:
+            tr = phrase_tr or ""
+        out.append((tgt, tr or tgt))
+        if len(out) >= 3:
+            break
+    return out if len(out) >= 2 else None
+
+
+
 def greeting(
     lang: str,
     profile: dict | None = None,
@@ -8862,15 +9348,22 @@ def greeting(
     sid = _scenario_id(roleplay, profile)
     meta = get_scenario_meta(sid or roleplay, profile)
 
-    # Scenario opener wins over generic "How are you today?"
-    text_en = scenario_opener(sid or roleplay, lang, profile)
+    # Scenario opener: AI improvisation first; static opener only as last-resort seed
+    text_en = ""
+    if sid:
+        text_en = _ai_scenario_opener(lang, sid, profile)
+    if not text_en:
+        opener_dict = (meta.get("opener") or {}) if meta and isinstance(meta.get("opener"), dict) else {}
+        text_en = safe_str(opener_dict.get(lang) or "").strip()
+        if not text_en:
+            # EN seed as last resort — always localize for non-EN targets
+            text_en = safe_str(opener_dict.get("en") or scenario_opener(sid or roleplay, "en", profile) or "").strip()
+            if text_en and lang != "en":
+                text_en = _localize_teacher_text(text_en, lang, translate_fn)
     if not text_en:
         text_en = GREETING_OPENERS.get(lang) or GREETING_OPENERS["en"]
         if lang != "en" and lang not in GREETING_OPENERS:
             text_en = _localize_teacher_text(GREETING_OPENERS["en"], lang, translate_fn)
-    elif lang != "en" and lang not in (meta.get("opener") or {}):
-        # Localize EN opener when no native opener exists
-        text_en = _localize_teacher_text(text_en, lang, translate_fn)
 
     intro_tr = (
         f"Hata yapmaktan çekinme. {lang_name} konuşmaya çalış — "
@@ -8905,13 +9398,18 @@ def greeting(
         "lastTeacherText": text_en,
         "waitingForUser": True,
         "sessionStartAt": _now_iso(),
-        "pendingSrsId": srs_id,
-        "microStep": 0,
+        "pendingSrsId": srs_id if not sid else None,
+        "microStep": 0 if not sid else int(profile.get("microStep") or 0),
         "lessonStep": step,
         "targetLang": lang,
         "activeTeacherQuestion": _make_active_question(text_en, lang, roleplay=sid, profile=profile)
         if "?" in text_en else {},
         "currentTopic": sid or "",
+        "currentProblem": "",
+        "currentSubtopic": "",
+        "pendingPracticePhrase": None,
+        "awaitingTargetPhrase": None,
+        "pendingPracticeTr": None,
     }
     if sid:
         delta["activeScenarioId"] = sid
@@ -8968,9 +9466,12 @@ def process_turn(
         session_delta["activeScenario"] = str(roleplay).strip()[:120]
         profile["activeScenario"] = session_delta["activeScenario"]
 
-    # Cümle-kurma iskelesi BAŞLAT — learner_clarify'dan ÖNCE
-    # (örn. "I am read a book" aksi halde intent_teach'e kaçıyor)
-    if target_lang == "en" and not safe_str(profile.get("scaffoldMode")).strip():
+    # Cümle-kurma iskelesi / curriculum hijacks — NEVER during active scenario improvisation
+    if (
+        not sid
+        and target_lang == "en"
+        and not safe_str(profile.get("scaffoldMode")).strip()
+    ):
         started_early = _start_sentence_scaffold(
             original_text, target_lang, profile, session_delta, translate_fn,
         )
@@ -8980,7 +9481,8 @@ def process_turn(
 
     # Aktif iskele varken learner_clarify çalmasın (produce/transfer cevapları)
     if (
-        translate_fn
+        not sid
+        and translate_fn
         and target_lang == "en"
         and not safe_str(profile.get("scaffoldMode")).strip()
     ):
@@ -8997,7 +9499,7 @@ def process_turn(
 
     last_teacher = profile.get("lastTeacherText") or ""
     if not user_text:
-        return greeting(target_lang, profile, translate_fn=translate_fn)
+        return greeting(target_lang, profile, translate_fn=translate_fn, roleplay=roleplay)
 
     # ASR wrong-language / curriculum leak — NEVER grade as learner grammar error
     if user_text and _asr_wrong_language(user_text, target_lang):
@@ -9064,16 +9566,8 @@ def process_turn(
         result["weekly_progress"] = weekly_progress(result["profile"])
         return result
 
-    # Meta: "You asked me about my work" / "we already talked…"
-    if _is_meta_conversation_reply(user_text):
-        result = _meta_conversation_turn(
-            user_text, target_lang, profile, session_delta, history, translate_fn,
-        )
-        result["weekly_progress"] = weekly_progress(result["profile"])
-        return result
-
     # Kısa doğal cevap: "Tired." after "How are you?" — yanlış sayma
-    if target_lang == "en" and _is_short_natural_reply(user_text, last_teacher):
+    if (not sid) and target_lang == "en" and _is_short_natural_reply(user_text, last_teacher):
         result = _short_natural_reply_turn(
             user_text, target_lang, profile, session_delta, translate_fn,
         )
@@ -9082,8 +9576,8 @@ def process_turn(
             return result
 
     # Minimal sohbet cevapları (nothing / maybe / yes / okay…) — konuşmayı KAPATMA
-    # Broken-English / intent yolundan ÖNCE yakala
-    if _is_minimal_conversation_reply(user_text):
+    # Broken-English / intent yolundan ÖNCE yakala — but NOT during scenario (yes please = guest reply)
+    if (not sid) and _is_minimal_conversation_reply(user_text):
         # "bilmiyorum" zaten yukarıda özel moda girdi; burada kalan minimal cevaplar
         result = _minimal_conversation_turn(
             user_text, target_lang, profile, session_delta, translate_fn,
@@ -9092,11 +9586,19 @@ def process_turn(
         return result
 
     # "bunu biliyorum" — konuyu mastered işaretle, ilerlet
-    if re.search(r"\b(bunu\s+biliyorum|bunu\s+biliom|i\s+know\s+this|i\s+already\s+know)\b", user_text, re.I):
+    if (not sid) and re.search(r"\b(bunu\s+biliyorum|bunu\s+biliom|i\s+know\s+this|i\s+already\s+know)\b", user_text, re.I):
         result = _mark_known_and_advance(user_text, target_lang, profile, session_delta, translate_fn)
         if result:
             result["weekly_progress"] = weekly_progress(result["profile"])
             return result
+
+    # Meta talk — free chat only (scenario stays with AI)
+    if (not sid) and _is_meta_conversation_reply(user_text):
+        result = _meta_conversation_turn(
+            user_text, target_lang, profile, session_delta, history, translate_fn,
+        )
+        result["weekly_progress"] = weekly_progress(result["profile"])
+        return result
 
     # Nasıl söyleyeceğimi bilmiyorum — kısa yardım veya kişisel cümle
     if _is_how_to_say_stuck(user_text):
@@ -9154,6 +9656,49 @@ def process_turn(
         )
         result["weekly_progress"] = weekly_progress(result["profile"])
         return result
+
+    # === SCENARIO IMPROVISATION PATH (AI-first) ===
+    # Active roleplay: skip curriculum/scaffold/hello-chain traps; go to AI tutor.
+    if sid:
+        # Drop leftover drill phrases so real guest replies aren't graded as wrong practice
+        if safe_str(profile.get("pendingPracticePhrase")).strip() or safe_str(profile.get("scaffoldMode")).strip():
+            clear_practice = {
+                **_clear_scaffold(),
+                "pendingPracticePhrase": None,
+                "pendingPracticeTr": None,
+                "awaitingTargetPhrase": None,
+            }
+            session_delta = {**session_delta, **clear_practice}
+            profile = merge_profile(profile, session_delta)
+        # Soft state update from user message (problem/room facts)
+        session_delta = {
+            **session_delta,
+            **_update_scenario_conversation_state(profile, original_text, "", sid),
+        }
+        profile = merge_profile(profile, session_delta)
+        ai_result = _try_ai_tutor_turn(
+            original_text, user_lang, target_lang, history, profile,
+            session_delta, roleplay, speak_slow, translate_fn,
+        )
+        if ai_result:
+            # Persist problem memory from this turn
+            extra = _update_scenario_conversation_state(
+                ai_result.get("profile") or profile,
+                original_text,
+                safe_str(ai_result.get("teacher_en")),
+                sid,
+            )
+            if extra and isinstance(ai_result.get("profile"), dict):
+                ai_result["profile"] = merge_profile(ai_result["profile"], extra)
+            ai_result["weekly_progress"] = weekly_progress(ai_result["profile"])
+            return ai_result
+        # AI unavailable — scenario-aware fallback (never How are you / curriculum)
+        fb = _scenario_fallback_reply(
+            original_text, target_lang, history, profile, roleplay, translate_fn,
+        )
+        if fb:
+            fb["weekly_progress"] = weekly_progress(fb["profile"])
+            return fb
 
     pending = safe_str(profile.get("pendingPracticePhrase")).strip()
     if pending and _should_exit_practice_mode(user_text, pending):
@@ -9304,7 +9849,7 @@ def process_turn(
             keep["weekly_progress"] = weekly_progress(keep["profile"])
             return keep
 
-    # AI öğretmen — ana beyin
+    # AI öğretmen — ana beyin (free conversation)
     ai_result = _try_ai_tutor_turn(
         original_text, user_lang, target_lang, history, profile,
         session_delta, roleplay, speak_slow, translate_fn,
