@@ -1685,6 +1685,15 @@ body {
   border-radius: 14px;
   margin-bottom: 8px;
   overflow: hidden;
+  flex-shrink: 0;
+}
+
+.edu-settings-panel[open] {
+  max-height: min(52vh, 420px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
 }
 
 .edu-settings-panel summary {
@@ -1694,6 +1703,10 @@ body {
   color: #94A3B8;
   cursor: pointer;
   list-style: none;
+  position: sticky;
+  top: 0;
+  background: #0B1220;
+  z-index: 2;
 }
 
 .edu-settings-panel summary::-webkit-details-marker {
@@ -1702,6 +1715,26 @@ body {
 
 .edu-settings-panel[open] summary {
   border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.edu-scenario-hint {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: #64748B;
+  line-height: 1.35;
+}
+
+.edu-scenario-badge {
+  font-size: 11px;
+  color: #FCD34D;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.28);
+  border-radius: 999px;
+  padding: 2px 8px;
+  max-width: 46%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .edu-settings-panel .personal-lesson,

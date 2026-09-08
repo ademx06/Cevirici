@@ -29,7 +29,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.09.06-v72.28"
+APP_VERSION = "2026.09.06-v72.29"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -3402,13 +3402,14 @@ class Handler(SimpleHTTPRequestHandler):
 
     def handle_education_greeting(self, params):
         lang = (params.get("lang") or ["en"])[0]
+        roleplay = (params.get("roleplay") or [""])[0].strip() or None
         profile_raw = (params.get("profile") or ["{}"])[0]
         try:
             profile = json.loads(profile_raw) if profile_raw else {}
         except Exception:
             profile = {}
         try:
-            result = greeting(lang, profile, translate_fn=translate_text)
+            result = greeting(lang, profile, translate_fn=translate_text, roleplay=roleplay)
             result = self._education_tts(result, lang)
             body = json.dumps(result, ensure_ascii=False).encode()
             self.send_response(200)

@@ -92,7 +92,7 @@ let mic;
 const VOICE_FETCH_MS = 55000;
 const CHAT_FETCH_MS = 45000;
 const TTS_PLAY_MS = 12000;
-const EN_TTS_MAX = 320;
+const EN_TTS_MAX = 480;
 const TR_TTS_MAX = 220;
 const STALE_BUSY_MS = 18000;
 const MIC_OPEN_MS = 12000;
@@ -883,20 +883,23 @@ const TR_HELP_TYPES = new Set([
 const SKIP_TTS_TYPES = new Set(['intent_guess', 'practice_retry']);
 
 function englishTextForTts(d) {
-  // Prefer explicit question / speak_text so teacher questions are always audible
-  let text = safeStr(d.question_text || d.speak_text || d.teacher_en || d.teacher_text || d.robot_target || '');
+  // Speak the teacher's real target-language reply (same source as on screen).
+  // Never prefer phonetic / Turkish pronunciation text.
+  let text = safeStr(d.speak_text || d.teacher_en || d.teacher_text || d.robot_target || '');
+  // If speak_text is only a short question but teacher_en has reaction+question, prefer fuller reply
+  const full = safeStr(d.teacher_en || d.teacher_text || '').trim();
+  if (full && text && full.length > text.length + 8 && !TR_HELP_TYPES.has(safeStr(d.type))) {
+    text = full;
+  }
+  if (!text && safeStr(d.question_text).trim()) text = safeStr(d.question_text);
   text = text.replace(/[\u{1F300}-\u{1FAFF}\u{02700}-\u{027BF}\u2600-\u26FF\uFE0F]+/gu, ' ');
   text = text.replace(/🇩🇪|🇪🇸|🇷🇺|🇫🇷|🇮🇹|🇬🇧|🇹🇷|🇺🇸/g, ' ');
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
-  const conv = lines.filter((l) => !/^(🎯|📌|📖|🧩|✅|💡|🔄|❌|🤔|🇩🇪|🇪🇸|🇷🇺)/.test(l));
+  const conv = lines.filter((l) => !/^(🎯|📌|📖|🧩|✅|💡|🔄|❌|🤔|🇩🇪|🇪🇸|🇷🇺|🔤)/.test(l));
   text = (conv.length ? conv.join(' ') : lines.join(' ')).replace(/\s+/g, ' ').trim();
-  // Prefer last question sentence when present in the blob
-  const qs = text.match(/[^.!?]*\?/g);
-  if (qs && qs.length && !safeStr(d.question_text).trim()) {
-    text = qs[qs.length - 1].trim();
-  }
+  // Do NOT strip down to only the last question — speak the full natural teacher turn
   const parts = text.match(/[^.!?]+[.!?]?/g) || [text];
-  return parts.slice(0, 3).join(' ').trim().slice(0, EN_TTS_MAX);
+  return parts.slice(0, 5).join(' ').trim().slice(0, EN_TTS_MAX);
 }
 
 function turkishHelpForTts(d) {
@@ -1079,6 +1082,8 @@ function compactProfileForApi() {
     userFacts: ensureArray(p.userFacts).slice(0, 20).map(safeStr),
     recentAskedQuestions: ensureArray(p.recentAskedQuestions).slice(0, 8).map((q) => safeStr(q).slice(0, 180)),
     conversationTurn: Number(p.conversationTurn) || 0,
+    activeScenarioId: safeStr(p.activeScenarioId || S.roleplay || '').slice(0, 40),
+    activeScenario: safeStr(p.activeScenario || S.roleplay || '').slice(0, 80),
   };
 }
 
@@ -1423,8 +1428,9 @@ async function fetchGreeting() {
   try {
     const params = new URLSearchParams({
       lang: S.learnLang,
-      profile: JSON.stringify(S.profile || {}),
+      profile: JSON.stringify(compactProfileForApi()),
     });
+    if (S.roleplay) params.set('roleplay', S.roleplay);
     const r = await fetch(`/api/education/greeting?${params}`, {
       signal: S.greetingAbort.signal,
     });
@@ -1434,6 +1440,7 @@ async function fetchGreeting() {
     S.greetingLoaded = true;
     S.sessionStart = Date.now();
     S.sessionSaved = false;
+    updateActiveScenarioBadge(d);
   } catch (e) {
     if (e?.name === 'AbortError') return;
     hideTyping();
@@ -1442,6 +1449,29 @@ async function fetchGreeting() {
     S.greetingBusy = false;
     S.greetingAbort = null;
     if (!S.holdActive && !isRecording() && S.busyCount === 0) resetIdle();
+  }
+}
+
+function updateActiveScenarioBadge(d) {
+  const el = document.getElementById('activeScenarioBadge');
+  if (!el) return;
+  const title = safeStr(d?.active_scenario_title || '');
+  const sid = safeStr(S.roleplay || d?.active_scenario || '');
+  const sel = document.getElementById('roleplaySelect');
+  let label = title;
+  if (!label && sel && sid) {
+    const opt = Array.from(sel.options).find((o) => o.value === sid);
+    label = opt ? opt.textContent : sid;
+  }
+  if (sid && label) {
+    el.textContent = `🎭 ${label}`;
+    el.classList.remove('hidden');
+  } else if (sid) {
+    el.textContent = `🎭 ${sid}`;
+    el.classList.remove('hidden');
+  } else {
+    el.textContent = '';
+    el.classList.add('hidden');
   }
 }
 
@@ -1594,8 +1624,37 @@ if (learnLangSelect) {
   });
 }
 
-on('roleplaySelect', 'change', (e) => {
-  S.roleplay = e.target.value;
+on('roleplaySelect', 'change', async (e) => {
+  const next = e.target.value || '';
+  const prev = S.roleplay || '';
+  S.roleplay = next;
+  if (next === prev) {
+    updateActiveScenarioBadge();
+    return;
+  }
+  // Scenario change → controlled context reset (keep long-term profile learning)
+  stopTts();
+  S.msgs = [];
+  S.history = [];
+  S.greetingLoaded = false;
+  S.spokenMessageIds = {};
+  S.sessionSaved = false;
+  if (S.profile && typeof S.profile === 'object') {
+    S.profile.activeScenarioId = next;
+    S.profile.activeScenario = next;
+    S.profile.activeTeacherQuestion = null;
+    S.profile.lastTeacherText = '';
+    S.profile.currentTopic = next || '';
+    S.profile.pendingPracticePhrase = null;
+    S.profile.pendingPracticeTr = null;
+    S.profile.awaitingTargetPhrase = null;
+    S.profile.lastHelpExamples = [];
+    S.profile.failedAnswerStreak = 0;
+  }
+  updateActiveScenarioBadge();
+  saveChat();
+  render();
+  await fetchGreeting();
 });
 
 on('speedNormal', 'click', () => {
@@ -1742,7 +1801,11 @@ S.history = loadHistory();
 S._historyChrono = false; // migrate legacy newest-first on next pushHistory
 S.msgs = loadChat();
 S.learnLang = S.profile?.targetLang || 'en';
+S.roleplay = safeStr(S.profile?.activeScenarioId || S.profile?.activeScenario || S.roleplay || '');
 syncLearnLang();
+const rpSel = $('roleplaySelect');
+if (rpSel) rpSel.value = S.roleplay || '';
+updateActiveScenarioBadge();
 updateLevelBadge();
 updateDailyGoal();
 fetchLessonPlan();

@@ -56,14 +56,63 @@
           <label for="roleplaySelect">Senaryo</label>
           <select id="roleplaySelect">
             <option value="">Serbest konuşma</option>
-            <option value="friend">Arkadaş</option>
-            <option value="hotel">Otel resepsiyonu</option>
-            <option value="restaurant">Restoran</option>
-            <option value="airport">Havalimanı</option>
-            <option value="shop">Mağaza</option>
-            <option value="interview">İş görüşmesi</option>
-            <option value="teacher">Öğretmen</option>
+            <optgroup label="Günlük hayat">
+              <option value="friend">Arkadaşla sohbet</option>
+              <option value="daily_chat">Günlük sohbet</option>
+              <option value="meet_new">Yeni biriyle tanışma</option>
+              <option value="neighbor">Komşuyla konuşma</option>
+              <option value="phone_call">Telefonda konuşma</option>
+              <option value="weekend_plans">Hafta sonu planı</option>
+              <option value="hobbies">Hobiler</option>
+              <option value="sports">Spor</option>
+              <option value="movies">Film ve dizi</option>
+              <option value="music">Müzik</option>
+              <option value="food_talk">Yemek sohbeti</option>
+              <option value="shopping_chat">Alışveriş sohbeti</option>
+              <option value="teacher">Sınıf öğretmeni</option>
+            </optgroup>
+            <optgroup label="Seyahat">
+              <option value="airport">Havalimanı</option>
+              <option value="flight">Uçakta</option>
+              <option value="passport_control">Pasaport kontrolü</option>
+              <option value="taxi">Taksi</option>
+              <option value="hotel">Otel check-in</option>
+              <option value="hotel_checkout">Otel check-out</option>
+              <option value="hotel_problem">Otel problemi</option>
+              <option value="restaurant">Restoran</option>
+              <option value="cafe">Kafe</option>
+              <option value="market">Market</option>
+              <option value="directions">Yol tarifi</option>
+              <option value="car_rental">Araba kiralama</option>
+              <option value="tour">Tur rezervasyonu</option>
+              <option value="shop">Mağaza</option>
+            </optgroup>
+            <optgroup label="İş">
+              <option value="interview">İş görüşmesi</option>
+              <option value="colleagues">İş arkadaşlarıyla sohbet</option>
+              <option value="meeting">Toplantı</option>
+              <option value="work_phone">İş telefonu</option>
+              <option value="customer">Müşteri görüşmesi</option>
+              <option value="boss">Patronla görüşme</option>
+              <option value="salary">Maaş görüşmesi</option>
+            </optgroup>
+            <optgroup label="Sosyal">
+              <option value="make_friends">Yeni arkadaş edinme</option>
+              <option value="invite">Birini davet etme</option>
+              <option value="ask_advice">Tavsiye isteme</option>
+              <option value="apology">Özür dileme</option>
+              <option value="thanks">Teşekkür etme</option>
+            </optgroup>
+            <optgroup label="Gerçek hayat">
+              <option value="doctor">Doktor</option>
+              <option value="pharmacy">Eczane</option>
+              <option value="bank">Banka</option>
+              <option value="post_office">Postane</option>
+              <option value="rent_apartment">Ev kiralama</option>
+              <option value="tech_support">Teknik destek</option>
+            </optgroup>
           </select>
+          <p class="edu-scenario-hint" id="scenarioHint">Senaryo seçince öğretmen o role girer; sabit soru listesi yoktur.</p>
         </div>
       </section>
       <div class="lesson-chips" id="lessonChips">
@@ -75,6 +124,7 @@
 
     <div class="edu-chat-toolbar">
       <span class="edu-chat-title">💬 Sohbet</span>
+      <span id="activeScenarioBadge" class="edu-scenario-badge hidden"></span>
       <span id="statusDot" class="status-dot"></span>
       <span id="statusText" class="edu-chat-status">Hazır</span>
       <button id="clearBtn" class="ghost-btn ghost-btn-sm hidden" type="button">Temizle</button>
@@ -173,6 +223,6 @@
   <script src="api-client.js?v=3"></script>
   <script src="keepalive.js?v=2"></script>
   <script src="mic-hold.js?v=3"></script>
-  <script src="education.js?v=57"></script>
+  <script src="education.js?v=58"></script>
 </body>
 </html>
