@@ -108,6 +108,12 @@ def test_tr_person_lock():
     print("TEST TR person lock OK")
 
 
+def test_drink_has_verb():
+    lvl, phrase, cat, *_ = check_english("I drink it black, without milk or sugar")
+    assert lvl == 1 and phrase is None and cat is None
+    print("TEST drink verb OK")
+
+
 if __name__ == "__main__":
     test_no_froming_scaffold()
     test_i_are_not_silently_accepted()
@@ -117,4 +123,5 @@ if __name__ == "__main__":
     test_meta_exits_practice()
     test_correct_sentence_exits_forced_practice()
     test_tr_person_lock()
+    test_drink_has_verb()
     print("\nAll grammar-truth tests passed.")

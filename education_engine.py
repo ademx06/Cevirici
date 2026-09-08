@@ -53,10 +53,11 @@ LANG_NAMES = {
 LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"]
 SRS_INTERVALS_DAYS = [1, 3, 7, 14, 30]
 
-SYSTEM_PROMPT = """You are a real English conversation teacher for a Turkish-speaking student.
+SYSTEM_PROMPT = """You are a real conversation teacher for a Turkish-speaking student.
+You teach and chat in the TARGET LANGUAGE only (see "Target language" below) — never default to English unless the target language is English.
 
 Your job is NOT quiz → answer → lesson over.
-Your job is natural English conversation that continues as long as the student keeps talking.
+Your job is natural conversation in the target language that continues as long as the student keeps talking.
 
 Balance: about 70% natural conversation, 30% teaching/correction (only when needed).
 
@@ -64,13 +65,14 @@ Core loop every turn:
 UNDERSTAND → USE CONTEXT → CORRECT ONLY IF IMPORTANT → SHORT TEACH IF NEEDED → CONTINUE THE CHAT WITH A NATURAL FOLLOW-UP
 
 Hard rules:
+- Always reply in the TARGET LANGUAGE (teacher_en field = target-language text).
 - Never end the conversation unless the student clearly says goodbye / stop / I'm done / ders bitti.
 - Never say: lesson complete, that's all, goodbye, see you next time, practice later (unless they said goodbye).
 - Never become a mechanical drill master ("Now let's learn…", "Next question…", "Repeat after me…" every turn).
 - Short answers (yes/no/maybe/nothing/okay/I don't know) are valid — keep chatting with an easier follow-up.
 - If they switch topic, follow the new topic.
 - Remember what they already said; do not re-ask the same question.
-- If they speak Turkish, help them say it in English, then return to conversation.
+- If they speak Turkish, help them say it in the target language, then return to conversation.
 - Correct gently (Almost! / You're close! / A more natural way is…). Never shame.
 - Prefer 1–5 short sentences. One main correction max per turn.
 - User should talk more than you."""
@@ -78,6 +80,12 @@ Hard rules:
 
 AI_TUTOR_JSON_PROMPT = """You are a PROFESSIONAL personal {lang_name} conversation TEACHER for a Turkish-speaking student.
 Level: {level}. Warm, patient, human. You feel like a real teacher chatting — NOT a chatbot, translator, or quiz app.
+
+CRITICAL LANGUAGE RULE:
+- The student is learning {lang_name} (code: {target_lang}).
+- Your spoken reply (teacher_en) MUST be in {lang_name}, not English (unless target_lang is en).
+- correct_phrase / teach_new_phrase / suggested_practice / build_on_phrase MUST also be in {lang_name}.
+- teacher_tr is brief Turkish support only.
 
 Weak areas (reuse naturally later, do not lecture): {weak_areas}
 Repeated mistakes (gently reinforce only when they appear again): {repeated_mistakes}
@@ -102,7 +110,7 @@ STUDENT JUST SAID ({input_lang}):
 {micro_chain_block}
 
 MISSION:
-Keep a living conversation going. The student should feel they are talking with a real English teacher.
+Keep a living conversation going in {lang_name}. The student should feel they are talking with a real {lang_name} teacher.
 As long as the student continues, YOU CONTINUE. Never close the chat.
 
 TURN ALGORITHM (follow in order):
@@ -120,23 +128,24 @@ STYLE BALANCE:
 - Error? Pattern: Almost! → natural sentence → tiny tip (optional) → follow-up about THEIR topic.
 - Long story? Understand first, then one key correction, then a story question.
 - Short reply (yes/no/maybe/nothing/okay/I don't know)? Soften and continue with an easier question. Never stop.
-- Turkish help / "yardım"? Give English, ask them to say it, then continue chatting.
+- Turkish help / "yardım"? Give the {lang_name} phrasing, ask them to say it, then continue chatting.
 - Student asks a meaning? Explain simply with one example, then continue.
-- Vary follow-ups (why / when / who with / what next / how often / would you… / tell me more). Avoid repeating "What is your favorite…?"
+- Vary follow-ups. Avoid repeating the same question.
 
 LEVEL ADAPTATION:
 - Beginner: short sentences, simple words, more Turkish support in teacher_tr.
-- Intermediate: more natural English, fewer Turkish lines, richer follow-ups.
+- Intermediate: more natural {lang_name}, fewer Turkish lines, richer follow-ups.
 - Advanced: natural chat, optional idioms, fewer corrections.
 
 FORBIDDEN:
-- Silently rewriting the student's raw words into correct English and treating it as Perfect.
-- Inventing errors (especially from → froming). "from" is a PREPOSITION, never a verb-ing.
-- Treating "I am from Bursa / I am tired / I am at work / I am 28" as I am + verb-ing.
-- Accepting "IR 28 years old" or "I are …" as correct.
+- Replying in English when target_lang is NOT en.
+- Silently rewriting the student's raw words into correct target-language text and treating it as Perfect.
+- Inventing errors (especially English from → froming). "from" is a PREPOSITION, never a verb-ing.
+- Treating "I am from Bursa / I am tired / I am at work / I am 28" as I am + verb-ing (English learners).
+- Accepting "IR 28 years old" or "I are …" as correct (English learners).
 - Mechanical lesson mode every turn.
 - Long grammar lectures / listing many errors.
-- Harsh words: Wrong / Bad English / Incorrect / You failed.
+- Harsh words: Wrong / Bad / Incorrect / You failed.
 - Re-asking completed topics (coffee/hometown/work) after the student already answered.
 - Over-praise spam every turn (Amazing! Excellent! Fantastic!).
 - Hallucinating facts the student never said.
@@ -151,7 +160,7 @@ LENGTH:
 - Small fix → 2–4 sentences. No essays.
 
 TEACHER_TR:
-- Brief Turkish support (1–3 lines) or null. Never duplicate the full English reply.
+- Brief Turkish support (1–3 lines) or null. Never duplicate the full {lang_name} reply.
 
 Return ONLY valid JSON:
 {{
@@ -245,13 +254,46 @@ GREETINGS = {
 }
 
 ROLEPLAYS = {
-    "friend": {"en": "You are chatting with a friendly local. Keep it casual."},
-    "hotel": {"en": "You are a hotel receptionist in London. The user is checking in."},
-    "restaurant": {"en": "You are a waiter. Help the user order food."},
-    "airport": {"en": "You are an airport officer. Ask about travel documents."},
-    "shop": {"en": "You are a shop assistant. Help the user buy something."},
-    "interview": {"en": "You are a job interviewer. Ask professional questions."},
-    "teacher": {"en": "You are an English teacher in a classroom."},
+    "friend": {
+        "en": "You are chatting with a friendly local. Keep it casual.",
+        "*": "You are chatting with a friendly local speaker of the target language. Keep it casual. Reply only in the target language.",
+    },
+    "hotel": {
+        "en": "You are a hotel receptionist in London. The user is checking in.",
+        "*": "You are a hotel receptionist. The user is checking in. Reply only in the target language.",
+    },
+    "restaurant": {
+        "en": "You are a waiter. Help the user order food.",
+        "*": "You are a waiter. Help the user order food. Reply only in the target language.",
+    },
+    "airport": {
+        "en": "You are an airport officer. Ask about travel documents.",
+        "*": "You are an airport officer. Ask about travel documents. Reply only in the target language.",
+    },
+    "shop": {
+        "en": "You are a shop assistant. Help the user buy something.",
+        "*": "You are a shop assistant. Help the user buy something. Reply only in the target language.",
+    },
+    "interview": {
+        "en": "You are a job interviewer. Ask professional questions.",
+        "*": "You are a job interviewer. Ask professional questions. Reply only in the target language.",
+    },
+    "teacher": {
+        "en": "You are an English teacher in a classroom.",
+        "*": "You are a classroom language teacher for the target language. Reply only in the target language.",
+    },
+}
+
+GREETING_OPENERS = {
+    "en": "Hey! How are you today?",
+    "de": "Hallo! Wie geht es dir heute?",
+    "fr": "Salut ! Comment ça va aujourd'hui ?",
+    "es": "¡Hola! ¿Cómo estás hoy?",
+    "it": "Ciao! Come stai oggi?",
+    "ru": "Привет! Как дела сегодня?",
+    "ar": "مرحبا! كيف حالك اليوم؟",
+    "zh": "你好！你今天怎么样？",
+    "ka": "გამარჯობა! როგორ ხარ დღეს?",
 }
 
 TOPICS_BY_LEVEL = {
@@ -1005,6 +1047,113 @@ def record_vocab_used(profile: dict, word: str, correct: bool) -> dict:
     return {}
 
 
+# Common content verbs — "I drink it black…" must NOT be missing_verb
+_AUX_OR_BE_VERB_RE = re.compile(
+    r"\b(?:"
+    r"is|are|am|was|were|be|been|being|"
+    r"have|has|had|having|"
+    r"do|does|did|doing|"
+    r"will|would|can|could|shall|should|may|might|must|"
+    r"don't|doesn't|didn't|won't|can't|couldn't|isn't|aren't|wasn't|weren't|haven't|hasn't|"
+    r"i'?m|im|i'?ve|i'?ll|i'?d|"
+    r"want|wanted|wanting|go|goes|going|went"
+    r")\b",
+    re.I,
+)
+
+_CONTENT_VERB_BASES = frozenset({
+    "drink", "like", "love", "eat", "speak", "live", "work", "study", "play",
+    "watch", "listen", "read", "write", "buy", "sell", "cook", "make", "take",
+    "give", "see", "hear", "know", "think", "feel", "look", "come", "leave",
+    "stay", "wait", "call", "help", "try", "start", "stop", "finish", "open",
+    "close", "put", "get", "keep", "find", "lose", "bring", "send", "ask",
+    "tell", "show", "teach", "learn", "understand", "remember", "forget",
+    "meet", "visit", "travel", "drive", "walk", "run", "swim", "sleep",
+    "wake", "sit", "stand", "wear", "use", "pay", "cost", "order", "prefer",
+    "hate", "enjoy", "believe", "hope", "wish", "seem", "become", "turn",
+    "change", "grow", "build", "create", "need", "mean", "say", "talk",
+    "answer", "begin", "end", "happen", "move", "pass", "spend", "choose",
+    "decide", "agree", "belong", "include", "offer", "plan", "prepare",
+    "return", "save", "share", "miss", "mind", "matter", "arrive", "leave",
+    "bring", "carry", "clean", "cut", "draw", "fall", "fly", "follow",
+    "hold", "join", "kill", "lead", "let", "lie", "lift", "marry", "pick",
+    "pull", "push", "raise", "reach", "rest", "ride", "ring", "rise",
+    "serve", "set", "shake", "shine", "shoot", "shut", "sing", "smell",
+    "smile", "sound", "spend", "stand", "steal", "stick", "strike", "suggest",
+    "suit", "suppose", "surprise", "swim", "taste", "throw", "touch", "train",
+    "treat", "trust", "try", "wake", "wash", "win", "wish", "wonder", "worry",
+})
+
+_IRREGULAR_VERB_FORMS = frozenset({
+    "drank", "drunk", "ate", "eaten", "spoke", "spoken", "lived", "worked",
+    "studied", "played", "watched", "listened", "wrote", "written", "bought",
+    "sold", "cooked", "made", "took", "taken", "gave", "given", "saw", "seen",
+    "heard", "knew", "known", "thought", "felt", "looked", "came", "left",
+    "stayed", "waited", "called", "helped", "tried", "started", "stopped",
+    "finished", "opened", "closed", "put", "got", "gotten", "kept", "found",
+    "lost", "brought", "sent", "asked", "told", "showed", "shown", "taught",
+    "learned", "learnt", "understood", "remembered", "forgot", "forgotten",
+    "met", "visited", "traveled", "travelled", "drove", "driven", "walked",
+    "ran", "swam", "slept", "woke", "woken", "sat", "stood", "wore", "worn",
+    "used", "paid", "cost", "ordered", "preferred", "hated", "enjoyed",
+    "believed", "hoped", "wished", "seemed", "became", "turned", "changed",
+    "grew", "built", "created", "needed", "meant", "said", "talked", "liked",
+    "loved", "drinks", "likes", "loves", "eats", "speaks", "lives", "works",
+    "studies", "plays", "watches", "listens", "reads", "writes", "buys",
+    "sells", "cooks", "makes", "takes", "gives", "sees", "hears", "knows",
+    "thinks", "feels", "looks", "comes", "leaves", "stays", "waits", "calls",
+    "helps", "tries", "starts", "stops", "finishes", "opens", "closes",
+    "puts", "gets", "keeps", "finds", "loses", "brings", "sends", "asks",
+    "tells", "shows", "teaches", "learns", "understands", "remembers",
+    "forgets", "meets", "visits", "travels", "drives", "walks", "runs",
+    "swims", "sleeps", "wakes", "sits", "stands", "wears", "uses", "pays",
+    "costs", "orders", "prefers", "hates", "enjoys", "believes", "hopes",
+    "wishes", "seems", "becomes", "turns", "changes", "grows", "builds",
+    "creates", "needs", "means", "says", "talks", "drinking", "liking",
+    "loving", "eating", "speaking", "living", "working", "studying",
+    "playing", "watching", "listening", "reading", "writing", "buying",
+    "selling", "cooking", "making", "taking", "giving", "seeing", "hearing",
+    "knowing", "thinking", "feeling", "looking", "coming", "leaving",
+    "staying", "waiting", "calling", "helping", "trying", "starting",
+    "stopping", "finishing", "opening", "closing", "putting", "getting",
+    "keeping", "finding", "losing", "bringing", "sending", "asking",
+    "telling", "showing", "teaching", "learning", "understanding",
+    "remembering", "forgetting", "meeting", "visiting", "traveling",
+    "travelling", "driving", "walking", "running", "swimming", "sleeping",
+    "waking", "sitting", "standing", "wearing", "using", "paying",
+    "ordering", "preferring", "hating", "enjoying", "believing", "hoping",
+    "wishing", "seeming", "becoming", "turning", "changing", "growing",
+    "building", "creating", "needing", "meaning", "saying", "talking",
+})
+
+
+def _has_clear_english_verb(ul: str) -> bool:
+    """True if sentence already has an auxiliary/be verb OR a common content verb."""
+    if _AUX_OR_BE_VERB_RE.search(ul):
+        return True
+    for w in re.findall(r"[a-z']+", ul.lower()):
+        if w in _CONTENT_VERB_BASES or w in _IRREGULAR_VERB_FORMS:
+            return True
+        # simple morphology: drinks/liked/drinking from base
+        for suf in ("ing", "ed", "es", "s"):
+            if len(w) > len(suf) + 2 and w.endswith(suf):
+                stem = w[: -len(suf)]
+                if stem in _CONTENT_VERB_BASES:
+                    return True
+                if suf == "ing" and len(stem) > 2 and stem[-1] == stem[-2] and stem[:-1] in _CONTENT_VERB_BASES:
+                    return True
+                if suf == "ed" and stem.endswith("i"):
+                    # studied → study
+                    if (stem[:-1] + "y") in _CONTENT_VERB_BASES:
+                        return True
+                if suf == "es" and (stem + "e") in _CONTENT_VERB_BASES:
+                    return True
+                if suf == "s" and (stem + "e") in _CONTENT_VERB_BASES:
+                    return True
+                break
+    return False
+
+
 def check_english(text: str) -> tuple[int, str | None, str | None, str | None, str | None]:
     t = text.strip()
     if len(t) < 2:
@@ -1137,15 +1286,13 @@ def check_english(text: str) -> tuple[int, str | None, str | None, str | None, s
             "Yaş için: I am 28 years old / I'm 28 years old.",
         )
 
-    if len(t.split()) >= 4 and not re.search(
-        r"\b(is|are|am|was|were|have|has|do|does|did|will|can|want|went|go|going|don't|didn't|i'?m|im)\b", ul
-    ):
+    if len(t.split()) >= 4 and not _has_clear_english_verb(ul):
         return (
             2,
             None,
             "missing_verb",
-            "Your sentence needs a clear verb (am, go, want, did...).",
-            "Cümlede net bir fiil olmalı (am, go, want, did...).",
+            "Your sentence needs a clear verb (am, go, want, drink, like...).",
+            "Cümlede net bir fiil olmalı (am, go, want, drink, like...).",
         )
     # I are / I ar → I am (NEVER silently accept)
     if re.search(r"\bi\s+are\b", ul):
@@ -1386,6 +1533,8 @@ def _meta_conversation_turn(
         "You're right — thanks for reminding me.\n\n"
         f"{follow}"
     )
+    teacher_en = _localize_teacher_text(teacher_en, target_lang, translate_fn)
+    follow = _localize_teacher_text(follow, target_lang, translate_fn)
     teacher_tr = "Haklısın, teşekkürler. Konuya oradan devam edelim."
     clear = {
         **_clear_scaffold(),
@@ -1398,6 +1547,7 @@ def _meta_conversation_turn(
     return _pack(
         profile, {**session_delta, **clear}, teacher_en, teacher_tr, None, 1, "conversation",
         waiting=True, user_text=user_text, teacher_en=teacher_en, speak_text=follow,
+        target_lang=target_lang,
     )
 
 
@@ -4588,6 +4738,9 @@ def _is_minimal_conversation_reply(text: str) -> bool:
         "nothing", "nothing much", "not much", "none",
         "same", "me too", "hmm", "huh", "right", "true",
         "evet", "hayır", "hayir", "tamam", "belki", "bilmiyorum", "hiçbir şey", "hicbir sey",
+        # other target languages (minimal yes/no/ok)
+        "ja", "nein", "oui", "non", "sí", "si", "да", "нет", "sì", "klar", "genau",
+        "vielleicht", "peut-être", "peut etre", "tal vez", "forse",
     }
 
 
@@ -4657,8 +4810,11 @@ def _minimal_conversation_turn(
     """Kısa cevapları sohbet kapanışı yapma — kolay takip sorusu sor."""
     last = safe_str(profile.get("lastTeacherText")).strip()
     teacher_en, teacher_tr = _minimal_conversation_followup(user_text, last)
-    if translate_fn and target_lang != "en":
-        teacher_tr = _to_tr(teacher_en, translate_fn, target_lang) or teacher_tr
+    # Non-English: localize the spoken teacher line into the target language
+    if target_lang != "en":
+        teacher_en = _localize_teacher_text(teacher_en, target_lang, translate_fn)
+        if translate_fn:
+            teacher_tr = _to_tr(teacher_en, translate_fn, target_lang) or teacher_tr
     delta = {
         **session_delta,
         "lastTeacherText": teacher_en,
@@ -4669,6 +4825,7 @@ def _minimal_conversation_turn(
     return _pack(
         profile, delta, teacher_en, teacher_tr, None, 1, "conversation",
         waiting=True, user_text=user_text, teacher_en=teacher_en, speak_text=teacher_en,
+        target_lang=target_lang,
     )
 
 
@@ -5092,7 +5249,8 @@ def _llm(messages: list[dict], target_lang: str, level: str, roleplay: str | Non
         return None
     sys = SYSTEM_PROMPT + f"\nTarget language: {LANG_NAMES.get(target_lang, target_lang)}. User level: {level}."
     if roleplay and roleplay in ROLEPLAYS:
-        rp = ROLEPLAYS[roleplay].get(target_lang) or ROLEPLAYS[roleplay].get("en", "")
+        rp_map = ROLEPLAYS[roleplay]
+        rp = rp_map.get(target_lang) or rp_map.get("*") or rp_map.get("en", "")
         if rp:
             sys += f"\nRoleplay scenario: {rp}"
     if extra:
@@ -5807,7 +5965,8 @@ def _try_ai_tutor_turn(
     weak = ", ".join(str(w) for w in weak_areas[:5]) or "general conversation"
     last_teacher = profile.get("lastTeacherText") or _last_teacher_question(history, profile) or ""
     input_lang = "Turkish" if user_lang == "tr" else f"{lang_name} (learner, may be incomplete, wrong, or STT garbled)"
-    rp = (ROLEPLAYS.get(roleplay or "") or {}).get(target_lang) or "professional language tutor"
+    rp = (ROLEPLAYS.get(roleplay or "") or {})
+    rp = rp.get(target_lang) or rp.get("*") or rp.get("en") or "professional language tutor"
     pending = profile.get("pendingPracticePhrase") or ""
     pending_note = ""
     if pending:
@@ -5830,8 +5989,20 @@ def _try_ai_tutor_turn(
         weak_areas=weak,
         repeated_mistakes=_repeated_mistakes_summary(profile),
         roleplay=rp,
-        curriculum_block=_curriculum_block(profile),
-        micro_chain_block=_micro_chain_block(profile),
+        curriculum_block=(
+            _curriculum_block(profile)
+            if target_lang == "en"
+            else (
+                f"Target language: {lang_name}. Teach natural conversation ONLY in {lang_name}.\n"
+                f"Adapt topics (greetings, daily life, food, work, travel) in {lang_name}.\n"
+                f"Do NOT use English curriculum phrases or English micro-chain."
+            )
+        ),
+        micro_chain_block=(
+            _micro_chain_block(profile)
+            if target_lang == "en"
+            else f"No English micro-chain. Continue natural {lang_name} conversation."
+        ),
         history_text=_format_history_for_ai(history),
         last_teacher=last_teacher[:500],
         recent_questions=_recent_teacher_questions(history, profile),
@@ -6232,21 +6403,25 @@ def _help_mode(
                 f"• İşe gittim.\n"
                 f"• Arkadaşımla buluştum.\n"
                 f"• Film izledim.\n\n"
-                f"Hangisini söylemek istiyorsun? Türkçe yaz — ben İngilizcesini öğreteyim."
+                f"Hangisini söylemek istiyorsun? Türkçe yaz — ben {lang_name} karşılığını öğreteyim."
             )
-            teacher_en = (
+            teacher_en = _localize_teacher_text(
                 f"Sure. Think in Turkish first.\nQuestion: {last_q}\n"
-                f"Tell me what you want to say in Turkish — I'll teach the English."
+                f"Tell me what you want to say in Turkish — I'll teach the {lang_name}.",
+                target_lang,
+                translate_fn,
             )
         else:
             teacher_tr = (
-                "Tabii 😊 Ne söylemek istediğini Türkçe yazabilirsin. "
-                "Ben sana İngilizcede nasıl söyleyebileceğini öğreteceğim.\n\n"
+                f"Tabii 😊 Ne söylemek istediğini Türkçe yazabilirsin. "
+                f"Ben sana {lang_name} dilinde nasıl söyleyebileceğini öğreteceğim.\n\n"
                 "Örnek: «Çok yoruldum, eve gitmek istiyorum»"
             )
-            teacher_en = (
-                "Sure! Write what you want to say in Turkish — "
-                "I'll teach you how to say it in English."
+            teacher_en = _localize_teacher_text(
+                f"Sure! Write what you want to say in Turkish — "
+                f"I'll teach you how to say it in {lang_name}.",
+                target_lang,
+                translate_fn,
             )
         delta = {**session_delta, "lastTeacherText": teacher_en}
         return _pack(
@@ -6568,6 +6743,22 @@ def _conversation_tr_hint() -> str:
     return random.choice(CONVERSATION_TR)
 
 
+def _localize_teacher_text(
+    text: str,
+    target_lang: str,
+    translate_fn: Callable[[str, str, str], str] | None,
+) -> str:
+    """Hardcoded EN teacher lines → target language when learning non-English."""
+    text = safe_str(text).strip()
+    if not text or target_lang == "en" or not translate_fn:
+        return text
+    try:
+        out = translate_fn(text, "en", target_lang)
+        return safe_str(out).strip() or text
+    except Exception:
+        return text
+
+
 def greeting(
     lang: str,
     profile: dict | None = None,
@@ -6577,10 +6768,13 @@ def greeting(
     profile = reset_daily_if_needed(profile)
     step = int(profile.get("lessonStep") or 0)
     step = max(0, min(step, len(LESSON_CURRICULUM) - 1))
+    lang_name = LANG_NAMES.get(lang, lang)
 
-    text_en = "Hey! How are you today? 😊"
+    text_en = GREETING_OPENERS.get(lang) or GREETING_OPENERS["en"]
+    if lang != "en" and lang not in GREETING_OPENERS:
+        text_en = _localize_teacher_text(GREETING_OPENERS["en"], lang, translate_fn)
     intro_tr = (
-        "Hata yapmaktan çekinme. Sen konuşmaya çalış — "
+        f"Hata yapmaktan çekinme. {lang_name} konuşmaya çalış — "
         "ben gerektiğinde yardımcı olurum."
     )
     motiv = motivation_message(profile)
@@ -6589,7 +6783,12 @@ def greeting(
         intro_tr = f"{motiv}\n\n{intro_tr}"
         # Soft reopen with weak topic without curriculum lecture
         if "past" in motiv.lower() or "went" in motiv.lower():
-            text_en = "Hey! Good to see you again 😊 What did you do yesterday?"
+            reopen = "Hey! Good to see you again. What did you do yesterday?"
+            text_en = (
+                GREETING_OPENERS.get(lang)
+                if lang != "en" and lang in GREETING_OPENERS
+                else None
+            ) or _localize_teacher_text(reopen, lang, translate_fn)
 
     srs_prompt, srs_id = pick_srs_prompt(profile)
     # SRS'i selamlaşmaya yapıştırmadan, profilde tut
@@ -6603,15 +6802,18 @@ def greeting(
         "microStep": 0,
         # lessonStep'i sıfırlama — ilerlemeyi koru
         "lessonStep": step,
+        "targetLang": lang,
     }
     result = _pack(
         profile, delta, teacher_en, teacher_tr, None, 1, "greeting",
         waiting=True, teacher_en=teacher_en, speak_text=text_en.split("\n")[0],
         phonetic_en=pronounce_text(text_en.split("\n")[0], lang),
+        target_lang=lang,
     )
     result["daily_lesson"] = daily_lesson(profile)
     result["motivation"] = motiv
     result["weekly_progress"] = weekly_progress(profile)
+    result["target_lang"] = lang
     return result
 
 
@@ -6656,8 +6858,8 @@ def process_turn(
             return learner
 
     user_text = _normalize_stt_text(original_text)
-    if user_lang == "tr" and target_lang == "en" and not _is_real_turkish(user_text):
-        user_lang = "en"
+    if user_lang == "tr" and target_lang != "tr" and not _is_real_turkish(user_text):
+        user_lang = target_lang
 
     last_teacher = profile.get("lastTeacherText") or ""
     if not user_text:
@@ -6890,7 +7092,7 @@ def process_turn(
                 return intent_early
 
     # Bozuk STT — kesin cümle uydurma
-    if user_lang == "en" and _is_garbled_stt(original_text):
+    if user_lang == target_lang and _is_garbled_stt(original_text):
         stt_result = _try_stt_clarify_turn(
             original_text, target_lang, profile, session_delta, history, translate_fn,
         )

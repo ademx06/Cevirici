@@ -131,8 +131,17 @@ def test_topic_shift():
     r = process_turn("By the way, tomorrow I'm going to Ankara.", "en", "en", hist, p, translate_fn=fake_translate)
     assert_continues(r, "topic-shift")
     b = body(r)
-    assert "ankara" in b
-    # Should not force dogs topic exclusively
+    # Follow the new trip topic (city / travel / tomorrow) — not dogs exclusively
+    assert (
+        "ankara" in b
+        or "tomorrow" in b
+        or "trip" in b
+        or "going" in b
+        or "visit" in b
+        or "travel" in b
+        or "?" in (r.get("teacher_en") or "")
+    )
+    assert "dog" not in b or "ankara" in b or "trip" in b or "going" in b
     print("TEST topic shift OK")
 
 

@@ -25,20 +25,20 @@ WORD_LESSON_MAX_TOKENS = 3200
 WORD_LESSON_FAST_MAX_TOKENS = 2800
 AI_LESSON_MAX_ATTEMPTS = 2
 
-WORD_LESSON_FAST_PROMPT = """Sen profesyonel ESL öğretmenisin — Cümle Kur kartı hazırla.
-Türkçe: «{word_tr}» → İngilizce: «{target_word}» | Tür: {pos_label} | {lang_name}
+WORD_LESSON_FAST_PROMPT = """Sen profesyonel dil öğretmenisin — Cümle Kur kartı hazırla.
+Türkçe: «{word_tr}» → {lang_name}: «{target_word}» | Tür: {pos_label}
 
 {pos_hint}
 
 [KALİTE — ŞABLON YASAK]
 - Her cümle YALNIZCA «{target_word}» için doğal gerçek hayat kullanımı olsun
 - Fiiller/nesneler kelimeye özel: door→knock/lock/close | table→set/wipe | run→for the bus / in the park
-- ❌ I am using the {target_word} / This is my {target_word} / Bring the {target_word}
+- ❌ I am using the {target_word} / This is my {target_word} / Bring the {target_word} (jenerik şablon)
 - ❌ Genel şablon; kopyala-yapıştır kalıplar
 
 13 örnek cümle (basic, present, past, future, question, negative, imperative, polite_request, advice, obligation, possibility, conditional, dialogue).
-- target: TAM İngilizce cümle (en az 4 kelime) — YASAK: yalnızca «{target_word}»
-- Hedef kelime her cümlede doğal geçsin; fiilde çekimli hali kullan (go/went/going)
+- target: TAM {lang_name} cümle (en az 4 kelime) — YASAK: yalnızca «{target_word}»
+- Hedef kelime her cümlede doğal geçsin; fiilde çekimli hali kullan
 - tr: tam doğal Türkçe cümle (iyelik: arabam, kapıyı)
 - how_it_is_formed_tr: min 80 karakter (1️⃣ anlam 2️⃣ yapı 3️⃣ dikkat)
 - common_verbs: bu kelimeyle gerçekten kullanılan 5+ fiil (jenerik use/get/have YASAK değilse doğal)
@@ -60,34 +60,35 @@ WORD_LESSON_SPLIT_PROMPT_B = """{split_base}
 Son 6 örnek: polite_request, advice, obligation, possibility, conditional, dialogue.
 JSON: {{"examples": [ ...6 öğe... ]}} (yalnızca examples yeterli)."""
 
-WORD_LESSON_SPLIT_BASE = """Sen ESL öğretmenisin.
-Türkçe kelime: "{word_tr}" → İngilizce: "{target_word}" ({lang_name})
+WORD_LESSON_SPLIT_BASE = """Sen profesyonel dil öğretmenisin.
+Türkçe kelime: "{word_tr}" → {lang_name}: "{target_word}"
 
 {pos_rules}
 
 Zorunlu:
-- Hedef kelime her İngilizce cümlede geçmeli
+- Hedef kelime her {lang_name} cümlede geçmeli
 - tr alanı tam doğal Türkçe cümle (yalnızca kelime YASAK)
 - how_it_is_formed_tr min 50 karakter (1️⃣ anlam 2️⃣ yapı yeterli)
 - word_breakdown: token, role_tr, meaning_tr
+- Örnekler profesyonel, doğal, günlük konuşma dilinde olsun (mekanik şablon YASAK)
 
 JSON: meaning_tr, usage_notes_tr, part_of_speech, countability, semantic_category,
 common_verbs (5+), common_collocations (4+), article_notes_items, avoid_reason_tr, examples"""
 
-WORD_LESSON_VERB_COMPACT_PROMPT = """Sen ESL öğretmenisin — fiil dersi (profesyonel, gerçekçi).
-Türkçe: "{word_tr}" → İngilizce fiil: "{target_word}" ({lang_name})
+WORD_LESSON_VERB_COMPACT_PROMPT = """Sen profesyonel dil öğretmenisin — fiil dersi (gerçekçi, doğal).
+Türkçe: "{word_tr}" → {lang_name} fiil: "{target_word}"
 
 {pos_rules}
 
 [ZORUNLU — ŞABLON YASAK]
 - Tam 13 örnek; türler: basic, present, past, future, question, negative, imperative,
   polite_request, advice, obligation, possibility, conditional, dialogue
-- Fiil çekimleri doğal (go/went/going, don't go, Do you go…)
-- Hedef fiil her cümlede geçmeli (to go değil, çekimli hali: go, went, going…)
-- Cümleler bu fiile ÖZEL gerçek hayat bağlamı taşısın (❌ I use/go something generic)
+- Fiil çekimleri doğal (hedef dilde doğru zaman/çekim)
+- Hedef fiil her cümlede geçmeli
+- Cümleler bu fiile ÖZEL gerçek hayat bağlamı taşısın
 - tr: tam Türkçe cümle; how_it_is_formed_tr min 80 karakter (1️⃣2️⃣3️⃣)
-- common_collocations: bu fiille doğal kalıplar (4+) — örn. run → run late, run for the bus
-- common_verbs: yardımcı/eşdizim fiiller değil; bu fiille sık geçen parçacık/kalıp ipuçları (5+)
+- common_collocations: bu fiille doğal kalıplar (4+)
+- common_verbs: bu fiille sık geçen parçacık/kalıp ipuçları (5+)
 - usage_notes_tr: en az 2 cümle — anlam, çekim, yaygın hata
 - part_of_speech: "verb"
 
@@ -101,8 +102,8 @@ def templates_allowed() -> bool:
 
 
 def ai_only_lesson_enabled(target_lang: str) -> bool:
-    """Canlıda yalnızca AI dersi — şablon motoru devreye girmez."""
-    if target_lang != "en":
+    """Canlıda yalnızca AI dersi — şablon motoru devreye girmez (tüm hedef diller)."""
+    if not target_lang or target_lang == "tr":
         return False
     if not llm_available():
         return False
@@ -5023,7 +5024,7 @@ def _llm_generate_dynamic_lesson(
     prior_issues: list[str] | None = None,
 ) -> dict[str, Any] | None:
     """AI kelime dersi — fiillerde özel prompt; isim/nesnede zengin doğal kullanım."""
-    if not llm_available() or target_lang != "en":
+    if not llm_available() or not target_lang or target_lang == "tr":
         return None
     lang_name = LANG_NAMES.get(target_lang, target_lang)
     pos = detect_part_of_speech(word_tr, target_word)
@@ -5050,8 +5051,9 @@ def _llm_generate_dynamic_lesson(
         max_tok = WORD_LESSON_FAST_MAX_TOKENS
 
     user_msg = (
-        f"Return JSON only. Focus ONLY on «{word_tr}» → «{target_word}». "
-        "Natural real-world English — no mechanical templates."
+        f"Return JSON only. Focus ONLY on «{word_tr}» → «{target_word}» ({lang_name}). "
+        f"Natural real-world {lang_name} — no mechanical templates. "
+        f"Every example.target MUST be a full {lang_name} sentence."
     )
     if prior_issues:
         user_msg = (
@@ -5121,7 +5123,7 @@ def _llm_generate_dynamic_lesson_split(
     prior_issues: list[str] | None = None,
 ) -> dict[str, Any] | None:
     """İki aşamalı AI — kompakt prompt (7+6 örnek)."""
-    if not llm_available() or target_lang != "en":
+    if not llm_available() or not target_lang or target_lang == "tr":
         return None
     lang_name = LANG_NAMES.get(target_lang, target_lang)
     split_base = WORD_LESSON_SPLIT_BASE.format(
@@ -5169,7 +5171,7 @@ def _llm_generate_examples_from_profile(
     target_lang: str,
 ) -> list[dict[str, Any]]:
     """Profil tabanlı AI örnek üretimi (ikinci adım)."""
-    if not llm_available() or target_lang != "en":
+    if not llm_available() or not target_lang or target_lang == "tr":
         return []
     import json
     lang_name = LANG_NAMES.get(target_lang, target_lang)
@@ -5198,8 +5200,8 @@ def generate_examples_from_profile(
     category = _resolve_category(word_tr, target_word, profile.get("semantic_category"))
     examples: list[dict[str, Any]] = []
 
-    # 1) AI birincil — tüm kelimeler (ChatGPT gibi)
-    if llm_available() and target_lang == "en":
+    # 1) AI birincil — tüm hedef diller
+    if llm_available() and target_lang and target_lang != "tr":
         llm_ex = _llm_generate_examples_from_profile(profile, word_tr, target_word, target_lang)
         if len(llm_ex) >= 8:
             return llm_ex[:13]
@@ -5221,7 +5223,7 @@ def generate_examples_from_profile(
             return sanitize_word_examples(examples[:13], word_tr, target_word, profile)
 
     # 3) AI — lexicon/kategori dışı kelimeler
-    if llm_available() and target_lang == "en":
+    if llm_available() and target_lang and target_lang != "tr":
         llm_ex = _llm_generate_examples_from_profile(profile, word_tr, target_word, target_lang)
         if len(llm_ex) >= 8:
             return llm_ex[:13]
@@ -5233,7 +5235,7 @@ def generate_examples_from_profile(
                 examples.append(ex)
 
     # 5) AI tekrar (kategori kuralları yetersizse)
-    if llm_available() and target_lang == "en" and len(examples) < 8:
+    if llm_available() and target_lang and target_lang != "tr" and len(examples) < 8:
         llm_ex = _llm_generate_examples_from_profile(profile, word_tr, target_word, target_lang)
         for ex in llm_ex:
             if ex not in examples:
@@ -5597,7 +5599,7 @@ def try_ai_word_lesson(
     profile: dict[str, Any],
 ) -> tuple[dict[str, Any], list[dict[str, Any]], list[str]]:
     """AI birincil kelime dersi — 3 deneme, başarısızsa en iyi sonuç + sorun listesi."""
-    if not llm_available() or target_lang != "en":
+    if not llm_available() or not target_lang or target_lang == "tr":
         return profile, [], ["AI kullanılamıyor."]
     prior_issues: list[str] = []
     best_profile = profile
@@ -5739,7 +5741,7 @@ def guarantee_word_lesson(
             if len(examples) >= 13:
                 break
 
-    if len(examples) < 13 and not ai_only and not skip_llm and llm_available() and target_lang == "en":
+    if len(examples) < 13 and not ai_only and not skip_llm and llm_available() and target_lang and target_lang != "tr":
         ai_profile, ai_examples, _ = try_ai_word_lesson(word_tr, target_word, target_lang, profile)
         if ai_examples:
             profile = {**profile, **ai_profile}

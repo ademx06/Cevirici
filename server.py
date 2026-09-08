@@ -29,7 +29,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.09.06-v72.23"
+APP_VERSION = "2026.09.06-v72.24"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -3139,24 +3139,39 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_json_error(422, self.api_error_message(e))
 
     def handle_listen(self, params):
-        """STT only — çeviri modunda metni hemen göstermek için (çeviri ayrı istek)."""
+        """STT only — çeviri/eğitim metni hemen göstermek için (çeviri ayrı istek).
+
+        Optional `source`: Bas Konuş ile aynı zorunlu-dil STT (transcribe_forced).
+        Eğitim Bas Konuş bunu kullanır — auto-detect yerine hedef dil kilitli.
+        """
         my = (params.get("my") or ["tr"])[0]
         other = (params.get("other") or ["en"])[0]
         last_from = (params.get("last") or [""])[0].strip() or None
         if last_from not in (my, other):
             last_from = None
+        forced_source = (params.get("source") or [""])[0].strip() or None
+        if forced_source and forced_source not in STT_LANG:
+            self.send_json_error(400, "Bu dil için konuşma tanıma yapılandırması bulunamadı.")
+            return
+        if forced_source and forced_source not in (my, other):
+            self.send_json_error(400, "Seçilen konuşma dili dil çiftinde yok.")
+            return
         length = int(self.headers.get("Content-Length", 0))
         if length <= 0:
             self.send_error(400, "empty body")
             return
         data = self.rfile.read(length)
         try:
-            original, from_lang = transcribe_dual(data, my, other, last_from)
+            if forced_source:
+                original, from_lang = transcribe_forced(data, forced_source)
+            else:
+                original, from_lang = transcribe_dual(data, my, other, last_from)
             to_lang = other if from_lang == my else my
             body = json.dumps({
                 "original": original,
                 "from": from_lang,
                 "to": to_lang,
+                "forced_source": bool(forced_source),
             }).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
