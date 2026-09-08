@@ -89,7 +89,10 @@ CRITICAL LANGUAGE RULE:
 
 Weak areas (reuse naturally later, do not lecture): {weak_areas}
 Repeated mistakes (gently reinforce only when they appear again): {repeated_mistakes}
-Roleplay: {roleplay}
+
+ACTIVE SCENARIO CONTEXT (HIGHEST PRIORITY — stay inside this unless the student explicitly changes scenario):
+{scenario_block}
+Teacher role / roleplay instruction: {roleplay}
 
 {curriculum_block}
 
@@ -98,6 +101,9 @@ CONVERSATION HISTORY (oldest → newest):
 
 LAST THING YOU SAID:
 "{last_teacher}"
+
+ACTIVE TEACHER QUESTION (help / stuck / another-example commands MUST answer THIS — do not invent a new topic):
+"{active_question}"
 
 RECENT QUESTIONS (do NOT repeat the same or near-same question):
 {recent_questions}
@@ -108,6 +114,12 @@ STUDENT JUST SAID ({input_lang}):
 {stt_note}
 
 {micro_chain_block}
+
+CONTEXT PRIORITY (never reverse):
+ACTIVE SCENARIO > ACTIVE TEACHER QUESTION > CURRENT TOPIC > RECENT CONVERSATION > general language knowledge / curriculum templates.
+
+Unless the user explicitly changes the subject or the scenario naturally ends, remain inside the active scenario and current conversational context.
+Commands like yardım / başka örnek / daha kolay / daha doğal / …de değiştir are NOT new topics — they stay on the ACTIVE TEACHER QUESTION inside the ACTIVE SCENARIO.
 
 MISSION:
 Keep a living conversation going in {lang_name}. The student should feel they are talking with a real {lang_name} teacher.
@@ -128,7 +140,7 @@ STYLE BALANCE:
 - Error? Pattern: Almost! → natural sentence → tiny tip (optional) → follow-up about THEIR topic.
 - Long story? Understand first, then one key correction, then a story question.
 - Short reply (yes/no/maybe/nothing/okay/I don't know)? Soften and continue with an easier question. Never stop.
-- Turkish help / "yardım"? Give the {lang_name} phrasing, ask them to say it, then continue chatting.
+- Turkish help / "yardım"? Give the {lang_name} phrasing for the ACTIVE TEACHER QUESTION (scenario-appropriate), ask them to say it, then continue chatting — do NOT start a generic grammar lesson.
 - Student asks a meaning? Explain simply with one example, then continue.
 - Vary follow-ups. Avoid repeating the same question.
 - If the student's answer is unclear or wrong for YOUR question: stay on the SAME question, offer a simpler example or suggest Help — do NOT jump to a new topic (food, shopping, hobbies) just because they struggled.
@@ -140,6 +152,7 @@ LEVEL ADAPTATION:
 
 FORBIDDEN:
 - Replying in English when target_lang is NOT en.
+- Leaving the active scenario for a default English curriculum template.
 - Silently rewriting the student's raw words into correct target-language text and treating it as Perfect.
 - Inventing errors (especially English from → froming). "from" is a PREPOSITION, never a verb-ing.
 - Treating "I am from Bursa / I am tired / I am at work / I am 28" as I am + verb-ing (English learners).
@@ -150,11 +163,11 @@ FORBIDDEN:
 - Re-asking completed topics (coffee/hometown/work) after the student already answered.
 - Over-praise spam every turn (Amazing! Excellent! Fantastic!).
 - Hallucinating facts the student never said.
-- Resetting to greetings curriculum while a topic is already open.
+- Resetting to greetings curriculum while a topic or scenario is already open.
 
 HELP / STUCK:
-- yardım alone → ask them to write the idea in Turkish.
-- bilmiyorum / I don't know → easier options or yes/no, then continue.
+- yardım alone → help answer the ACTIVE TEACHER QUESTION with natural {lang_name} examples for THIS scenario (not a random template).
+- bilmiyorum / I don't know → easier options or yes/no on the SAME question, then continue.
 
 LENGTH:
 - Usually 1–5 short sentences total.
@@ -830,6 +843,8 @@ def default_profile(lang: str = "en") -> dict[str, Any]:
         "activeTeacherQuestion": None,
         "lastHelpExamples": [],
         "failedAnswerStreak": 0,
+        "activeScenario": "",
+        "activeScenarioId": "",
     }
 
 
@@ -871,6 +886,7 @@ def merge_profile(profile: dict | None, delta: dict | None) -> dict:
         "scaffoldMode", "scaffoldPattern", "scaffoldTarget",
         "scaffoldTransferEn", "scaffoldTransferTr", "scaffoldTransferHint", "scaffoldHintAnswer",
         "currentTopic", "conversationTurn", "failedAnswerStreak", "activeTeacherQuestion",
+        "activeScenario", "activeScenarioId",
     )
     for key in scalar_keys:
         if key in delta:
@@ -2389,12 +2405,85 @@ def _build_how_to_say_examples(
     translate_fn: Callable[[str, str, str], str] | None,
     *,
     variant: str = "default",
+    roleplay: str | None = None,
+    profile: dict | None = None,
 ) -> list[tuple[str, str]]:
-    """Son soruya göre 3+ doğal cevap (kolay / orta / doğal) — tüm diller."""
+    """Son soruya + senaryoya göre 3+ doğal cevap (kolay / orta / doğal)."""
     tq = (teacher_q or "").lower()
+    sid = _scenario_id(roleplay, profile)
     time_word = "yesterday" if "yesterday" in tq or "gestern" in tq or "ayer" in tq else "today"
 
-    if re.search(
+    usually_eat_drink = bool(re.search(
+        r"what do you usually like to (eat|drink)|what do you like to (eat|drink)|"
+        r"usually like to eat|like to eat or drink|yemek.*içmek|essen oder trinken",
+        tq,
+    ))
+    if usually_eat_drink:
+        # Prefer real answers to THIS question (never echo "to eat or drink")
+        seeds = [
+            ("I usually like pizza.", "Genellikle pizzayı severim."),
+            ("I usually like eating pizza and pasta.", "Genellikle pizza ve makarna yemeyi severim."),
+            (
+                "I usually enjoy eating pizza, especially when I'm with my friends.",
+                "Genellikle pizza yemekten hoşlanırım, özellikle arkadaşlarımla birlikteyken.",
+            ),
+        ]
+        if variant in ("more", "natural"):
+            seeds = [
+                ("I usually drink tea in the morning.", "Sabahları genellikle çay içerim."),
+                ("I often like spicy food.", "Sık sık baharatlı yemekleri severim."),
+                (
+                    "I enjoy trying new restaurants when I can.",
+                    "Fırsat buldukça yeni restoranlar denemekten hoşlanırım.",
+                ),
+            ]
+        elif variant == "easier":
+            seeds = [
+                ("I like pizza.", "Pizzayı severim."),
+                ("I like tea.", "Çayı severim."),
+                ("I like pasta.", "Makarnayı severim."),
+            ]
+    elif sid == "restaurant" or re.search(
+        r"would you like to order|what would you like|what can i get you|"
+        r"ready to order|sipariş|bestellen|ordenar",
+        tq,
+    ):
+        seeds = [
+            ("I'd like a chicken sandwich, please.", "Bir tavuklu sandviç istiyorum, lütfen."),
+            (
+                "I'd like to order a chicken sandwich and some fries, please.",
+                "Bir tavuklu sandviç ve biraz patates kızartması sipariş etmek istiyorum, lütfen.",
+            ),
+            (
+                "I'll have the chicken sandwich with fries, please.",
+                "Tavuklu sandviç ve patates kızartması alayım, lütfen.",
+            ),
+        ]
+        if re.search(r"drink|beverage|içecek|trinken|beber|something to drink", tq):
+            seeds = [
+                ("Yes, I'd like some water.", "Evet, biraz su istiyorum."),
+                ("Yes, I'd like a bottle of water, please.", "Evet, bir şişe su istiyorum, lütfen."),
+                (
+                    "Yes, I'll have a bottle of sparkling water, please.",
+                    "Evet, bir şişe sodalı su alayım, lütfen.",
+                ),
+            ]
+        if variant in ("more", "natural"):
+            seeds = [
+                ("Could I get the pasta, please?", "Makarna alabilir miyim, lütfen?"),
+                ("I'll have the soup of the day, please.", "Günün çorbasını alayım, lütfen."),
+                (
+                    "I'd like a salad and a glass of orange juice, please.",
+                    "Bir salata ve bir bardak portakal suyu istiyorum, lütfen.",
+                ),
+            ]
+        elif variant == "easier":
+            seeds = [
+                ("Chicken, please.", "Tavuk, lütfen."),
+                ("I'd like chicken.", "Tavuk istiyorum."),
+                ("Water, please.", "Su, lütfen."),
+            ]
+    elif re.search(
         r"coffee|kahve|with milk|sütlü|drink it with|trinkst.*milch|café.*leche|"
         r"\btea\b|\bçay\b|black coffee",
         tq,
@@ -2448,6 +2537,21 @@ def _build_how_to_say_examples(
             ),
         ]
     elif re.search(
+        r"\bdo you like\b|\bmagst du\b|\bte gusta\b",
+        tq,
+    ):
+        seeds = [
+            ("Yes, I do.", "Evet."),
+            ("Yes, I really like it.", "Evet, gerçekten severim."),
+            ("Yes, I usually enjoy it a lot.", "Evet, genellikle çok severim."),
+        ]
+    elif re.match(r"^(are|is|am)\b", tq) or re.search(r"\bare you\b|\bist du\b", tq):
+        seeds = [
+            ("Yes, I am.", "Evet."),
+            ("Yes, a little.", "Evet, biraz."),
+            ("No, not really.", "Hayır, pek değil."),
+        ]
+    elif re.search(
         r"\bcan you (help|come|open|give|tell)\b|\bkannst du\b|\bpuedes\b",
         tq,
     ):
@@ -2457,41 +2561,15 @@ def _build_how_to_say_examples(
             ("Sure — what do you need?", "Tabii — neye ihtiyacın var?"),
         ]
     elif re.search(
-        r"\bdo you (like|want|prefer|have|drink|eat|know)\b|"
-        r"\bdoes (he|she|it)\b|\barestu\b|\bare you\b|"
-        r"\bmagst du\b|\bte gusta\b|\blübst du\b",
+        r"\bdo you (want|prefer|have|drink|eat|know)\b|"
+        r"\bdoes (he|she|it)\b",
         tq,
     ):
-        # Generic yes/no preference — keep topic words from the question when possible
-        topic_bit = ""
-        m_obj = re.search(r"\b(?:like|want|prefer|drink|eat|have)\s+(.+?)\s*\??\s*$", tq)
-        if m_obj:
-            topic_bit = m_obj.group(1).strip(" .?")
-        if "like" in tq:
-            obj = topic_bit or "it"
-            seeds = [
-                (f"Yes, I like {obj}.", f"Evet, {obj} severim."),
-                (f"Yes, I really like {obj}.", f"Evet, {obj} gerçekten severim."),
-                (f"Yes, I usually enjoy {obj} a lot.", f"Evet, genellikle {obj} çok severim."),
-            ]
-        elif "drink" in tq:
-            seeds = [
-                ("Yes, I do.", "Evet."),
-                ("Yes, I usually drink it.", "Evet, genellikle içerim."),
-                ("Yes, I drink it almost every day.", "Evet, neredeyse her gün içerim."),
-            ]
-        elif re.search(r"\bare you\b|\bist du\b", tq):
-            seeds = [
-                ("Yes, I am.", "Evet."),
-                ("Yes, a little.", "Evet, biraz."),
-                ("No, not really.", "Hayır, pek değil."),
-            ]
-        else:
-            seeds = [
-                ("Yes, I do.", "Evet."),
-                ("Yes, sometimes.", "Evet, bazen."),
-                ("No, not really.", "Hayır, pek değil."),
-            ]
+        seeds = [
+            ("Yes, I do.", "Evet."),
+            ("Yes, sometimes.", "Evet, bazen."),
+            ("No, not really.", "Hayır, pek değil."),
+        ]
     elif re.search(
         r"what did you do|what do you do|how was your day|tell me about your day|"
         r"was hast du|was machst du|qué hiciste|что ты|qu'?as[- ]tu fait|"
@@ -2549,114 +2627,77 @@ def _build_how_to_say_examples(
     out: list[tuple[str, str]] = []
     for en, tr in seeds[:4]:
         target = _localize_example_to_target(en, target_lang, translate_fn)
+        tr_clean = _turkish_gloss_clean(tr)
         if target_lang != "en" and re.search(
             r"i'?d like to buy|how much(?: is)?|check[- ]?in|the bill please|"
             r"i have a reservation|can i have",
             target,
             re.I,
-        ):
+        ) and sid not in ("shop", "hotel", "restaurant"):
             continue
-        out.append((target, tr))
+        out.append((target, tr_clean))
     if len(out) < 3:
         for en, tr in seeds:
             if any(en.lower() == t.lower() or en.lower() in t.lower() for t, _ in out):
                 continue
             target = _localize_example_to_target(en, target_lang, translate_fn)
-            out.append((target, tr))
+            out.append((target, _turkish_gloss_clean(tr)))
             if len(out) >= 3:
                 break
-    return out or [(seeds[0][0], seeds[0][1])]
+    return out or [(seeds[0][0], _turkish_gloss_clean(seeds[0][1]))]
 
 
 def _help_question_structure(question: str, target_lang: str) -> dict[str, str]:
-    """Soru cümlesinin öğretici yapısı (EN odaklı; diğer dillerde kısa TR)."""
+    """Dynamic structure from the REAL question — never a fixed Are/Is/Am template."""
     q = safe_str(question).strip()
-    ql = q.lower()
-    structure = q
-    explain = "Bu bir soru cümlesi. Cevabında özne + fiil kullan."
     qtype = _question_type_key(q)
-
+    if not q:
+        return {"structure": "", "explain_tr": "", "type": qtype}
+    structure = _question_token_structure(q)
     if target_lang == "en" or _is_strong_english(q):
-        if qtype == "past" or re.search(r"\bdid you\b", ql):
-            structure = "What/Where/… + did + you + verb (V1) …?"
-            explain = (
-                "Geçmiş zaman sorusu: did + özne + fiilin yalın hali. "
-                "Örn: What did you do yesterday? → I went…"
-            )
-        elif qtype == "future" or re.search(r"\bwill you\b|\bare you going to\b", ql):
-            structure = "What + will + you + verb …? / Are you going to + verb …?"
-            explain = "Gelecek: will + özne + fiil, veya be going to + fiil."
-        elif qtype == "be" or re.search(r"^(are|is|am)\b", ql):
-            structure = "Are/Is/Am + subject + adjective/noun …?"
-            explain = "Be fiili sorusu: Are you tired? → Yes, I am. / No, I'm not."
-        elif qtype == "modal" or re.search(r"\bcan you\b", ql):
-            structure = "Can + subject + verb …?"
-            explain = "Yeterlilik/rica: Can you help me? → Yes, I can. / Sure."
-        elif qtype == "where":
-            structure = "Where + do/does + subject + verb …?"
-            explain = "Yer sorusu: Where do you live? → I live in …"
-        elif qtype == "why":
-            structure = "Why + do/does + subject + verb …?"
-            explain = "Neden: Why do you like …? → Because …"
-        elif qtype == "like" or re.search(r"\bdo you like\b", ql):
-            structure = "Do + you + like + noun …?"
-            explain = "Tercih: Do you like coffee? → Yes, I like coffee."
-        elif re.search(r"\bdo you\b", ql):
-            structure = "Do + you + verb + object …?"
-            explain = (
-                "Geniş zaman sorusu: Do + you + fiil (yalın). "
-                "Cevap: Yes, I + fiil … / No, I don't …"
-            )
-            # Show concrete tokens when short
-            parts = re.findall(r"[A-Za-z']+", q)
-            if 3 <= len(parts) <= 10:
-                structure = " + ".join(parts) + "?"
-        elif qtype == "wh":
-            structure = "Wh- word + do/does/did + subject + verb …?"
-            explain = "Wh- sorusu: soru kelimesi + yardımcı fiil + özne + fiil."
+        explain = _question_token_explain_tr(q)
     else:
-        explain = f"Soruyu {LANG_NAMES.get(target_lang, target_lang)} dilinde cevapla; Türkçe yalnızca yardım içindir."
-
+        explain = (
+            f"Soruyu {LANG_NAMES.get(target_lang, target_lang)} dilinde cevapla; "
+            "Türkçe yalnızca yardım / anlam içindir."
+        )
     return {"structure": structure, "explain_tr": explain, "type": qtype}
 
 
 def _help_answer_structure(answer: str, question: str, target_lang: str) -> dict[str, str]:
-    """Cevap cümlesinin kısa yapı açıklaması."""
+    """Answer structure derived from the chosen example sentence."""
     a = safe_str(answer).strip()
     if not a:
         return {"structure": "", "explain_tr": "", "chunks": []}
-    chunks: list[tuple[str, str]] = []
+    tokens = re.findall(r"[A-Za-zÀ-ÿ']+", a)
+    structure = " + ".join(tokens[:10]) if tokens else a
+    chunks: list[str] = []
     al = a.lower()
-    if target_lang == "en" or _is_strong_english(a):
-        if al.startswith("yes"):
-            chunks.append(("Yes", "olumlu cevap"))
-        if al.startswith("no"):
-            chunks.append(("No", "olumsuz cevap"))
-        if re.search(r"\bi\b", al):
-            chunks.append(("I", "özne"))
-        if "usually" in al:
-            chunks.append(("usually", "sıklık zarfı"))
-        if re.search(r"\b(drink|go|live|like|have|want|can|work|rest|relax)\b", al):
-            m = re.search(r"\b(drink|go|live|like|have|want|can|work|rest|relax)\b", al)
-            if m:
-                chunks.append((m.group(1), "fiil"))
-        if "with milk" in al:
-            chunks.append(("with milk", "ne ile / nasıl"))
-        if "after work" in al:
-            chunks.append(("after work", "zaman"))
-        if "in the morning" in al:
-            chunks.append(("in the morning", "zaman"))
-        # Build pattern string
-        tokens = re.findall(r"[A-Za-z']+", a)
-        structure = " + ".join(tokens[:8]) if tokens else a
-        explain = " · ".join(f"{w} → {m}" for w, m in chunks[:6]) if chunks else "Özne + fiil + tamamlayıcı."
-    else:
-        structure = a
+    gloss_map = [
+        (r"^yes\b", "Yes → olumlu cevap"),
+        (r"^no\b", "No → olumsuz cevap"),
+        (r"\bi'?d like\b|\bi would like\b", "I'd like → isterim / rica"),
+        (r"\bi'?ll have\b", "I'll have → alayım"),
+        (r"\bi\b", "I → özne"),
+        (r"\busually\b", "usually → sıklık zarfı"),
+        (r"\blike\b|\benjoy\b", "like/enjoy → fiil"),
+        (r"\bdrink\b|\beat\b|\bgo\b|\blive\b|\bhave\b|\bwant\b|\border\b", "fiil"),
+        (r"\bplease\b", "please → lütfen"),
+        (r"\bwith milk\b", "with milk → süt ile"),
+        (r"\bafter work\b", "after work → zaman"),
+    ]
+    for patg, label in gloss_map:
+        if re.search(patg, al) and label not in chunks:
+            chunks.append(label)
+        if len(chunks) >= 5:
+            break
+    explain = " · ".join(chunks) if chunks else "Özne + fiil + tamamlayıcı (bu örneğe göre)."
+    if target_lang != "en" and not _is_strong_english(a):
         explain = "Hedef dildeki cevabı parçalara bölüp Konuş mikrofonuyla söyle."
     return {
         "structure": structure,
         "explain_tr": explain,
-        "chunks": [f"{w} → {m}" for w, m in chunks],
+        "chunks": chunks,
     }
 
 
@@ -2704,17 +2745,19 @@ def _help_examples_response(
     *,
     phrase_tr: str | None = None,
     variant: str = "default",
+    roleplay: str | None = None,
 ) -> dict[str, Any]:
     """HELP_ONLY / HELP_WITH_ANSWER — 3+ örnek + yapı + telaffuz + Dinle."""
     lang_name = LANG_NAMES.get(target_lang, target_lang)
     history = history or []
     last_q = _last_teacher_question(history, profile)
+    sid = _scenario_id(roleplay, profile)
 
     # No active question + bare help → do NOT invent a random topic
     if (not last_q or "?" not in last_q) and not (phrase_tr and len(phrase_tr.strip()) >= 3):
         return _help_no_active_question(target_lang, profile, session_delta, translate_fn)
 
-    active_meta = _make_active_question(last_q, target_lang) if last_q else {}
+    active_meta = _make_active_question(last_q, target_lang, roleplay=sid or roleplay, profile=profile) if last_q else {}
 
     # HELP_WITH_EXPRESSION / translation: user gave Turkish content
     if phrase_tr and len(phrase_tr.strip()) >= 3:
@@ -2727,21 +2770,27 @@ def _help_examples_response(
             a = safe_str(a).strip()
             if a and a.lower() != primary.lower():
                 alts.append(a)
-        examples = [(primary, phrase_tr)] + [(a, phrase_tr) for a in alts]
+        phrase_clean = _turkish_gloss_clean(phrase_tr)
+        examples = [(primary, phrase_clean)] + [(a, phrase_clean) for a in alts]
         if len(examples) < 3 and last_q:
-            for en, tr in _build_how_to_say_examples(last_q, target_lang, translate_fn, variant=variant):
+            for en, tr in _build_how_to_say_examples(
+                last_q, target_lang, translate_fn, variant=variant, roleplay=sid, profile=profile,
+            ):
                 if en.lower() != primary.lower():
                     examples.append((en, tr))
                 if len(examples) >= 3:
                     break
-        # Pattern transfer tip from primary
         pattern_tip = ""
         if re.search(r"\bi want to\b", primary, re.I):
             pattern_tip = "Aynı kalıp: I want to + fiil → I want to eat / sleep / study."
         elif re.search(r"\bi usually\b", primary, re.I):
             pattern_tip = "Aynı kalıp: I usually + fiil → I usually go home / drink tea."
+        elif re.search(r"\bi'?d like\b", primary, re.I):
+            pattern_tip = "Aynı kalıp: I'd like + noun → I'd like water / pasta / coffee."
     else:
-        examples = _build_how_to_say_examples(last_q, target_lang, translate_fn, variant=variant)
+        examples = _build_how_to_say_examples(
+            last_q, target_lang, translate_fn, variant=variant, roleplay=sid, profile=profile,
+        )
         pattern_tip = ""
 
     examples = examples[:4]
@@ -2820,6 +2869,9 @@ def _help_examples_response(
     if active_meta:
         delta["activeTeacherQuestion"] = active_meta
         delta["currentTopic"] = active_meta.get("topic") or profile.get("currentTopic") or ""
+    if sid:
+        delta["activeScenarioId"] = sid
+        delta["activeScenario"] = sid
 
     result = _pack(
         profile, delta, teacher_en, teacher_tr, None, 1, "help",
@@ -2856,6 +2908,7 @@ def _help_command_response(
     session_delta: dict,
     translate_fn: Callable[[str, str, str], str] | None,
     history: list[dict],
+    roleplay: str | None = None,
 ) -> dict[str, Any] | None:
     """Türkçede değiştir / İngilizcede değiştir / başka örnek / daha kolay|doğal."""
     m = HELP_CMD_RE.match(user_text.strip())
@@ -2865,36 +2918,14 @@ def _help_command_response(
     if not last_q or "?" not in last_q:
         return _help_no_active_question(target_lang, profile, session_delta, translate_fn)
 
+    sid = _scenario_id(roleplay, profile)
+
     if m.group("tr_change"):
-        # Regenerate Turkish glosses for last help examples / same answers
-        prev = profile.get("lastHelpExamples") or []
-        if prev and isinstance(prev, list):
-            refreshed = []
-            for ex in prev[:4]:
-                tgt = safe_str(ex.get("target") or ex.get("en"))
-                if not tgt:
-                    continue
-                tr = _to_tr(tgt, translate_fn, target_lang) if translate_fn else safe_str(ex.get("tr"))
-                # Soft paraphrase Turkish
-                if tr and not tr.startswith("[") and " — " not in tr:
-                    tr = tr  # keep translate result as "changed" gloss
-                phon = pronounce_text(tgt, target_lang) or safe_str(ex.get("phonetic"))
-                refreshed.append({
-                    "label": safe_str(ex.get("label")) or "",
-                    "target": tgt,
-                    "tr": tr or safe_str(ex.get("tr")),
-                    "phonetic": phon,
-                })
-            if refreshed:
-                # Re-pack with same targets, new TR
-                examples = [(e["target"], e["tr"]) for e in refreshed]
-                # Force through help builder with phrase empty but inject via variant more? 
-                # Simpler: call help then overwrite examples — use variant default rebuild
-                pass
         # Always rebuild help for same question (Turkish meanings refreshed via translate)
         result = _help_examples_response(
             "yardım", target_lang, profile, session_delta, translate_fn, history,
             variant="default",
+            roleplay=sid or roleplay,
         )
         result["type"] = "help_change_tr"
         if isinstance(result.get("teacher_tr"), str):
@@ -2905,6 +2936,7 @@ def _help_command_response(
         result = _help_examples_response(
             "yardım", target_lang, profile, session_delta, translate_fn, history,
             variant="more",
+            roleplay=sid or roleplay,
         )
         result["type"] = "help_change_target" if m.group("tgt_change") else "help_more"
         prefix = "Hedef dildeki örnekleri değiştirdim — aynı sorudayız.\n\n" if m.group("tgt_change") else (
@@ -2917,6 +2949,7 @@ def _help_command_response(
         result = _help_examples_response(
             "yardım", target_lang, profile, session_delta, translate_fn, history,
             variant="easier",
+            roleplay=sid or roleplay,
         )
         result["type"] = "help_easier"
         result["teacher_tr"] = "Daha kolay örnekler — aynı soru:\n\n" + safe_str(result.get("teacher_tr"))
@@ -2926,6 +2959,7 @@ def _help_command_response(
         result = _help_examples_response(
             "yardım", target_lang, profile, session_delta, translate_fn, history,
             variant="natural",
+            roleplay=sid or roleplay,
         )
         result["type"] = "help_natural"
         result["teacher_tr"] = "Daha doğal örnekler — aynı soru:\n\n" + safe_str(result.get("teacher_tr"))
@@ -4657,39 +4691,167 @@ def _last_teacher_question(history: list[dict], profile: dict) -> str:
     return ""
 
 
-def _make_active_question(text: str, target_lang: str) -> dict[str, str]:
-    q = _extract_teacher_question(text) or safe_str(text).strip()
-    if not q or "?" not in q:
-        return {}
-    return {
-        "originalText": q[:220],
-        "language": target_lang or "en",
-        "topic": _infer_topic_key(q) or "",
-        "questionType": _question_type_key(q),
-    }
-
-
 def _question_type_key(q: str) -> str:
-    ql = (q or "").lower()
-    if re.search(r"\b(did|yesterday|gestern|ayer|dün)\b", ql):
-        return "past"
-    if re.search(r"\b(will|going to|tomorrow|yarın|werde)\b", ql):
-        return "future"
-    if re.search(r"^(are|is|am|were|was)\b|\bare you\b|\bist du\b", ql):
+    """Detect question type — WH / do-aux before loose 'like' or be matches."""
+    ql = (q or "").lower().strip()
+    # Be-questions only when the clause starts with be (not "usually", etc.)
+    if re.match(r"^(are|is|am|were|was)\b", ql):
         return "be"
+    if re.search(r"\b(did|yesterday|gestern|ayer|dün)\b", ql) and re.search(
+        r"\b(what|where|when|why|who|how|did)\b", ql,
+    ):
+        return "past"
+    if re.search(r"\b(will you|going to|tomorrow|yarın|werde)\b", ql):
+        return "future"
     if re.search(r"\b(can|could|may|might|would|should)\b", ql):
         return "modal"
     if re.search(r"\b(where|wo|dónde|где|où|nerede)\b", ql):
         return "where"
     if re.search(r"\b(why|warum|por qué|почему|pourquoi|neden)\b", ql):
         return "why"
-    if re.search(r"\b(do you like|like|sev|gust)\b", ql):
+    if re.search(r"\b(what|how|when|who|which)\b", ql):
+        return "wh"
+    if re.search(r"\bdo you like\b|\bdoes .+ like\b", ql):
         return "like"
     if re.search(r"\b(do you|does he|does she|did you)\b", ql):
         return "do_aux"
-    if re.search(r"\b(what|how|when|who)\b", ql):
-        return "wh"
+    if re.search(r"\bare you\b|\bist du\b", ql):
+        return "be"
     return "general"
+
+
+def _question_token_structure(question: str) -> str:
+    """Actual tokens of the question joined with + (dynamic, never a fixed template)."""
+    q = safe_str(question).strip().rstrip("?").strip()
+    # Group complements like "to eat or drink" / "to order" before splitting
+    spans: list[tuple[int, int, str]] = []
+    for m in re.finditer(r"\bto\s+\w+(?:\s+or\s+\w+)?\b", q, flags=re.I):
+        spans.append((m.start(), m.end(), m.group(0)))
+    toks: list[str] = []
+    i = 0
+    for start, end, phrase in spans:
+        before = q[i:start]
+        toks.extend(re.findall(r"[A-Za-zÀ-ÿА-яЁё']+", before))
+        toks.append(re.sub(r"\s+", " ", phrase.strip()))
+        i = end
+    toks.extend(re.findall(r"[A-Za-zÀ-ÿА-яЁё']+", q[i:]))
+    if not toks:
+        return q + ("?" if "?" in question else "")
+    return " + ".join(toks[:14]) + "?"
+
+
+def _question_token_explain_tr(question: str) -> str:
+    """Short Turkish gloss for common EN question tokens — based on THIS question."""
+    ql = safe_str(question).lower()
+    gloss = {
+        "what": "ne", "where": "nerede", "when": "ne zaman", "why": "neden",
+        "who": "kim", "how": "nasıl", "which": "hangi",
+        "do": "yardımcı fiil (geniş zaman)", "does": "yardımcı fiil (3. tekil)",
+        "did": "yardımcı fiil (geçmiş)", "will": "gelecek yardımcı",
+        "can": "yapabilmek / rica", "could": "rica / geçmiş yeterlilik",
+        "would": "rica / şart", "are": "be fiili", "is": "be fiili", "am": "be fiili",
+        "you": "özne (sen)", "i": "özne (ben)", "he": "o (erkek)", "she": "o (kadın)",
+        "usually": "genellikle (sıklık)", "like": "sevmek / hoşlanmak",
+        "want": "istemek", "prefer": "tercih etmek", "order": "sipariş vermek",
+        "drink": "içmek", "eat": "yemek", "live": "yaşamak", "go": "gitmek",
+        "have": "sahip olmak / almak", "help": "yardım etmek",
+        "to eat": "yemek", "to drink": "içmek", "to order": "sipariş etmek",
+        "to eat or drink": "yemek veya içmek",
+        "or": "veya", "and": "ve", "with": "ile", "please": "lütfen",
+        "something": "bir şey", "coffee": "kahve", "milk": "süt",
+        "pizza": "pizza", "water": "su",
+    }
+    spans: list[tuple[int, int, str]] = []
+    for m in re.finditer(r"\bto\s+\w+(?:\s+or\s+\w+)?\b", question, flags=re.I):
+        spans.append((m.start(), m.end(), m.group(0)))
+    parts: list[str] = []
+    i = 0
+    for start, end, phrase in spans:
+        parts.extend(re.findall(r"[A-Za-z']+", question[i:start]))
+        parts.append(re.sub(r"\s+", " ", phrase.strip()))
+        i = end
+    parts.extend(re.findall(r"[A-Za-z']+", question[i:]))
+    bits: list[str] = []
+    for p in parts[:12]:
+        key = p.lower().strip()
+        key = re.sub(r"\s+", " ", key)
+        g = gloss.get(key)
+        if g:
+            bits.append(f"{p} → {g}")
+        elif key.startswith("to "):
+            bits.append(f"{p} → fiil (to + V1)")
+    if re.search(r"\bwhat\b.*\bdo you\b.*\blike\b", ql):
+        tip = "Wh- sorusu: What + do + you + (usually) + like + …?"
+    elif re.search(r"\bdo you\b", ql):
+        tip = "Geniş zaman: Do + you + fiil (yalın) …?"
+    elif re.search(r"\bdid you\b", ql):
+        tip = "Geçmiş: Did + you + fiil (yalın) …?"
+    elif re.match(r"^(are|is|am)\b", ql):
+        tip = "Be sorusu: Are/Is/Am + özne + …?"
+    elif re.search(r"\bcan you\b", ql):
+        tip = "Modal: Can + you + fiil …?"
+    else:
+        tip = "Sorunun kendi kelimelerini takip et; cevabı aynı yapıyla kur."
+    detail = " · ".join(bits[:8])
+    return f"{tip}" + (f" {detail}" if detail else "")
+
+
+def _turkish_gloss_clean(tr: str) -> str:
+    """Turkish meaning must be real Turkish — strip leaked target-language fragments."""
+    t = safe_str(tr).strip()
+    if not t:
+        return t
+    replacements = (
+        (r"\bto eat or drink\b", "yemek veya içmek"),
+        (r"\bto eat\b", "yemek"),
+        (r"\bto drink\b", "içmek"),
+        (r"\bto order\b", "sipariş etmek"),
+        (r"\bto go\b", "gitmek"),
+        (r"\beat or drink\b", "yemek veya içmek"),
+        (r"\bI'd like\b", "isterim"),
+        (r"\bI usually\b", "genellikle"),
+        (r"\bplease\b", "lütfen"),
+        (r"\bpizza\b", "pizza"),  # loanword OK
+    )
+    for pat, rep in replacements:
+        t = re.sub(pat, rep, t, flags=re.I)
+    # If leftover English function words dominate, soften
+    if re.search(r"\b(the|and|with|for|you|usually|like|drink|eat|order)\b", t, re.I):
+        if not re.search(r"[ğüşıöçĞÜŞİÖÇ]|\b(ben|sen|genellikle|isterim|lütfen|severim|yemek|içmek)\b", t, re.I):
+            # keep as-is if no Turkish signal — caller may replace
+            pass
+    return re.sub(r"\s+", " ", t).strip()
+
+
+def _scenario_id(roleplay: str | None, profile: dict | None = None) -> str:
+    rp = safe_str(roleplay).strip().lower()
+    if rp and rp in ROLEPLAYS:
+        return rp
+    if profile:
+        sid = safe_str(profile.get("activeScenarioId") or profile.get("activeScenario")).strip().lower()
+        if sid in ROLEPLAYS:
+            return sid
+    return ""
+
+
+def _make_active_question(
+    text: str,
+    target_lang: str,
+    roleplay: str | None = None,
+    profile: dict | None = None,
+) -> dict[str, str]:
+    q = _extract_teacher_question(text) or safe_str(text).strip()
+    if not q or "?" not in q:
+        return {}
+    sid = _scenario_id(roleplay, profile)
+    return {
+        "originalText": q[:220],
+        "language": target_lang or "en",
+        "topic": _infer_topic_key(q) or sid or "",
+        "questionType": _question_type_key(q),
+        "scenarioId": sid,
+        "scenarioName": sid,
+    }
 
 
 def _is_daily_activity_question(q: str) -> bool:
@@ -6761,6 +6923,33 @@ def _try_ai_tutor_turn(
             "Set stt_uncertain=true. Ask brief confirmation. Do NOT invent a full sentence as certain."
         )
 
+    sid = _scenario_id(roleplay, profile)
+    active_q = _last_teacher_question(history, profile) or ""
+    scenario_titles = {
+        "restaurant": "Restaurant / ordering food",
+        "hotel": "Hotel check-in",
+        "airport": "Airport conversation",
+        "shop": "Shopping",
+        "interview": "Job interview",
+        "friend": "Casual chat with a friend",
+        "teacher": "Classroom language lesson",
+    }
+    if sid:
+        scenario_block = (
+            f"ACTIVE SCENARIO: {sid} ({scenario_titles.get(sid, sid)})\n"
+            f"SCENARIO GOAL: stay in character and complete a natural dialogue for this scene.\n"
+            f"CURRENT TOPIC: {safe_str(profile.get('currentTopic') or profile.get('activeTopic') or sid)}\n"
+            f"Do NOT switch to a generic curriculum topic while this scenario is active.\n"
+            f"Help examples and follow-ups MUST fit this scenario."
+        )
+    else:
+        scenario_block = (
+            "ACTIVE SCENARIO: (none selected — general conversation tutor)\n"
+            "If the student later picks a scenario, lock onto it."
+        )
+
+    # When a roleplay scenario is active, do not let English curriculum / micro-chain override it
+    use_curriculum = target_lang == "en" and not sid
     system = AI_TUTOR_JSON_PROMPT.format(
         lang_name=lang_name,
         target_lang=target_lang,
@@ -6768,19 +6957,25 @@ def _try_ai_tutor_turn(
         weak_areas=weak,
         repeated_mistakes=_repeated_mistakes_summary(profile),
         roleplay=rp,
+        scenario_block=scenario_block,
+        active_question=(active_q or last_teacher or "")[:300],
         curriculum_block=(
             _curriculum_block(profile)
-            if target_lang == "en"
+            if use_curriculum
             else (
                 f"Target language: {lang_name}. Teach natural conversation ONLY in {lang_name}.\n"
-                f"Adapt topics (greetings, daily life, food, work, travel) in {lang_name}.\n"
-                f"Do NOT use English curriculum phrases or English micro-chain."
+                f"{'Stay inside the active scenario: ' + sid + '. ' if sid else ''}"
+                f"Do NOT use English curriculum phrases or English micro-chain as the main driver."
             )
         ),
         micro_chain_block=(
             _micro_chain_block(profile)
-            if target_lang == "en"
-            else f"No English micro-chain. Continue natural {lang_name} conversation."
+            if use_curriculum
+            else (
+                f"No English micro-chain override. "
+                f"Continue natural {lang_name} conversation"
+                + (f" inside scenario '{sid}'." if sid else ".")
+            )
         ),
         history_text=_format_history_for_ai(history),
         last_teacher=last_teacher[:500],
@@ -7197,10 +7392,11 @@ def _help_mode(
     user_text: str, target_lang: str, translate_fn: Callable[[str, str, str], str],
     profile: dict, session_delta: dict,
     history: list[dict] | None = None,
+    roleplay: str | None = None,
 ) -> dict[str, Any]:
     phrase_tr = _extract_turkish_phrase(user_text)
-    lang_name = LANG_NAMES.get(target_lang, target_lang)
     history = history or []
+    sid = _scenario_id(roleplay, profile)
 
     # Strip meta help wrappers that leave empty / short intent
     meta_only = re.match(
@@ -7227,6 +7423,7 @@ def _help_mode(
         if len(noisy) < 3:
             return _help_examples_response(
                 user_text, target_lang, profile, session_delta, translate_fn, history,
+                roleplay=sid,
             )
 
     mismatch = _detect_tr_meaning_mismatch(phrase_tr)
@@ -7239,6 +7436,7 @@ def _help_mode(
     return _help_examples_response(
         user_text, target_lang, profile, session_delta, translate_fn, history,
         phrase_tr=phrase_tr,
+        roleplay=sid,
     )
 
 
@@ -7249,9 +7447,11 @@ def _yardim_help_mode(
     session_delta: dict,
     translate_fn: Callable[[str, str, str], str] | None,
     history: list[dict] | None = None,
+    roleplay: str | None = None,
 ) -> dict[str, Any]:
     return _help_mode(
-        user_text, target_lang, translate_fn, profile, session_delta, history=history or [],
+        user_text, target_lang, translate_fn, profile, session_delta,
+        history=history or [], roleplay=roleplay,
     )
 
 
@@ -7277,10 +7477,12 @@ def _dont_know_help_mode(
     session_delta: dict,
     translate_fn: Callable[[str, str, str], str] | None,
     history: list[dict],
+    roleplay: str | None = None,
 ) -> dict[str, Any]:
     """bilmiyorum — konuşmayı kesme; çok örnekli yardım ile aynı konuda kal."""
     return _help_examples_response(
         user_text, target_lang, profile, session_delta, translate_fn, history or [],
+        roleplay=_scenario_id(roleplay, profile) or roleplay,
     )
 
 
@@ -7533,6 +7735,17 @@ def process_turn(
         "targetLang": target_lang,
     }
 
+    # Keep scenario context alive across turns (help / commands must not drop it).
+    sid = _scenario_id(roleplay, profile)
+    if sid:
+        session_delta["activeScenarioId"] = sid
+        session_delta["activeScenario"] = sid
+        profile["activeScenarioId"] = sid
+        profile["activeScenario"] = sid
+    elif roleplay:
+        session_delta["activeScenario"] = str(roleplay).strip()[:120]
+        profile["activeScenario"] = session_delta["activeScenario"]
+
     # Cümle-kurma iskelesi BAŞLAT — learner_clarify'dan ÖNCE
     # (örn. "I am read a book" aksi halde intent_teach'e kaçıyor)
     if target_lang == "en" and not safe_str(profile.get("scaffoldMode")).strip():
@@ -7624,6 +7837,7 @@ def process_turn(
     if _is_dont_know_reply(user_text):
         result = _dont_know_help_mode(
             user_text, target_lang, profile, session_delta, translate_fn, history,
+            roleplay=roleplay,
         )
         result["weekly_progress"] = weekly_progress(result["profile"])
         return result
@@ -7695,6 +7909,7 @@ def process_turn(
     if translate_fn and HELP_CMD_RE.match(user_text.strip()):
         cmd = _help_command_response(
             user_text, target_lang, profile, session_delta, translate_fn, history,
+            roleplay=roleplay,
         )
         if cmd:
             cmd["weekly_progress"] = weekly_progress(cmd["profile"])
@@ -7703,7 +7918,8 @@ def process_turn(
     # "yardım" ile başlayan istek → cümle kurma öğretimi
     if translate_fn and _is_yardim_request(user_text):
         result = _yardim_help_mode(
-            user_text, target_lang, profile, session_delta, translate_fn, history=history,
+            user_text, target_lang, profile, session_delta, translate_fn,
+            history=history, roleplay=roleplay,
         )
         result["weekly_progress"] = weekly_progress(result["profile"])
         return result
@@ -7711,7 +7927,8 @@ def process_turn(
     # Açık yardım ifadeleri (nasıl söylerim, ne cevap verebilirim…)
     if translate_fn and HELP_RE.search(user_text):
         result = _help_mode(
-            user_text, target_lang, translate_fn, profile, session_delta, history=history,
+            user_text, target_lang, translate_fn, profile, session_delta,
+            history=history, roleplay=roleplay,
         )
         result["weekly_progress"] = weekly_progress(result["profile"])
         return result
@@ -8250,7 +8467,13 @@ def _pack(
     active_from_delta = delta.get("activeTeacherQuestion") if isinstance(delta, dict) else None
     active_from_profile = profile.get("activeTeacherQuestion") if isinstance(profile, dict) else None
     if question_text and "?" in question_text:
-        active_q = _make_active_question(question_text, target_lang)
+        active_q = _make_active_question(
+            question_text,
+            target_lang,
+            roleplay=delta.get("activeScenarioId") or delta.get("activeScenario")
+            or profile.get("activeScenarioId") or profile.get("activeScenario"),
+            profile=profile,
+        )
     elif isinstance(active_from_delta, dict) and active_from_delta.get("originalText"):
         active_q = active_from_delta
     elif isinstance(active_from_profile, dict) and active_from_profile.get("originalText"):
