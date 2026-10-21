@@ -856,7 +856,123 @@
     }
   }
 
+  // ------------------------------------------------------------ Canlı ses (eğitimdeki aynı yapı)
+  // Bas → anında kayıt; bırak → ~0,3 sn'de Türkçe yazı + hedef dilde sesli karşılık; ardından ders hazırlanır.
+  const LIVE_OK = !!(window.LiveAudio && window.WebSocket && window.AudioWorkletNode && navigator.mediaDevices);
+  const LV = { session: null, key: '', player: null, mic: null, pending: [], talking: false, turn: null, micBusy: false, ready: null };
+  function liveSession() {
+    const k = LS.getLang();
+    if (LV.session && LV.key !== k) { LV.session.close(); LV.session = null; }
+    if (!LV.player) LV.player = new LiveAudio.Player({});
+    if (!LV.session) {
+      LV.key = k;
+      const s = new LiveAudio.Session({
+        body: () => ({ kind: 'interpret', source: 'tr', target: LS.getLang() }),
+        onInput: (t) => {
+          const tn = LV.turn; if (!tn) return;
+          tn.text = (tn.text + t).replace(/\s+/g, ' ');
+          const input = $(tn.inputId); if (input) input.value = tn.text.trim();
+          setUi(`✓ "${tn.text.trim().slice(0, 40)}${tn.text.length > 40 ? '…' : ''}"`, true);
+          clearTimeout(tn.timer);
+          tn.timer = setTimeout(() => submitTurn(tn), 350);
+        },
+        onAudio: (u8, rate) => { LV.player.enqueue(u8, rate); },
+        onTurnComplete: () => { if (LV.turn) submitTurn(LV.turn); },
+        onState: (st) => {
+          if ((st === 'closed' || st === 'goaway') && document.visibilityState === 'visible' && LV.session === s) {
+            setTimeout(() => { if (LV.session === s) s.connect().catch(() => {}); }, 1200);
+          }
+        },
+      });
+      LV.session = s;
+    }
+    return LV.session;
+  }
+  async function submitTurn(tn) {
+    if (!tn || tn.submitted || LV.talking) return;
+    clearTimeout(tn.timer);
+    if (!tn.text.trim()) return;
+    tn.submitted = true;
+    if (tn.inputId === 'wordInput') await buildWord();
+    else await buildSentence();
+  }
+  function makeLiveMic(btnId, inputId) {
+    const btn = $(btnId);
+    if (!btn) return null;
+    const down = async (e) => {
+      e.preventDefault();
+      btn._held = true;
+      if (LV.talking || LV.micBusy || busy) return;
+      LiveAudio.unlock();
+      if (!LiveAudio.micReady()) {
+        LV.micBusy = true; btn.classList.add('arming');
+        let perm = 'unknown';
+        try { perm = await LiveAudio.micPermission(); } catch { /* ignore */ }
+        if (perm !== 'granted') setUi('Mikrofon izni isteniyor… “İzin ver”e dokun', true);
+        const t0 = performance.now();
+        try { await LiveAudio.openMic(); } catch (err) {
+          LV.micBusy = false; btn.classList.remove('arming');
+          setUi(err && err.name === 'NotAllowedError' ? 'Mikrofon izni gerekli (Ayarlar → Safari → Mikrofon)' : 'Mikrofon açılamadı', false);
+          return;
+        }
+        LV.micBusy = false; btn.classList.remove('arming');
+        if (perm !== 'granted' || performance.now() - t0 > 900 || !btn._held) { setUi('Mikrofon hazır ✓ — şimdi basılı tutup Türkçe söyle', false); return; }
+      }
+      if (!btn._held) return;
+      LV.talking = true; LV.pending = [];
+      if (LV.player) LV.player.stop();
+      LV.turn = { inputId, text: '', submitted: false, timer: null };
+      const input = $(inputId); if (input) input.value = '';
+      btn.classList.add('recording');
+      setUi('🎙️ Dinliyorum — Türkçe söyle', true);
+      const s = liveSession();
+      s._activity = false;
+      LV.ready = s.connect().then(() => {
+        s.activityStart(); s._activity = true;
+        const q = LV.pending; LV.pending = []; q.forEach((c) => s.sendAudio(c));
+      });
+      LV.ready.catch(() => { LV.talking = false; btn.classList.remove('recording'); setUi('Canlı bağlantı kurulamadı — yazarak dene', false); });
+      LV.mic = new LiveAudio.Mic({
+        onChunk: (u8) => { if (s.isOpen && s._activity && !LV.pending.length) s.sendAudio(u8); else LV.pending.push(u8); },
+        onLevel: (lv) => { btn.style.setProperty('--lv', Math.min(1, lv * 3).toFixed(2)); if (lv > 0.06) setUi('🎙️ Seni duyuyorum…', true); },
+      });
+      LV.mic.start().catch(() => { LV.talking = false; btn.classList.remove('recording'); setUi('Mikrofon açılamadı', false); });
+    };
+    const up = async (e) => {
+      e.preventDefault();
+      btn._held = false;
+      if (!LV.talking) return;
+      LV.talking = false;
+      btn.classList.remove('recording', 'arming');
+      btn.style.removeProperty('--lv');
+      setUi('🔄 Anlıyorum…', true);
+      const m = LV.mic; LV.mic = null;
+      if (m) await m.stop();
+      const s = LV.session;
+      try { await LV.ready; } catch { return; }
+      if (!s || !s.isOpen) return;
+      if (LV.pending.length) { const q = LV.pending; LV.pending = []; q.forEach((c) => s.sendAudio(c)); }
+      s.activityEnd(); s._activity = false;
+      const tn = LV.turn;
+      setTimeout(() => { if (LV.turn === tn && tn && !tn.text) setUi('Seni duyamadım — basılı tutup tekrar söyle', false); }, 5000);
+    };
+    let touchUsed = false;
+    btn.addEventListener('contextmenu', (e) => e.preventDefault());
+    btn.addEventListener('touchstart', (e) => { touchUsed = true; void down(e); }, { passive: false });
+    btn.addEventListener('touchend', (e) => void up(e), { passive: false });
+    btn.addEventListener('touchcancel', (e) => void up(e), { passive: false });
+    btn.addEventListener('mousedown', (e) => { if (!touchUsed) void down(e); });
+    btn.addEventListener('mouseup', (e) => { if (!touchUsed) void up(e); });
+    btn.addEventListener('mouseleave', (e) => { if (!touchUsed && LV.talking) void up(e); });
+    return { live: true };
+  }
+  function warmLiveBuilder() {
+    if (!LIVE_OK || document.visibilityState !== 'visible') return;
+    liveSession().connect().catch(() => {});
+  }
+
   function makeInputMic(btnId, inputId, thenSubmit) {
+    if (LIVE_OK) return makeLiveMic(btnId, inputId);
     if (!window.MicHold) return null;
     const localS = { ...micS };
     const mic = MicHold.create({
@@ -973,6 +1089,9 @@
     renderSavedLists();
     wordMic = makeInputMic('wordMicBtn', 'wordInput', true);
     sentenceMic = makeInputMic('sentenceMicBtn', 'sentenceInput', true);
+    warmLiveBuilder();
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') warmLiveBuilder(); });
+    $('learnLang')?.addEventListener('change', () => setTimeout(warmLiveBuilder, 50));
 
     $('wordGoBtn')?.addEventListener('click', buildWord);
     $('sentenceGoBtn')?.addEventListener('click', buildSentence);

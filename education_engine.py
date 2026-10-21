@@ -7740,7 +7740,7 @@ def _llm_chat_json_raw(
     if provider == "gemini":
         # Kelime dersi: yeterli süre — kesik JSON / sade şablon üretmesin
         word_lesson = max_tokens >= 2000
-        timeout = 45 if word_lesson else None
+        timeout = 20 if word_lesson else None
         return _gemini_api_request({
             "systemInstruction": {"parts": [{"text": system}]},
             "contents": [{"role": "user", "parts": [{"text": user}]}],
@@ -7803,7 +7803,8 @@ def _llm_json(
 
 def _llm_json_word_lesson(system: str, user: str, max_tokens: int = 2400) -> dict[str, Any] | None:
     """Kelime dersi — Gemini birincil (kalite), Groq yedek. Sıralı dener."""
-    prefer = os.environ.get("WORD_LESSON_PROVIDER", "gemini").strip().lower()
+    # Hız: Groq gpt-oss-120b birkaç saniyede üretir (Gemini 25-50 sn sürüyordu). Gemini yalnızca yedek.
+    prefer = os.environ.get("WORD_LESSON_PROVIDER_FORCE", "groq").strip().lower()
     providers: list[str] = []
     if prefer == "groq":
         if groq_api_key_valid():

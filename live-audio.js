@@ -303,7 +303,7 @@
       return this.ready;
     }
     async _open(attempt = 0) {
-      const body = Object.assign({}, this.o.body || {}, { variant: this.variant });
+      const body = Object.assign({}, (typeof this.o.body === 'function' ? this.o.body() : this.o.body) || {}, { variant: this.variant });
       let d;
       try {
         const r = await fetch('/api/live/session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });

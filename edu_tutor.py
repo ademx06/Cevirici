@@ -675,8 +675,35 @@ def annotate(lang: str, tutor_text: str, user_text: str = "", *, level: str = "A
 RULE_LANGS_LOCAL = {"es", "it", "de", "fr", "ru", "ka"}
 
 _TR_WORDS = re.compile(
-    r"\b(ve|bir|bu|için|yerine|kullan\w*|geçmiş|zaman|fiil\w*|cümle\w*|demek|diyoruz|söyle\w*|olur|değil|"
-    r"çünkü|yani|şöyle|doğru\w*|türkçe\w*|kelime\w*|anlam\w*|ile|gibi|ama|daha|sonra|şimdi|tekrar)\b", re.I)
+    r"\b(ve|bir|bu|şu|için|yerine|kullan\w*|geçmiş|zaman\w*|fiil\w*|cümle\w*|demek|diyoruz|söyle\w*|olur|değil|"
+    r"çünkü|yani|şöyle|doğru\w*|türkçe\w*|kelime\w*|anlam\w*|ile|gibi|ama|daha|sonra|şimdi|tekrar|sonuna|başına|"
+    r"ekle\w*|ekliyoruz|burada|evet|hayır|çok|iyi|güzel|harika|aferin|bravo|dikkat|kural\w*|örne\w*|hatırla\w*|bak|"
+    r"mesela|sadece|başına|ifade\w*|gerek\w*|şekl\w*|nasıl|neden|niye|mı|mü|yok|sona|gelir|gider|lazım|olmalı|olarak|oluyor|"
+    r"söylenir|denir|kullanılır|kullanılmaz|soru\w*|cevap\w*|dene|tekrarla|haydi|hadi|şimdiki|gelecek|çoğul|tekil|"
+    r"artikel\w*|isim\w*|sıfat\w*|zamir\w*|eki|ekini|harf\w*|okunuş\w*|sesli|sessiz)\b", re.I)
+_TR_SUFFIX = re.compile(r"^\w{2,}(yor|yoruz|yorsun|yorum|mak|mek|ması|mesi|ları|leri|dır|dur|dür|tır|tur|tür|sınız|siniz|"
+                        r"ıyla|iyle|ndan|nden|ması|lım|lim)$", re.I)
+_EN_COMMON = {"i", "you", "he", "she", "it", "we", "they", "a", "an", "the", "is", "am", "are", "was", "were", "do", "does",
+              "did", "to", "of", "in", "on", "at", "for", "and", "or", "but", "what", "how", "where", "when", "why", "who",
+              "my", "your", "me", "mean", "like", "have", "has", "can", "nice", "good", "great", "fine", "thank", "thanks",
+              "yes", "no", "not", "with", "this", "that", "there", "here", "so", "very", "today", "go", "went", "be"}
+
+
+def _is_turkish_sentence(snt: str, lang: str) -> bool:
+    core = re.sub(r"[\"“”'‘’«»][^\"“”'‘’«»]{0,60}[\"“”'‘’«»]", " ", snt)  # tırnak içindeki hedef-dil örneklerini sayma
+    if re.search(r"[ğışİĞŞ]", core):
+        return True
+    words = re.findall(r"[A-Za-zÇĞİÖŞÜçğıöşüÄÖÜäöüßéèêàâçñáíóú]+", core)
+    if not words:
+        return False
+    if lang in ("ru", "ar", "zh", "ka"):
+        latin = len(re.sub(r"[^A-Za-zÇĞİÖŞÜçğıöşü]", "", core))
+        allw = len(re.sub(r"\W", "", core)) or 1
+        if latin < 0.6 * allw:
+            return False
+    tr = sum(1 for w in words if _TR_WORDS.fullmatch(w) or _TR_SUFFIX.match(w) or re.search(r"[çöüÇÖÜ]", w) and lang != "de")
+    en = sum(1 for w in words if w.lower() in _EN_COMMON) if lang == "en" else 0
+    return tr >= 1 and tr >= en and tr / len(words) >= 0.3
 
 
 def split_turkish(text: str, lang: str) -> tuple[list[str], list[str]]:
@@ -684,12 +711,7 @@ def split_turkish(text: str, lang: str) -> tuple[list[str], list[str]]:
     sents = [x.strip() for x in re.findall(r"[^.!?。！？؟]+[.!?。！？؟]*", text or "") if x.strip()]
     target, tr = [], []
     for snt in sents:
-        latin = re.sub(r"[^A-Za-zÇĞİÖŞÜçğıöşü]", "", snt)
-        if lang in ("ru", "ar", "zh", "ka"):
-            is_tr = len(latin) > 0.6 * max(1, len(re.sub(r"\W", "", snt))) and bool(re.search(r"[çğıöşüÇĞİÖŞÜ]|" + _TR_WORDS.pattern, snt, re.I))
-        else:
-            is_tr = bool(re.search(r"[ğışİĞŞ]", snt)) or len(_TR_WORDS.findall(snt)) >= 2
-        (tr if is_tr else target).append(snt)
+        (tr if _is_turkish_sentence(snt, lang) else target).append(snt)
     if not target:
         return [text], []
     return target, tr

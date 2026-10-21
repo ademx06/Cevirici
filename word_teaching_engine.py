@@ -23,7 +23,7 @@ ENGLISH_VARIANT = "en-US"
 DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
 WORD_LESSON_MAX_TOKENS = 3200
 WORD_LESSON_FAST_MAX_TOKENS = 2800
-AI_LESSON_MAX_ATTEMPTS = 2
+AI_LESSON_MAX_ATTEMPTS = 1  # tek hızlı deneme; eksikler kural tabanlı tamamlanır
 
 WORD_LESSON_FAST_PROMPT = """Sen profesyonel dil öğretmenisin — Cümle Kur kartı hazırla.
 Türkçe: «{word_tr}» → {lang_name}: «{target_word}» | Tür: {pos_label}

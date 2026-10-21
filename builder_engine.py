@@ -404,6 +404,11 @@ def generate_word_lesson(
     word_tr = safe_str(word_tr).strip()
     if len(word_tr) < 2:
         return {"ok": False, "error_tr": "En az 2 harfli bir kelime gir."}
+    try:
+        from pronunciation_service import set_meaning_budget
+        set_meaning_budget(3.0)
+    except Exception:
+        pass
 
     lang_name = LANG_NAMES.get(target_lang, target_lang)
     target_word = ""

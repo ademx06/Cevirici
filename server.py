@@ -32,7 +32,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.10.21-v74.7"
+APP_VERSION = "2026.10.21-v75.0"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -3637,7 +3637,7 @@ class Handler(SimpleHTTPRequestHandler):
     def handle_live_session(self):
         """Gemini Live için kısa ömürlü jeton + kurulum mesajı (telefon doğrudan Google'a bağlanır)."""
         p = self._read_json_body()
-        kind = "translate" if p.get("kind") == "translate" else "tutor"
+        kind = p.get("kind") if p.get("kind") in ("translate", "interpret") else "tutor"
         weak = p.get("weak") if isinstance(p.get("weak"), list) else []
         res = edu_live.live_session(
             kind,
@@ -3650,6 +3650,10 @@ class Handler(SimpleHTTPRequestHandler):
             model=re.sub(r"[^\w./:-]", "", safe_str(p.get("model")))[:60],
             variant=int(p.get("variant") or 0) if str(p.get("variant") or "0").isdigit() else 0,
             vad=bool(p.get("vad")),
+            source=safe_str(p.get("source") or "tr")[:8],
+            both=bool(p.get("both")),
+            history=[{"role": "user" if (h or {}).get("role") == "user" else "model", "text": safe_str((h or {}).get("text"))[:300]}
+                     for h in (p.get("history") if isinstance(p.get("history"), list) else [])[-12:] if isinstance(h, dict)],
         )
         if not res.get("ok") and p.get("model"):
             edu_live.mark_model_dead(safe_str(p.get("model")))

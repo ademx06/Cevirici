@@ -2478,6 +2478,15 @@ def word_meaning_tr(word: str) -> str:
 
 
 _MEANING_BATCH_CACHE: dict[str, str] = {}
+_MEANING_FAIL_UNTIL = [0.0]
+import threading as _threading
+_MEANING_LOCAL = _threading.local()
+
+
+def set_meaning_budget(seconds: float | None) -> None:
+    """Bu istek (thread) için Google anlam sorgularına toplam süre sınırı — ders hızlı dönsün."""
+    import time as _t
+    _MEANING_LOCAL.deadline = (_t.time() + seconds) if seconds else None
 
 
 def batch_word_meanings_tr(words: list[str]) -> dict[str, str]:
@@ -2500,10 +2509,15 @@ def batch_word_meanings_tr(words: list[str]) -> dict[str, str]:
             out[low] = known
             continue
         if low in _MEANING_BATCH_CACHE:
-            out[low] = _MEANING_BATCH_CACHE[low]
+            if _MEANING_BATCH_CACHE[low]:
+                out[low] = _MEANING_BATCH_CACHE[low]
             continue
         need.append(low)
-    if not need:
+    import time as _time
+    if not need or _time.time() < _MEANING_FAIL_UNTIL[0]:
+        return out
+    deadline = getattr(_MEANING_LOCAL, "deadline", None)
+    if deadline and _time.time() > deadline:
         return out
     # En fazla 24 kelime — satır satır çevir
     chunk = need[:24]
@@ -2514,7 +2528,9 @@ def batch_word_meanings_tr(words: list[str]) -> dict[str, str]:
             f"&q={quote(payload)}"
         )
         req = Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urlopen(req, timeout=3.5) as resp:
+        for w in chunk:
+            _MEANING_BATCH_CACHE.setdefault(w, "")  # bulunamayan kelime tekrar sorulmasın
+        with urlopen(req, timeout=2.5) as resp:
             page = resp.read().decode("utf-8", errors="ignore")
         match = re.search(r'class="result-container">([^<]+)', page)
         if not match:
@@ -2533,7 +2549,7 @@ def batch_word_meanings_tr(words: list[str]) -> dict[str, str]:
                     _MEANING_BATCH_CACHE[chunk[0]] = tr
                     out[chunk[0]] = tr
     except (URLError, TimeoutError, OSError, ValueError):
-        pass
+        _MEANING_FAIL_UNTIL[0] = _time.time() + 120  # servis yanıt vermiyor → 2 dk sorma (ders beklemesin)
     return out
 
 

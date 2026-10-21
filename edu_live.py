@@ -43,7 +43,8 @@ _DEAD_MODELS: dict[str, float] = {}
 _KEY_COOLDOWN: dict[str, float] = {}
 
 
-def tutor_instructions(lang: str, level: str, scenario: str | None = None, weak: list[str] | None = None) -> str:
+def tutor_instructions(lang: str, level: str, scenario: str | None = None, weak: list[str] | None = None,
+                       history: list[dict] | None = None) -> str:
     name = LANG_NAMES.get(lang, "English")
     level = level if level in LEVEL_STYLE else "A1"
     parts = [
@@ -68,21 +69,29 @@ def tutor_instructions(lang: str, level: str, scenario: str | None = None, weak:
             )
     if weak:
         parts.append("Learner's recent mistakes (gently practise these): " + "; ".join(w[:80] for w in weak[:4]))
-    parts.append(
-        f"When you receive the text '[BAŞLA]', greet the learner warmly in {name} in one short sentence and ask one easy question."
-    )
+    hist = [h for h in (history or []) if isinstance(h, dict) and str(h.get("text") or "").strip()][-12:]
+    if hist:
+        lines = [("Learner" if h.get("role") == "user" else "You") + ": " + str(h.get("text"))[:240].replace("\n", " ") for h in hist]
+        parts.append("CONVERSATION SO FAR (continue it naturally, remember what the learner told you, do not restart):\n"
+                     + "\n".join(lines))
+        parts.append(f"When you receive the text '[BAŞLA]', welcome the learner back in {name} in one short sentence and "
+                     "continue from where you left off with one question.")
+    else:
+        parts.append(
+            f"When you receive the text '[BAŞLA]', greet the learner warmly in {name} in one short sentence and ask one easy question."
+        )
     return "\n".join(parts)
 
 
 def tutor_setup(model: str, lang: str, level: str, scenario: str | None, weak: list[str] | None, voice: str = "",
-                vad: bool = False) -> dict:
+                vad: bool = False, history: list[dict] | None = None) -> dict:
     gen: dict = {"responseModalities": ["AUDIO"], "temperature": 0.7}
     if voice:
         gen["speechConfig"] = {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice}}}
     return {
         "model": f"models/{model}",
         "generationConfig": gen,
-        "systemInstruction": {"parts": [{"text": tutor_instructions(lang, level, scenario, weak)}]},
+        "systemInstruction": {"parts": [{"text": tutor_instructions(lang, level, scenario, weak, history)}]},
         # vad=True: ses yalnızca basılıyken gönderilir, Google konuşmayı kendisi algılar → yazı konuşurken akar;
         #           bırakınca audioStreamEnd ile cevap hemen başlar. vad=False: activityStart/End elle.
         "realtimeInputConfig": ({"automaticActivityDetection": {
@@ -92,6 +101,34 @@ def tutor_setup(model: str, lang: str, level: str, scenario: str | None, weak: l
         "inputAudioTranscription": {},
         "outputAudioTranscription": {},
         "sessionResumption": {},
+    }
+
+
+def interpret_instructions(source: str, target: str, both: bool) -> str:
+    a, b = LANG_NAMES.get(source, source), LANG_NAMES.get(target, target)
+    rules = ("Translate faithfully in first person with the same meaning, tone and politeness. Speak naturally and clearly. "
+             "Never answer questions, never comment, never greet, never explain, never add or drop information. "
+             "If a question is asked, translate the question itself. If the audio is only noise or unclear, say nothing.")
+    if both:
+        return (f"You are a professional two-way interpreter between {a} and {b}. You are NOT a chatbot or assistant. "
+                f"When you hear {a}, speak ONLY its {b} translation. When you hear {b}, speak ONLY its {a} translation. " + rules)
+    return (f"You are a professional interpreter. You are NOT a chatbot or assistant. The speaker speaks {a}. "
+            f"Speak ONLY the {b} translation of what they say (if they use another language, still translate into {b}). " + rules)
+
+
+def interpret_setup(model: str, source: str, target: str, both: bool = False, vad: bool = False) -> dict:
+    """Canlı tercüman — eğitimdeki aynı Live model; bas-konuş (elle) ya da eller serbest (otomatik algılama)."""
+    ric = ({"automaticActivityDetection": {
+        "disabled": False, "startOfSpeechSensitivity": "START_SENSITIVITY_HIGH",
+        "endOfSpeechSensitivity": "END_SENSITIVITY_HIGH", "prefixPaddingMs": 100, "silenceDurationMs": 700}}
+        if vad else {"automaticActivityDetection": {"disabled": True}})
+    return {
+        "model": f"models/{model}",
+        "generationConfig": {"responseModalities": ["AUDIO"], "temperature": 0.2},
+        "systemInstruction": {"parts": [{"text": interpret_instructions(source, target, both)}]},
+        "realtimeInputConfig": ric,
+        "inputAudioTranscription": {},
+        "outputAudioTranscription": {},
     }
 
 
@@ -156,14 +193,18 @@ def create_token(setup: dict, minutes: int = 30) -> dict:
 
 def live_session(kind: str, *, lang: str = "en", level: str = "A1", scenario: str | None = None,
                  weak: list[str] | None = None, target: str = "en", voice: str = "", model: str = "",
-                 variant: int = 0, vad: bool = False) -> dict:
+                 variant: int = 0, vad: bool = False, source: str = "tr", both: bool = False,
+                 history: list[dict] | None = None) -> dict:
     """Jeton + kurulum mesajı + WebSocket adresi (istemci doğrudan Google'a bağlanır)."""
     if kind == "translate":
         models = [model] if model else TRANSLATE_MODELS
         build = lambda m: translate_setup(m, target, variant)  # noqa: E731
+    elif kind == "interpret":
+        models = [model] if model else TUTOR_MODELS
+        build = lambda m: interpret_setup(m, source, target, both, vad)  # noqa: E731
     else:
         models = [model] if model else TUTOR_MODELS
-        build = lambda m: tutor_setup(m, lang, level, scenario, weak, voice, vad)  # noqa: E731
+        build = lambda m: tutor_setup(m, lang, level, scenario, weak, voice, vad, history)  # noqa: E731
     models = [m for m in models if _DEAD_MODELS.get(m, 0) < time.time()] or models
     m = models[0]
     setup = build(m)
@@ -178,7 +219,7 @@ def live_session(kind: str, *, lang: str = "en", level: str = "A1", scenario: st
         "model": m,
         "fallback_models": models[1:],
         # Bazı sürümlerde jetonla gelen sistem talimatı yok sayılabiliyor → istemci ayrıca ilk mesajda gönderir
-        "instructions": setup.get("systemInstruction", {}).get("parts", [{}])[0].get("text", "") if kind != "translate" else "",
+        "instructions": setup.get("systemInstruction", {}).get("parts", [{}])[0].get("text", "") if kind == "tutor" else "",
     }
 
 

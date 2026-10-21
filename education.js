@@ -569,7 +569,10 @@
     started: false, failed: 0, turnTimer: null, mode: 'speak', sessionKey: '' };
 
   function liveBody() {
-    return { kind: 'tutor', vad: TUTOR_VAD, lang: P.lang, level: level(), scenario: P.scenario || null, weak: weakForApi() };
+    return { kind: 'tutor', vad: TUTOR_VAD, lang: P.lang, level: level(), scenario: P.scenario || null, weak: weakForApi(),
+      history: S.msgs.filter((m) => !m.pending).slice(-12).map((m) => (m.role === 'user'
+        ? { role: 'user', text: m.text || '' }
+        : { role: 'model', text: m.reply || (m.examples && m.examples[0] && m.examples[0].text) || '' })).filter((h) => h.text) };
   }
   function liveKey() { return `${P.lang}|${level()}|${P.scenario || ''}`; }
 
@@ -592,10 +595,10 @@
     if (!L.session) {
       L.sessionKey = liveKey();
       L.session = new LiveAudio.Session({
-        body: liveBody(),
+        body: liveBody,
         onReady: () => {
           // Yeni oturum (devam tutamacı yoksa): önceki sohbeti bağlam olarak ver
-          if (!L.session.handle && S.msgs.length) L.session.seed(seedTurns());
+          // geçmiş sohbet artık oturum talimatında (sunucu) — burada ayrıca göndermeye gerek yok
         },
         onAudio: (u8, rate) => {
           if (!L.tutorMsg) startTutorMsg();
