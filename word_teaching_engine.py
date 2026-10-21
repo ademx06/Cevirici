@@ -92,8 +92,11 @@ Türkçe: "{word_tr}" → {lang_name} fiil: "{target_word}"
 - usage_notes_tr: en az 2 cümle — anlam, çekim, yaygın hata
 - part_of_speech: "verb"
 
-JSON: meaning_tr, usage_notes_tr, part_of_speech, countability, semantic_category,
-common_verbs, common_collocations, article_notes_items, avoid_reason_tr, examples"""
+- target: TAM {lang_name} cümle (en az 4 kelime), hedef fiilin doğru çekimli hali — İngilizce/Türkçe karışık YASAK
+- word_breakdown: 3-5 önemli token (token, role_tr, meaning_tr)
+
+JSON döndür (alan adları AYNEN böyle):
+{{"meaning_tr":"","part_of_speech":"verb","countability":"","semantic_category":"","usage_notes_tr":"","common_verbs":[],"common_collocations":[],"article_notes_items":[],"avoid_reason_tr":"","examples":[{{"tr":"","target":"","sentence_type":"","structure_tr":"","how_it_is_formed_tr":"","word_breakdown":[]}}]}}"""
 
 
 def templates_allowed() -> bool:
@@ -5592,6 +5595,24 @@ def collect_lesson_quality_issues(
     return issues
 
 
+def _normalize_ai_example(ex: dict[str, Any], target_lang: str) -> dict[str, Any]:
+    """Model alan adlarını farklı yazarsa ({"de": "Ich…"} / "sentence") düzelt; eksik açıklama alanlarını doldur."""
+    ex = dict(ex)
+    if not safe_str(ex.get("target")).strip():
+        for k in (target_lang, target_lang.split("-")[0], "sentence", "target_sentence", LANG_NAMES.get(target_lang, "")):
+            v = safe_str(ex.get(k)).strip() if k else ""
+            if v:
+                ex["target"] = v
+                break
+    if not safe_str(ex.get("tr")).strip():
+        ex["tr"] = safe_str(ex.get("turkish") or ex.get("tr_sentence")).strip()
+    if not safe_str(ex.get("sentence_type")).strip() and ex.get("type"):
+        ex["sentence_type"] = safe_str(ex.get("type"))
+    if not safe_str(ex.get("how_it_is_formed_tr")).strip():
+        ex["how_it_is_formed_tr"] = safe_str(ex.get("explanation_tr") or ex.get("explain_tr") or ex.get("how_tr")).strip()
+    return ex
+
+
 def try_ai_word_lesson(
     word_tr: str,
     target_word: str,
@@ -5617,7 +5638,7 @@ def try_ai_word_lesson(
             continue
         cand_profile = {**profile, **(dynamic.get("profile") or {})}
         cand_profile = enforce_category_usage_profile(cand_profile, word_tr, target_word, target_lang)
-        cand_examples = list(dynamic.get("examples") or [])
+        cand_examples = [_normalize_ai_example(ex, target_lang) for ex in (dynamic.get("examples") or []) if isinstance(ex, dict)]
         if len(cand_examples) > len(best_examples):
             best_profile = cand_profile
             best_examples = cand_examples
