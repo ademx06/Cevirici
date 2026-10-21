@@ -152,33 +152,79 @@ def _strip_think(raw: str) -> str:
 
 
 _GROQ_JSON_OK: dict[str, bool] = {}
+_GROQ_DEAD: dict[str, float] = {}
+# Eğitim için en doğru düzeltmeyi yapan hızlı model (Groq). Yoksa GROQ_MODEL, sonra Gemini.
+EDU_GROQ_DEFAULT = "openai/gpt-oss-120b"
+
+
+def _groq_models(model_override: str = "") -> list[str]:
+    out: list[str] = []
+    for m in (model_override, os.environ.get("EDU_GROQ_MODEL", "").strip(), EDU_GROQ_DEFAULT,
+              os.environ.get("GROQ_MODEL", "").strip()):
+        if m and m not in out and _GROQ_DEAD.get(m, 0) < time.time():
+            out.append(m)
+    return out
+
+
+def _groq(messages: list[dict], model: str, max_tokens: int, json_mode: bool, timeout: float) -> tuple[str | None, int]:
+    """Returns (text, http_status). status 0 = network/timeout."""
+    from urllib.request import Request, urlopen
+    from urllib.error import HTTPError
+    if not ee.groq_api_key_valid():
+        return None, 0
+    body: dict[str, Any] = {"model": model, "messages": messages, "temperature": 0.4, "max_tokens": max_tokens}
+    if model.startswith("openai/gpt-oss"):
+        body["reasoning_effort"] = "low"
+        body["max_tokens"] = max_tokens + 500  # reasoning tokens
+    if json_mode:
+        body["response_format"] = {"type": "json_object"}
+    try:
+        req = Request(
+            "https://api.groq.com/openai/v1/chat/completions",
+            data=json.dumps(body).encode(),
+            headers=ee._api_headers({"Authorization": f"Bearer {os.environ.get('GROQ_API_KEY', '').strip()}"}),
+            method="POST",
+        )
+        with urlopen(req, timeout=timeout) as resp:
+            data = json.loads(resp.read().decode())
+        return (data["choices"][0]["message"].get("content") or "").strip() or None, 200
+    except HTTPError as exc:
+        return None, exc.code
+    except Exception:
+        return None, 0
 
 
 def _call_llm(system: str, user: str, max_tokens: int = 700, *, engine: str = "", model_override: str = "") -> tuple[dict | None, str]:
-    """Groq first (fast), Gemini as backup. Returns (json, provider)."""
+    """Groq (doğru + hızlı model) → Groq yedek model → Gemini. Returns (json, provider)."""
     providers = ee._llm_providers_in_order()
     engine = engine or os.environ.get("EDU_ENGINE", "").strip().lower()
     if engine in providers:
         providers = [engine] + [p for p in providers if p != engine]
     messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
     for prov in providers:
-        raw = None
         if prov == "groq":
-            model = model_override or os.environ.get("EDU_GROQ_MODEL") or os.environ.get("GROQ_MODEL") or "llama-3.3-70b-versatile"
-            use_json = _GROQ_JSON_OK.get(model, True)
-            raw = ee._groq_chat(messages, max_tokens=max_tokens, json_mode=use_json, timeout_sec=12,
-                                model=model, temperature=0.5)
-            if not raw and use_json:
-                # model may reject json_mode — retry plain once and remember
-                raw = ee._groq_chat(messages, max_tokens=max_tokens, json_mode=False, timeout_sec=12,
-                                    model=model, temperature=0.5)
+            for model in _groq_models(model_override):
+                use_json = _GROQ_JSON_OK.get(model, True)
+                raw, status = _groq(messages, model, max_tokens, use_json, 10)
+                if not raw and status == 400 and use_json:
+                    raw, status = _groq(messages, model, max_tokens, False, 10)
+                    if raw:
+                        _GROQ_JSON_OK[model] = False
+                if not raw and status in (404, 403):
+                    _GROQ_DEAD[model] = time.time() + 1800  # model yok / izin yok — yarım saat atla
+                if not raw and status == 429:
+                    _GROQ_DEAD[model] = time.time() + 60
                 if raw:
-                    _GROQ_JSON_OK[model] = False
-        elif prov == "gemini":
+                    parsed = ee._parse_json_object(_strip_think(raw))
+                    if parsed and ee.safe_str(parsed.get("reply")).strip():
+                        return parsed, "groq"
+            continue
+        raw = None
+        if prov == "gemini":
             raw = ee._gemini_api_request({
                 "systemInstruction": {"parts": [{"text": system}]},
                 "contents": [{"role": "user", "parts": [{"text": user}]}],
-                "generationConfig": {"responseMimeType": "application/json", "temperature": 0.5,
+                "generationConfig": {"responseMimeType": "application/json", "temperature": 0.4,
                                      "maxOutputTokens": max_tokens},
             }, max_tokens, timeout_sec=14)
         elif prov == "openai":
