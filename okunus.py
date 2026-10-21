@@ -349,3 +349,101 @@ def okunus(text: str, lang: str, llm_fn=None) -> str:
         except Exception:
             return ""
     return ""
+
+
+# ---------------------------------------------------------------- Chinese (pinyin → Türkçe)
+
+_PY_INITIALS = ["zh", "ch", "sh", "b", "p", "m", "f", "d", "t", "n", "l", "g", "k", "h", "j", "q", "x", "r", "z", "c", "s", "y", "w"]
+_PY_FINALS = ["iang", "iong", "uang", "ueng", "ang", "eng", "ing", "ong", "iao", "ian", "uai", "uan", "üan", "ai", "ei", "ao", "ou",
+              "an", "en", "in", "un", "ün", "ia", "ie", "iu", "ua", "uo", "ui", "üe", "ue", "er", "a", "o", "e", "i", "u", "ü", "v"]
+_PY_INI_TR = {"zh": "c", "ch": "ç", "sh": "ş", "j": "c", "q": "ç", "x": "ş", "r": "j", "z": "dz", "c": "ts", "w": "v"}
+_PY_FIN_TR = {
+    "a": "a", "o": "o", "e": "ı", "ai": "ay", "ei": "ey", "ao": "au", "ou": "ou", "an": "an", "en": "ın", "ang": "ang",
+    "eng": "ıng", "ong": "ung", "er": "ır", "i": "i", "ia": "ya", "ie": "ye", "iao": "yau", "iu": "yu", "ian": "yen",
+    "in": "in", "iang": "yang", "ing": "ing", "iong": "yung", "u": "u", "ua": "ua", "uo": "uo", "uai": "uay", "ui": "uey",
+    "uan": "uan", "un": "un", "uang": "uang", "ueng": "ung", "ü": "ü", "v": "ü", "üe": "üe", "ue": "üe", "üan": "üen", "ün": "ün",
+}
+_PY_SPECIAL = {
+    "yi": "i", "ya": "ya", "ye": "ye", "yao": "yau", "you": "yo", "yan": "yen", "yin": "in", "yang": "yang", "ying": "ing",
+    "yong": "yung", "yu": "yü", "yue": "yüe", "yuan": "yüen", "yun": "yün", "wu": "u", "wa": "va", "wo": "vo", "wai": "vay",
+    "wei": "vey", "wan": "van", "wen": "vın", "wang": "vang", "weng": "vıng", "a": "a", "o": "o", "e": "ı", "ai": "ay",
+    "ei": "ey", "ao": "au", "ou": "ou", "an": "an", "en": "ın", "ang": "ang", "eng": "ıng", "er": "ır",
+}
+
+
+def _py_syllables() -> set[str]:
+    out = set(_PY_SPECIAL)
+    for ini in _PY_INITIALS:
+        if ini in ("y", "w"):
+            continue
+        for fin in _PY_FINALS:
+            out.add(ini + fin)
+    return out
+
+
+_PY_SET = _py_syllables()
+_PY_MAX = max(len(s) for s in _PY_SET)
+
+
+def _py_strip_tones(s: str) -> str:
+    s = unicodedata.normalize("NFD", s).replace("ü", "\0").replace("Ü", "\1")
+    s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+    return s.replace("\0", "ü").replace("\1", "Ü")
+
+
+def _py_syl_tr(syl: str) -> str:
+    if syl in _PY_SPECIAL:
+        return _PY_SPECIAL[syl]
+    for ini in _PY_INITIALS:
+        if syl.startswith(ini):
+            fin = syl[len(ini):]
+            if ini in ("j", "q", "x"):
+                fin = {"u": "ü", "ue": "üe", "uan": "üan", "un": "ün"}.get(fin, fin)
+            ini_tr = _PY_INI_TR.get(ini, ini)
+            if fin == "i" and ini in ("zh", "ch", "sh", "r", "z", "c", "s"):
+                return ini_tr + "ı"
+            return ini_tr + _PY_FIN_TR.get(fin, fin)
+    return syl
+
+
+def _py_segment(word: str) -> list[str] | None:
+    """Greedy-with-backtracking split of a joined pinyin word ('xihuan' → xi, huan)."""
+    memo: dict[int, list[str] | None] = {}
+
+    def go(i: int) -> list[str] | None:
+        if i == len(word):
+            return []
+        if i in memo:
+            return memo[i]
+        for L in range(min(_PY_MAX, len(word) - i), 0, -1):
+            piece = word[i:i + L]
+            if piece in _PY_SET:
+                rest = go(i + L)
+                if rest is not None:
+                    memo[i] = [piece] + rest
+                    return memo[i]
+        memo[i] = None
+        return None
+
+    return go(0)
+
+
+def pinyin_okunus(pinyin: str) -> str:
+    """'Wǒ yě xǐhuan hē kāfēi.' → 'Vo ye şihuan hı kafey.'"""
+    text = re.sub(r"(?<=[A-Za-zÜü])[1-5]", "", _py_strip_tones(pinyin or "")).strip()
+    if not text:
+        return ""
+
+    def repl(m: re.Match) -> str:
+        raw = m.group(0)
+        parts = []
+        for chunk in re.split(r"['’]", raw.lower()):
+            segs = _py_segment(chunk.replace("v", "ü")) if chunk else []
+            if segs is None:
+                parts.append(chunk)
+            else:
+                parts.append("".join(_py_syl_tr(s) for s in segs))
+        out = "".join(parts)
+        return out[:1].upper() + out[1:] if raw[:1].isupper() else out
+
+    return _tidy(re.sub(r"[A-Za-zÜü'’]+", repl, text))

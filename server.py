@@ -31,7 +31,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.10.21-v73.0"
+APP_VERSION = "2026.10.21-v73.1"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -155,27 +155,69 @@ def edge_tts(text: str, lang: str, rate: str = "+0%", voice: str | None = None) 
     return asyncio.run(_run())
 
 
+def _split_for_google(text: str, limit: int = 190) -> list[str]:
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) <= limit:
+        return [text] if text else []
+    parts = re.findall(r"[^.!?。！？؟]+[.!?。！？؟]*", text) or [text]
+    out: list[str] = []
+    cur = ""
+    for p in parts:
+        p = p.strip()
+        while len(p) > limit:
+            cut = p.rfind(" ", 0, limit)
+            cut = cut if cut > 40 else limit
+            if cur:
+                out.append(cur)
+                cur = ""
+            out.append(p[:cut].strip())
+            p = p[cut:].strip()
+        if len(cur) + len(p) + 1 <= limit:
+            cur = f"{cur} {p}".strip()
+        else:
+            if cur:
+                out.append(cur)
+            cur = p
+    if cur:
+        out.append(cur)
+    return out
+
+
+def google_tts_long(text: str, lang: str) -> bytes | None:
+    """Google TTS (hızlı) — 200 karakter sınırı için parçalayıp paralel üret, MP3'leri birleştir."""
+    pieces = _split_for_google(text)
+    if not pieces:
+        return None
+    tl = GOOGLE_TL.get(lang, lang)
+    if len(pieces) == 1:
+        return google_tts(pieces[0], tl)
+    with ThreadPoolExecutor(max_workers=min(4, len(pieces))) as ex:
+        chunks = list(ex.map(lambda p: google_tts(p, tl), pieces))
+    if not all(chunks):
+        return None
+    return b"".join(chunks)
+
+
 def synthesize(text: str, lang: str, slow: bool = False, locale: str | None = None,
                neural: bool = False) -> bytes:
     voice = accent_voice(lang, locale)
-    if voice or neural:
-        # Eğitim / aksan: hedef dilin yerli nöral sesi (doğru telaffuz); hata olursa Google
+    if voice or neural or slow:
+        # Aksan seçildi / yavaş: hedef dilin yerli nöral sesi; hata olursa Google
         try:
             data = edge_tts(text, lang, rate="-18%" if slow else "+0%", voice=voice)
             if data and len(data) > 200:
                 return data
         except Exception:
             pass
-        data = google_tts(text[:200], lang)
+        data = google_tts_long(text, lang)
         if data:
             return data
         raise ValueError("tts failed")
-    if slow:
-        return edge_tts(text, lang, rate="-15%")
-    data = google_tts(text, lang)
+    # Varsayılan: en hızlı yol (Google) — eğitimde anında ses için
+    data = google_tts_long(text, lang)
     if data:
         return data
-    return edge_tts(text, lang, rate="+18%")
+    return edge_tts(text, lang, rate="+8%")
 
 
 # ---- TTS önbellek + aynı anda gelen istekleri birleştirme + ön ısıtma ----
@@ -237,7 +279,7 @@ def tts_prewarm(items: list[dict], slow: bool = False, locale: str | None = None
 
         def _job(t=text, lg=lang, lc=loc):
             try:
-                tts_get(t, lg, slow=slow, locale=lc, neural=True)
+                tts_get(t, lg, slow=slow, locale=lc, neural=False)
             except Exception:
                 pass
         _TTS_POOL.submit(_job)

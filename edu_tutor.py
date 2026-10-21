@@ -43,15 +43,16 @@ SCRIPT_RULE = {
 }
 
 # Languages whose Turkish reading the model must produce (no reliable rules)
-LLM_OKUNUS = {"en", "fr", "ar", "zh"}
+LLM_OKUNUS = {"en", "fr", "ar"}
+# Chinese: the model writes pinyin (very reliable) → we convert to Turkish letters by rule
+PINYIN_LANGS = {"zh"}
 
 OKUNUS_RULE = (
     "OKUNUS = how a Turkish speaker should read the exact target text aloud, written with the Turkish "
     "alphabet (a b c ç d e f g ğ h ı i j k l m n o ö p r s ş t u ü v y z). It is NOT a translation. "
     "Follow real native pronunciation (silent letters dropped, linking, weak vowels as ı). "
     "Examples: English 'How are you today?' -> 'Hav ar yu tıdey?'; 'I would like a coffee.' -> 'Ay vud layk ı kofi.'; "
-    "French 'Je voudrais un café.' -> 'Jö vudre en kafe.'; Arabic 'كَيْفَ حَالُكَ؟' -> 'Keyfe hâlük?'; "
-    "Chinese '你好吗？' -> 'Ni hav ma?'."
+    "French 'Je voudrais un café.' -> 'Jö vudre en kafe.'; Arabic 'كَيْفَ حَالُكَ؟' -> 'Keyfe hâlük?'."
 )
 
 
@@ -91,9 +92,10 @@ def _history_text(history: list[dict]) -> str:
 def _system_prompt(lang: str, level: str, mode: str, scenario: str, weak: list[str]) -> str:
     name = LANG_NAMES.get(lang, lang)
     need_ok = lang in LLM_OKUNUS
-    ok_field = ', "okunus": "<Turkish reading of reply>"' if need_ok else ""
-    ok_fix = ', "fixed_okunus": "<Turkish reading of fixed>"' if need_ok else ""
-    ok_ex = ', "okunus": "<Turkish reading>"' if need_ok else ""
+    need_py = lang in PINYIN_LANGS
+    ok_field = ', "okunus": "<Turkish reading of reply>"' if need_ok else ', "pinyin": "<pinyin of reply with tone marks>"' if need_py else ""
+    ok_fix = ', "fixed_okunus": "<Turkish reading of fixed>"' if need_ok else ', "fixed_pinyin": "<pinyin with tone marks>"' if need_py else ""
+    ok_ex = ', "okunus": "<Turkish reading>"' if need_ok else ', "pinyin": "<pinyin with tone marks>"' if need_py else ""
     weak_line = f"Learner's known weak points: {', '.join(weak[:5])}." if weak else ""
     if mode == "help":
         task = (
@@ -111,7 +113,9 @@ def _system_prompt(lang: str, level: str, mode: str, scenario: str, weak: list[s
     else:
         task = (
             f"The learner spoke {name} (may contain mistakes or speech-recognition noise). "
-            f"1) Understand what they MEANT. 2) If their sentence has a real error, put the corrected sentence in "
+            f"1) Understand what they MEANT. 2) Check the sentence like a strict native teacher: verb forms and "
+            f"tense, auxiliary verbs, articles, gender, case, agreement, prepositions, word order. If there is ANY real "
+            f"grammar or word error, put the corrected sentence in "
             f"'fix.fixed' with status 'fix' and explain the rule in 1-2 simple Turkish sentences in 'fix.explain_tr'. "
             f"If it is correct but unnatural, use status 'better' with a more natural version. If it is fine, "
             f"'fix' = null. Never 'fix' punctuation or capitalization only. "
@@ -186,6 +190,9 @@ def _call_llm(system: str, user: str, max_tokens: int = 700) -> tuple[dict | Non
 def llm_okunus(text: str, lang: str) -> str:
     """Sadece okunuş üret (İngilizce/Fransızca/Arapça/Çince için) — kısa, hızlı çağrı."""
     name = LANG_NAMES.get(lang, lang)
+    if lang in PINYIN_LANGS:
+        parsed, _ = _call_llm_simple('Write the Hanyu pinyin (with tone marks, words spaced) of the Chinese text. Return ONLY JSON: {"pinyin": "..."}', text[:500])
+        return ok.pinyin_okunus(_s((parsed or {}).get("pinyin"), 900))
     system = (
         f"You convert {name} text into its Turkish reading. {OKUNUS_RULE} "
         'Return ONLY JSON: {"okunus": "<Turkish reading>"}'
@@ -225,9 +232,15 @@ def _clean_target(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def _okunus_for(text: str, lang: str, llm_value: str = "") -> str:
+def _okunus_for(text: str, lang: str, llm_value: str = "", pinyin: str = "") -> str:
     if not text:
         return ""
+    if lang in PINYIN_LANGS:
+        got = ok.pinyin_okunus(pinyin) if pinyin else ""
+        if got and ok.looks_valid(got, text, lang):
+            ok.remember(text, lang, got)
+            return got
+        return ok.cached(text, lang)
     if lang in LLM_OKUNUS and ok.looks_valid(llm_value, text, lang):
         ok.remember(text, lang, llm_value)
         return llm_value.strip()
@@ -244,7 +257,7 @@ def _normalize(parsed: dict, lang: str, mode: str, user_text: str) -> dict:
     out: dict[str, Any] = {
         "reply": reply,
         "reply_tr": _s(parsed.get("reply_tr"), 500),
-        "okunus": _okunus_for(reply, lang, _s(parsed.get("okunus"), 700)),
+        "okunus": _okunus_for(reply, lang, _s(parsed.get("okunus"), 700), _s(parsed.get("pinyin"), 700)),
         "fix": None,
         "examples": [],
         "explain_tr": _s(parsed.get("explain_tr"), 500),
@@ -260,7 +273,7 @@ def _normalize(parsed: dict, lang: str, mode: str, user_text: str) -> dict:
                 "status": "better" if status == "better" else "fix",
                 "fixed": fixed,
                 "fixed_tr": _s(fix.get("fixed_tr"), 400),
-                "okunus": _okunus_for(fixed, lang, _s(fix.get("fixed_okunus"), 600)),
+                "okunus": _okunus_for(fixed, lang, _s(fix.get("fixed_okunus"), 600), _s(fix.get("fixed_pinyin"), 600)),
                 "explain_tr": _s(fix.get("explain_tr"), 500),
             }
     for ex in (parsed.get("examples") or [])[:3]:
@@ -270,7 +283,7 @@ def _normalize(parsed: dict, lang: str, mode: str, user_text: str) -> dict:
         if t:
             out["examples"].append({
                 "text": t, "tr": _s(ex.get("tr"), 300),
-                "okunus": _okunus_for(t, lang, _s(ex.get("okunus"), 500)),
+                "okunus": _okunus_for(t, lang, _s(ex.get("okunus"), 500), _s(ex.get("pinyin"), 500)),
             })
     for w in (parsed.get("words") or [])[:3]:
         if not isinstance(w, dict):
@@ -385,7 +398,7 @@ def tutor_turn(
         f"CONVERSATION SO FAR:\n{_history_text(history)}\n\n"
         f"LEARNER NOW ({'Turkish, asking for help' if mode == 'help' else LANG_NAMES[lang]}): {user_text}"
     )
-    parsed, provider = _call_llm(system, user_block, max_tokens=750 if lang in LLM_OKUNUS else 560)
+    parsed, provider = _call_llm(system, user_block, max_tokens=750 if lang in LLM_OKUNUS | PINYIN_LANGS else 560)
     if parsed:
         res = _normalize(parsed, lang, mode, user_text)
         if not res["reply"] and not res["examples"]:
@@ -452,9 +465,9 @@ _GREETING_OKUNUS = {
     "مَرْحَبًا! كَيْفَ حَالُكَ الْيَوْمَ؟": "Merhaben! Keyfe hâlüke'l-yevm?",
     "أَهْلًا! كَيْفَ يَسِيرُ يَوْمُكَ؟": "Ehlen! Keyfe yesîru yevmük?",
     "أَهْلًا! مَا الَّذِي يَشْغَلُ بَالَكَ هَذِهِ الْأَيَّامَ؟": "Ehlen! Me'llezî yeşğalu bâleke hâzihi'l-eyyâm?",
-    "你好！你今天好吗？": "Ni hav! Ni cintyen hav ma?",
-    "你好！你今天过得怎么样？": "Ni hav! Ni cintyen guo dı zımıyang?",
-    "你好！最近你在想些什么呢？": "Ni hav! Zuycin ni zay şiang şiye şınmı nı?",
+    "你好！你今天好吗？": ok.pinyin_okunus("Nǐ hǎo! Nǐ jīntiān hǎo ma?"),
+    "你好！你今天过得怎么样？": ok.pinyin_okunus("Nǐ hǎo! Nǐ jīntiān guò de zěnmeyàng?"),
+    "你好！最近你在想些什么呢？": ok.pinyin_okunus("Nǐ hǎo! Zuìjìn nǐ zài xiǎng xiē shénme ne?"),
 }
 for _k, _v in _GREETING_OKUNUS.items():
     for _lg in ("en", "fr", "ar", "zh"):

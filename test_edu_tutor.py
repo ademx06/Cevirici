@@ -109,6 +109,23 @@ def test_help_fallback_uses_translation():
     assert res["reply"] and res["okunus"] and not any(c in res["reply"] for c in "🇹")
 
 
+def test_chinese_okunus_from_pinyin():
+    cap: dict = {}
+    et._call_llm = _fake_llm({"reply": "我也喜欢喝咖啡。", "reply_tr": "Ben de kahve içmeyi severim.",
+                              "pinyin": "Wǒ yě xǐhuan hē kāfēi.", "fix": None, "words": []}, cap)
+    res = et.tutor_turn("我喜欢咖啡", "zh")
+    assert res["okunus"] == "Vo ye şihuan hı kafey.", res["okunus"]
+    assert '"pinyin"' in cap["system"]
+    assert ok.pinyin_okunus("Nǚ péngyou, xièxie! Zhōngguó") == "Nü pıngyo, şyeşye! Cungguo"
+
+
+def test_strict_grammar_instruction():
+    cap: dict = {}
+    et._call_llm = _fake_llm({"reply": "Super!", "reply_tr": "Süper!", "fix": None}, cap)
+    et.tutor_turn("Ich habe gestern ins Kino gegangen", "de")
+    assert "auxiliary" in cap["system"]
+
+
 def test_greeting_is_instant_and_has_okunus():
     for lang in ["en", "de", "fr", "es", "it", "ru", "ar", "zh", "ka"]:
         g = et.greeting_turn(lang, "A1")
