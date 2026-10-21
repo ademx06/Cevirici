@@ -32,7 +32,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.10.21-v75.1"
+APP_VERSION = "2026.10.21-v75.2"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -3464,7 +3464,7 @@ class Handler(SimpleHTTPRequestHandler):
         payload = self._read_json_body()
         word_tr = (payload.get("word") or "").strip()
         lang = (payload.get("lang") or "en").strip()
-        fast = bool(payload.get("fast"))
+        fast = bool(payload.get("fast")) and lang.split("-")[0] == "en"  # hızlı kural dersi yalnızca İngilizce için doğru
         cache_key = (word_tr.lower(), lang)
         if fast:
             # Hızlı ders: önce tam (AI) ders önbellekteyse onu ver; değilse kural tabanlı ders (<2 sn)
