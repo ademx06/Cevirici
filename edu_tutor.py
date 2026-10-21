@@ -154,14 +154,17 @@ def _strip_think(raw: str) -> str:
 _GROQ_JSON_OK: dict[str, bool] = {}
 
 
-def _call_llm(system: str, user: str, max_tokens: int = 700) -> tuple[dict | None, str]:
+def _call_llm(system: str, user: str, max_tokens: int = 700, *, engine: str = "", model_override: str = "") -> tuple[dict | None, str]:
     """Groq first (fast), Gemini as backup. Returns (json, provider)."""
     providers = ee._llm_providers_in_order()
+    engine = engine or os.environ.get("EDU_ENGINE", "").strip().lower()
+    if engine in providers:
+        providers = [engine] + [p for p in providers if p != engine]
     messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
     for prov in providers:
         raw = None
         if prov == "groq":
-            model = os.environ.get("EDU_GROQ_MODEL") or os.environ.get("GROQ_MODEL") or "llama-3.3-70b-versatile"
+            model = model_override or os.environ.get("EDU_GROQ_MODEL") or os.environ.get("GROQ_MODEL") or "llama-3.3-70b-versatile"
             use_json = _GROQ_JSON_OK.get(model, True)
             raw = ee._groq_chat(messages, max_tokens=max_tokens, json_mode=use_json, timeout_sec=12,
                                 model=model, temperature=0.5)
@@ -383,6 +386,8 @@ def tutor_turn(
     scenario: str | None = None,
     weak: list[str] | None = None,
     translate_fn: Callable[[str, str, str], str] | None = None,
+    engine: str = "",
+    model_override: str = "",
 ) -> dict:
     t0 = time.perf_counter()
     lang = (lang or "en").split("-")[0].lower()
@@ -399,7 +404,8 @@ def tutor_turn(
         f"CONVERSATION SO FAR:\n{_history_text(history)}\n\n"
         f"LEARNER NOW ({'Turkish, asking for help' if mode == 'help' else LANG_NAMES[lang]}): {user_text}"
     )
-    parsed, provider = _call_llm(system, user_block, max_tokens=750 if lang in LLM_OKUNUS | PINYIN_LANGS else 560)
+    parsed, provider = _call_llm(system, user_block, max_tokens=750 if lang in LLM_OKUNUS | PINYIN_LANGS else 560,
+                                 engine=engine, model_override=model_override)
     if parsed:
         res = _normalize(parsed, lang, mode, user_text)
         if not res["reply"] and not res["examples"]:

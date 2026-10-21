@@ -9,7 +9,7 @@ import okunus as ok
 
 
 def _fake_llm(payload: dict, captured: dict | None = None):
-    def fn(system, user, max_tokens=700):
+    def fn(system, user, max_tokens=700, **kw):
         if captured is not None:
             captured["system"] = system
             captured["user"] = user

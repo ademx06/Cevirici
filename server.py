@@ -31,7 +31,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.10.21-v73.2"
+APP_VERSION = "2026.10.21-v73.3"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -3671,6 +3671,8 @@ class Handler(SimpleHTTPRequestHandler):
                 text, lang, level=level, mode=mode, history=history[-14:],
                 scenario=scenario, weak=[safe_str(w)[:40] for w in weak[:6]],
                 translate_fn=translate_text,
+                engine=safe_str(payload.get("engine")).strip().lower()[:10],
+                model_override=re.sub(r"[^\w./:-]", "", safe_str(payload.get("model")))[:60],
             )
         except Exception as e:
             return self.send_json_error(500, f"Öğretmen yanıt veremedi — tekrar dene ({type(e).__name__})")
