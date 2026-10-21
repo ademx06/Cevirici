@@ -50,7 +50,7 @@ PINYIN_LANGS = {"zh"}
 OKUNUS_RULE = (
     "OKUNUS = how a Turkish speaker should read the exact target text aloud, written ONLY with the Turkish "
     "alphabet (a b c ç d e f g ğ h ı i j k l m n o ö p r s ş t u ü v y z). It is NOT a translation. "
-    "NEVER use IPA or other symbols (ð θ æ ə ɪ ʃ ʒ ŋ ː), never the letters q w x. "
+    "NEVER use IPA or other symbols (ð θ æ ə ɪ ʃ ʒ ŋ ː), never the letters q w x, never 'th'/'dh' (the -> dı, think -> tink). "
     "Follow real native pronunciation (silent letters dropped, linking, weak vowels as ı). "
     "Examples: English 'How are you today?' -> 'Hav ar yu tıdey?'; 'I would like a coffee.' -> 'Ay vud layk ı kofi.'; "
     "'The weather is nice.' -> 'Dı vedır iz nays.'; 'Thank you very much!' -> 'Tenk yu veri maç!'; "
@@ -93,7 +93,7 @@ def _history_text(history: list[dict]) -> str:
 
 def _system_prompt(lang: str, level: str, mode: str, scenario: str, weak: list[str]) -> str:
     name = LANG_NAMES.get(lang, lang)
-    need_ok = lang in LLM_OKUNUS
+    need_ok = False  # en/ar okunuşu ayrı, hızlı ve özel bir çağrıyla üretilir (_repair_okunus)
     need_py = lang in PINYIN_LANGS
     ok_field = ', "okunus": "<Turkish reading of reply>"' if need_ok else ', "pinyin": "<pinyin of reply with tone marks>"' if need_py else ""
     ok_fix = ', "fixed_okunus": "<Turkish reading of fixed>"' if need_ok else ', "fixed_pinyin": "<pinyin with tone marks>"' if need_py else ""
@@ -140,7 +140,6 @@ def _system_prompt(lang: str, level: str, mode: str, scenario: str, weak: list[s
         SCRIPT_RULE.get(lang, ""),
         "Keep 'reply' short (1-3 sentences) so it can be spoken instantly. No emojis in target-language text.",
         "All Turkish fields must be natural Turkish.",
-        OKUNUS_RULE if need_ok else "",
         "TASK: " + task,
         "Return ONLY this JSON (no markdown):",
         schema,
@@ -245,12 +244,29 @@ def llm_okunus(text: str, lang: str) -> str:
     if lang in PINYIN_LANGS:
         parsed, _ = _call_llm_simple('Write the Hanyu pinyin (with tone marks, words spaced) of the Chinese text. Return ONLY JSON: {"pinyin": "..."}', text[:500])
         return ok.pinyin_okunus(_s((parsed or {}).get("pinyin"), 900))
+    got = llm_okunus_batch([text[:500]], lang)
+    return got[0] if got else ""
+
+
+def llm_okunus_batch(texts: list[str], lang: str) -> list[str]:
+    """Birden çok cümlenin okunuşu tek hızlı çağrıda (sıra korunur)."""
+    if not texts:
+        return []
+    name = LANG_NAMES.get(lang, lang)
     system = (
-        f"You convert {name} text into its Turkish reading. {OKUNUS_RULE} "
-        'Return ONLY JSON: {"okunus": "<Turkish reading>"}'
+        f"You convert {name} sentences into their Turkish reading. {OKUNUS_RULE} "
+        "Keep EVERY word of the source, in the same order; do not translate. "
+        'Return ONLY JSON: {"okunus": ["<reading of line 1>", "<reading of line 2>", ...]}'
     )
-    parsed, _ = _call_llm_simple(system, text[:500])
-    return _s((parsed or {}).get("okunus"), 900)
+    user = "\n".join(f"{i + 1}. {t}" for i, t in enumerate(texts))
+    parsed, _ = _call_llm_simple(system, user)
+    arr = (parsed or {}).get("okunus")
+    if isinstance(arr, str):
+        arr = [arr]
+    if not isinstance(arr, list):
+        return [""] * len(texts)
+    out = [re.sub(r"^\s*\d+[.)]\s*", "", _s(x, 900)) for x in arr[: len(texts)]]
+    return out + [""] * (len(texts) - len(out))
 
 
 def _call_llm_simple(system: str, user: str) -> tuple[dict | None, str]:
@@ -348,29 +364,42 @@ def _normalize(parsed: dict, lang: str, mode: str, user_text: str) -> dict:
     return out
 
 
+def _okunus_ok(okn: str, text: str, lang: str, tr: str = "") -> bool:
+    if not ok.looks_valid(okn, text, lang):
+        return False
+    src_words = len(re.findall(r"\w+", text))
+    ok_words = len(re.findall(r"\w+", okn))
+    if src_words >= 3 and not (0.6 <= ok_words / src_words <= 1.7):
+        return False
+    if tr:
+        a = set(re.findall(r"\w+", okn.lower()))
+        b = set(re.findall(r"\w+", tr.lower()))
+        if a and len(a & b) / len(a) >= 0.5:
+            return False  # okunuş değil, Türkçe çeviri
+    return True
+
+
 def _repair_okunus(res: dict, lang: str) -> None:
-    """IPA/bozuk okunuş geldiyse: hızlı modelle (paralel) yeniden üret; olmazsa yedek kurallar."""
+    """İngilizce/Arapça: okunuşu hızlı modelle tek çağrıda üret; denetle; olmazsa yedek kurallar."""
     if lang not in LLM_OKUNUS:
         return
     targets: list[tuple[dict, str, str]] = []
     if res.get("reply") and not res.get("okunus"):
-        targets.append((res, "okunus", res["reply"]))
+        targets.append((res, res["reply"], res.get("reply_tr", "")))
     if res.get("fix") and not res["fix"].get("okunus"):
-        targets.append((res["fix"], "okunus", res["fix"]["fixed"]))
+        targets.append((res["fix"], res["fix"]["fixed"], res["fix"].get("fixed_tr", "")))
     for ex in res.get("examples") or []:
         if not ex.get("okunus"):
-            targets.append((ex, "okunus", ex["text"]))
+            targets.append((ex, ex["text"], ex.get("tr", "")))
     if not targets:
         return
-    from concurrent.futures import ThreadPoolExecutor
-    with ThreadPoolExecutor(max_workers=min(4, len(targets))) as pool:
-        outs = list(pool.map(lambda t: llm_okunus(t[2], lang), targets))
-    for (obj, key, text), got in zip(targets, outs):
-        if ok.looks_valid(got, text, lang):
+    outs = llm_okunus_batch([t[1] for t in targets], lang)
+    for (obj, text, tr), got in zip(targets, outs):
+        if _okunus_ok(got, text, lang, tr):
             ok.remember(text, lang, got)
-            obj[key] = got
+            obj["okunus"] = got
         else:
-            obj[key] = ok.okunus(text, lang)
+            obj["okunus"] = ok.okunus(text, lang) if lang == "en" else ""
 
 
 def _speak_plan(res: dict, lang: str) -> list[dict]:
@@ -463,6 +492,7 @@ def tutor_turn(
     translate_fn: Callable[[str, str, str], str] | None = None,
     engine: str = "",
     model_override: str = "",
+    on_speak: Callable[[list[dict]], None] | None = None,
 ) -> dict:
     t0 = time.perf_counter()
     lang = (lang or "en").split("-")[0].lower()
@@ -486,6 +516,11 @@ def tutor_turn(
         if not res["reply"] and not res["examples"]:
             parsed = None
         else:
+            if on_speak:
+                try:
+                    on_speak(_speak_plan(res, lang))  # sesi okunuşu beklemeden hazırlamaya başla
+                except Exception:
+                    pass
             _repair_okunus(res, lang)
     if not parsed:
         res = _fallback_turn(user_text, lang, level, mode, history, scenario, translate_fn)

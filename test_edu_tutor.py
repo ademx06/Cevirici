@@ -39,7 +39,7 @@ def test_speak_turn_with_fix():
     et._call_llm = _fake_llm({
         "reply": "That sounds fun! What did you eat?",
         "reply_tr": "Kulağa eğlenceli geliyor! Ne yedin?",
-        "okunus": "Det saunds fan! Vat did yu it?",
+        "okunus": "Det saunds fan! Vat did yu it?",  # ignored now: fast model makes okunus
         "fix": {"status": "fix", "fixed": "I went to the cinema yesterday.", "fixed_tr": "Dün sinemaya gittim.",
                 "fixed_okunus": "Ay vent tu dı sinema yestırdey.", "explain_tr": "Geçmiş zaman: go → went."},
         "words": [{"word": "fun", "tr": "eğlenceli"}],
@@ -126,13 +126,22 @@ def test_strict_grammar_instruction():
     assert "auxiliary" in cap["system"]
 
 
-def test_ipa_okunus_rejected_and_repaired():
-    et._call_llm = _fake_llm({"reply": "Glad to hear that!", "reply_tr": "Duyduğuma sevindim!",
-                              "okunus": "Glad tu hir ðæt!", "fix": None})
-    et.llm_okunus = lambda text, lang: "Glad tu hiır det!"
-    res = et.tutor_turn("I am fine", "en")
-    assert res["okunus"] == "Glad tu hiır det!", res["okunus"]
+def test_okunus_from_fast_model_and_validated():
+    et._call_llm = _fake_llm({"reply": "That's great! How was your day?", "reply_tr": "Harika! Günün nasıldı?",
+                              "fix": {"status": "fix", "fixed": "Yesterday I went to the park.", "fixed_tr": "Dün parka gittim."}})
+    calls = []
+    def fake_batch(texts, lang):
+        calls.append(list(texts))
+        return ["Harika! Günün nasıldı?", "Yestırdey ay vent tu dı park."]  # 1st is a translation → reject
+    et.llm_okunus_batch = fake_batch
+    spoken = []
+    res = et.tutor_turn("Yesterday I go to the park", "en", on_speak=lambda items: spoken.extend(items))
+    assert calls == [["That's great! How was your day?", "Yesterday I went to the park."]]
+    assert res["fix"]["okunus"] == "Yestırdey ay vent tu dı park."
+    assert res["okunus"] and "Günün" not in res["okunus"]
+    assert spoken and spoken[0]["text"] == "Yesterday I went to the park."
     assert not ok.looks_valid("Wot dıd yu", "What did you", "en")
+    assert not ok.looks_valid("Glad tu hir ðæt", "Glad to hear that", "en")
 
 
 def test_greeting_is_instant_and_has_okunus():

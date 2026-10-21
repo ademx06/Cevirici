@@ -31,7 +31,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.10.21-v73.5"
+APP_VERSION = "2026.10.21-v73.6"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -3672,6 +3672,7 @@ class Handler(SimpleHTTPRequestHandler):
                 scenario=scenario, weak=[safe_str(w)[:40] for w in weak[:6]],
                 translate_fn=translate_text,
                 engine=safe_str(payload.get("engine")).strip().lower()[:10],
+                on_speak=lambda items: tts_prewarm(items, slow=slow, locale=voice),
                 model_override=re.sub(r"[^\w./:-]", "", safe_str(payload.get("model")))[:60],
             )
         except Exception as e:
