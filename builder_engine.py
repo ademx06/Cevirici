@@ -400,6 +400,8 @@ def generate_word_lesson(
     word_tr: str,
     target_lang: str,
     translate_fn: Callable[[str, str, str], str] | None = None,
+    *,
+    skip_ai: bool = False,
 ) -> dict[str, Any]:
     word_tr = safe_str(word_tr).strip()
     if len(word_tr) < 2:
@@ -438,7 +440,7 @@ def generate_word_lesson(
     ai_issues: list[str] = []
     ai_example_count = 0
 
-    if llm_available() and target_lang and target_lang != "tr":
+    if not skip_ai and llm_available() and target_lang and target_lang != "tr":
         ai_profile, ai_examples, ai_issues = try_ai_word_lesson(
             word_tr, target_word, target_lang, profile,
         )

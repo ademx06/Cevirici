@@ -32,7 +32,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.10.21-v75.0"
+APP_VERSION = "2026.10.21-v75.1"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -3464,7 +3464,22 @@ class Handler(SimpleHTTPRequestHandler):
         payload = self._read_json_body()
         word_tr = (payload.get("word") or "").strip()
         lang = (payload.get("lang") or "en").strip()
+        fast = bool(payload.get("fast"))
         cache_key = (word_tr.lower(), lang)
+        if fast:
+            # Hızlı ders: önce tam (AI) ders önbellekteyse onu ver; değilse kural tabanlı ders (<2 sn)
+            cached = _cache_get(_WORD_LESSON_CACHE, cache_key) or _cache_get(_WORD_LESSON_CACHE, cache_key + ("fast",))
+            if cached:
+                cached = dict(cached); cached["cached"] = True
+                return self._send_json(cached)
+            try:
+                result = generate_word_lesson(word_tr, lang, translate_fn=translate_text, skip_ai=True)
+                if isinstance(result, dict) and result.get("ok"):
+                    result["fast"] = True
+                    _cache_set(_WORD_LESSON_CACHE, cache_key + ("fast",), dict(result))
+                return self._send_json(result)
+            except Exception as e:
+                return self.send_json_error(422, self.api_error_message(e))
         cached = _cache_get(_WORD_LESSON_CACHE, cache_key)
         if cached:
             cached = dict(cached)

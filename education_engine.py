@@ -7816,6 +7816,9 @@ def _llm_json_word_lesson(system: str, user: str, max_tokens: int = 2400) -> dic
             providers.append("gemini")
         if groq_api_key_valid():
             providers.append("groq")
+    # Gemini yedeği yalnızca Groq yoksa (20+ sn bekletmesin; eksikler kural tabanlı tamamlanır)
+    if "groq" in providers:
+        providers = ["groq"]
     for provider in providers:
         raw = _llm_chat_json_raw(provider, system, user, max_tokens)
         if raw:

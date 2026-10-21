@@ -763,9 +763,11 @@
     busy = true;
     showLoading('AI ders hazırlıyor…');
     try {
+      const lessonLang = LS.getLang();
       const { ok, data } = await ApiClient.fetchWordLesson('/api/builder/word', {
         word,
-        lang: LS.getLang(),
+        lang: lessonLang,
+        fast: true,
       }, {
         onWake: (sec) => showLoading(`Sunucu uyanıyor… (${sec} sn)`),
         onProgress: (sec) => showLoading(`AI ders hazırlıyor… (${sec} sn)`),
@@ -783,6 +785,7 @@
       setUi('Hazır — dinle ve kaydet', false);
       if ($('wordInput')) $('wordInput').value = '';
       renderWordLesson(data, word);
+      if (data.fast) upgradeWordLesson(word, lessonLang, reqId);
     } catch (err) {
       $('wordResult').innerHTML = `<div class="mod-error-card"><p>${esc(ApiClient.connectionErrorMessage(err))}</p><button type="button" class="mod-retry-btn" id="retryWordBtn">🔄 Tekrar dene</button></div>`;
       $('retryWordBtn')?.addEventListener('click', buildWord);
@@ -790,6 +793,20 @@
     } finally {
       busy = false;
     }
+  }
+
+  /** Hızlı ders ekranda; arka planda yapay zekâ ile zenginleştirilmiş dersi al ve sessizce değiştir */
+  async function upgradeWordLesson(word, lessonLang, reqId) {
+    try {
+      const r = await fetch('/api/builder/word', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ word, lang: lessonLang }) });
+      const d = await r.json();
+      if (reqId !== wordRequestSeq || !d || !d.ok || d.lesson_source === 'rules') return;
+      if (!currentWordLesson || String(currentWordLesson.word_tr || '').toLowerCase() !== word.toLowerCase()) return;
+      const sc = $('modScroll'); const top = sc ? sc.scrollTop : 0;
+      renderWordLesson(d, word);
+      if (sc) sc.scrollTop = top;
+      if (!busy) setUi('✨ Ders yapay zekâ ile zenginleştirildi', false);
+    } catch { /* hızlı ders zaten ekranda */ }
   }
 
   async function buildSentence() {
