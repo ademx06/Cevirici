@@ -104,6 +104,7 @@
       explain_tr: str(m.explain_tr), words: arr(m.words).filter((w) => w.word).map((w) => ({ word: str(w.word, 60), tr: str(w.tr, 80) })),
       speak: arr(m.speak).filter((i) => i.text).map((i) => ({ text: str(i.text, 480), lang: str(i.lang, 5) })),
       provider: str(m.provider, 10), t: Number(m.t) || 0,
+      reply_target: str(m.reply_target), checked: !!m.checked,
     };
     return out.reply || out.examples.length ? out : null;
   }
@@ -225,7 +226,7 @@
         ${m.fix.explain_tr ? `<p class="fix-why">${esc(m.fix.explain_tr)}</p>` : ''}
         <div class="t-actions">${playBtns(idx, 'fix')}</div>
       </div>`;
-    } else if (m.mode === 'speak' && m.you && !m.pending && m.provider && m.provider !== 'rules') {
+    } else if (m.mode === 'speak' && m.you && !m.pending && m.provider && m.provider !== 'rules' && (m.provider !== 'live' || m.checked)) {
       html += '<span class="ok-badge">✓ Doğru söyledin</span>';
     }
     if (m.examples && m.examples.length) {
@@ -241,7 +242,7 @@
       html += `<p class="help-note">${esc(m.explain_tr)}</p>`;
     }
     if (m.reply) {
-      html += `<p class="t-target"${dir} lang="${esc(m.lang || P.lang)}">${esc(m.reply)}</p>${okunusLine(m.okunus)}${trLine(m.reply_tr)}`;
+      html += `<p class="t-target"${dir} lang="${esc(m.lang || P.lang)}">${esc(m.reply_target || m.reply)}</p>${okunusLine(m.okunus)}${trLine(m.reply_tr)}`;
       if (m.pending && !m.okunus && P.showOkunus) html += '<p class="t-pending">okunuş hazırlanıyor…</p>';
       html += `<div class="t-actions">${playBtns(idx, 'reply')}</div>`;
     }
@@ -654,7 +655,10 @@
         body: JSON.stringify({ lang: tutor.lang, tutor_text: tutor.reply, user_text: user && user.mode !== 'help' ? user.text : '', mode: tutor.mode, level: level() }) });
       const a = await r.json();
       if (r.ok) {
-        tutor.okunus = a.okunus || ''; tutor.reply_tr = a.tr || ''; tutor.fix = a.fix || null; tutor.words = a.words || [];
+        tutor.okunus = a.okunus || ''; tutor.fix = a.fix || null; tutor.words = a.words || [];
+        tutor.reply_tr = a.tr || '';
+        if (a.hint_tr) { tutor.explain_tr = a.hint_tr; tutor.reply_target = a.target || ''; }
+        tutor.checked = !!a.checked;
         if (tutor.mode === 'speak' && user && user.text.trim()) {
           P.turns = (P.turns || 0) + 1;
           if (!tutor.fix) P.correct = (P.correct || 0) + 1;

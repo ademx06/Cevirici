@@ -195,7 +195,8 @@ def _groq(messages: list[dict], model: str, max_tokens: int, json_mode: bool, ti
         return None, 0
 
 
-def _call_llm(system: str, user: str, max_tokens: int = 700, *, engine: str = "", model_override: str = "") -> tuple[dict | None, str]:
+def _call_llm(system: str, user: str, max_tokens: int = 700, *, engine: str = "", model_override: str = "",
+              require: str = "reply") -> tuple[dict | None, str]:
     """Groq (doğru + hızlı model) → Groq yedek model → Gemini. Returns (json, provider)."""
     providers = ee._llm_providers_in_order()
     engine = engine or os.environ.get("EDU_ENGINE", "").strip().lower()
@@ -217,7 +218,7 @@ def _call_llm(system: str, user: str, max_tokens: int = 700, *, engine: str = ""
                     _GROQ_DEAD[model] = time.time() + 60
                 if raw:
                     parsed = ee._parse_json_object(_strip_think(raw))
-                    if parsed and ee.safe_str(parsed.get("reply")).strip():
+                    if parsed and (parsed.get(require) is not None and str(parsed.get(require)).strip() != ""):
                         return parsed, "groq"
             continue
         raw = None
@@ -233,7 +234,7 @@ def _call_llm(system: str, user: str, max_tokens: int = 700, *, engine: str = ""
         if not raw:
             continue
         parsed = ee._parse_json_object(_strip_think(raw))
-        if parsed and ee.safe_str(parsed.get("reply")).strip():
+        if parsed and (parsed.get(require) is not None and str(parsed.get(require)).strip() != ""):
             return parsed, prov
     return None, ""
 
@@ -604,9 +605,13 @@ def annotate(lang: str, tutor_text: str, user_text: str = "", *, level: str = "A
     """
     from concurrent.futures import ThreadPoolExecutor
     lang = (lang or "en").split("-")[0].lower()
-    tutor_text = _clean_target(_s(tutor_text, 800))
+    full_text = _clean_target(_s(tutor_text, 800))
     user_text = _s(user_text, 400)
-    out: dict[str, Any] = {"okunus": "", "tr": "", "fix": None, "user_level": "", "words": []}
+    target_parts, tr_parts = split_turkish(full_text, lang)
+    tutor_text = " ".join(target_parts).strip()
+    hint_tr = " ".join(tr_parts).strip()
+    out: dict[str, Any] = {"okunus": "", "tr": "", "hint_tr": hint_tr, "target": tutor_text, "fix": None,
+                           "user_level": "", "words": [], "checked": False}
 
     def do_okunus() -> str:
         if not tutor_text:
@@ -638,7 +643,8 @@ def annotate(lang: str, tutor_text: str, user_text: str = "", *, level: str = "A
             '"fixed_tr": "<Turkish meaning>", "explain_tr": "<1 short Turkish sentence: the rule>", '
             '"user_level": "A1|A2|B1|B2|C1|C2", "words": [{"word": "<useful word from the tutor reply>", "tr": "<Turkish>"}]}'
         )
-        parsed, _ = _call_llm(system, f"Tutor said: {tutor_text}\nLearner sentence: {user_text}", max_tokens=320)
+        parsed, _ = _call_llm(system, f"Tutor said: {tutor_text}\nLearner sentence: {user_text}", max_tokens=320,
+                              require="ok")
         return parsed
 
     with ThreadPoolExecutor(max_workers=3) as pool:
@@ -647,6 +653,7 @@ def annotate(lang: str, tutor_text: str, user_text: str = "", *, level: str = "A
         out["tr"] = f_tr.result() or ""
         ck = f_ck.result()
     if isinstance(ck, dict):
+        out["checked"] = True
         lv = _s(ck.get("user_level"), 4).upper()
         out["user_level"] = lv if lv in LEVELS else ""
         fixed = _clean_target(_s(ck.get("fixed"), 400))
@@ -666,3 +673,23 @@ def annotate(lang: str, tutor_text: str, user_text: str = "", *, level: str = "A
 
 
 RULE_LANGS_LOCAL = {"es", "it", "de", "fr", "ru", "ka"}
+
+_TR_WORDS = re.compile(
+    r"\b(ve|bir|bu|için|yerine|kullan\w*|geçmiş|zaman|fiil\w*|cümle\w*|demek|diyoruz|söyle\w*|olur|değil|"
+    r"çünkü|yani|şöyle|doğru\w*|türkçe\w*|kelime\w*|anlam\w*|ile|gibi|ama|daha|sonra|şimdi|tekrar)\b", re.I)
+
+
+def split_turkish(text: str, lang: str) -> tuple[list[str], list[str]]:
+    """Öğretmenin sesli cevabındaki Türkçe ipucu cümlelerini hedef dil cümlelerinden ayır."""
+    sents = [x.strip() for x in re.findall(r"[^.!?。！？؟]+[.!?。！？؟]*", text or "") if x.strip()]
+    target, tr = [], []
+    for snt in sents:
+        latin = re.sub(r"[^A-Za-zÇĞİÖŞÜçğıöşü]", "", snt)
+        if lang in ("ru", "ar", "zh", "ka"):
+            is_tr = len(latin) > 0.6 * max(1, len(re.sub(r"\W", "", snt))) and bool(re.search(r"[çğıöşüÇĞİÖŞÜ]|" + _TR_WORDS.pattern, snt, re.I))
+        else:
+            is_tr = bool(re.search(r"[ğışİĞŞ]", snt)) or len(_TR_WORDS.findall(snt)) >= 2
+        (tr if is_tr else target).append(snt)
+    if not target:
+        return [text], []
+    return target, tr
