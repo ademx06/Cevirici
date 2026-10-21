@@ -7723,6 +7723,11 @@ def _llm_chat_json_raw(
             models = _et._groq_models("") or []
             if env_model and env_model not in models and _et._GROQ_DEAD.get(env_model, 0) < time.time():
                 models.append(env_model)
+            if word_lesson:
+                # Ücretsiz katmanda dakikalık token sınırı modele göre ayrı → sırayla dene
+                for extra in ("openai/gpt-oss-20b", "llama-3.3-70b-versatile", "meta-llama/llama-4-scout-17b-16e-instruct"):
+                    if extra not in models and _et._GROQ_DEAD.get(extra, 0) < time.time():
+                        models.append(extra)
             for m in models:
                 raw, status = _et._groq(messages, m, max_tokens, True, 25 if word_lesson else 14)
                 if raw:
@@ -7816,9 +7821,7 @@ def _llm_json_word_lesson(system: str, user: str, max_tokens: int = 2400) -> dic
             providers.append("gemini")
         if groq_api_key_valid():
             providers.append("groq")
-    # Gemini yedeği yalnızca Groq yoksa (20+ sn bekletmesin; eksikler kural tabanlı tamamlanır)
-    if "groq" in providers:
-        providers = ["groq"]
+    # Groq (birkaç hızlı model) önce; hepsi limitteyse Gemini yedeği (şablon dersinden iyidir)
     for provider in providers:
         raw = _llm_chat_json_raw(provider, system, user, max_tokens)
         parsed = _parse_json_object(raw) if raw else None

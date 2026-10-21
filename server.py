@@ -32,7 +32,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.10.21-v75.2"
+APP_VERSION = "2026.10.21-v75.3"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -3464,7 +3464,8 @@ class Handler(SimpleHTTPRequestHandler):
         payload = self._read_json_body()
         word_tr = (payload.get("word") or "").strip()
         lang = (payload.get("lang") or "en").strip()
-        fast = bool(payload.get("fast")) and lang.split("-")[0] == "en"  # hızlı kural dersi yalnızca İngilizce için doğru
+        # hızlı kural dersi yalnızca İngilizce isimlerde doğru (fiil çekimleri kuralla bozuk çıkar: "readed")
+        fast = bool(payload.get("fast")) and lang.split("-")[0] == "en" and not re.search(r"m[ae]k$", word_tr.lower())
         cache_key = (word_tr.lower(), lang)
         if fast:
             # Hızlı ders: önce tam (AI) ders önbellekteyse onu ver; değilse kural tabanlı ders (<2 sn)
@@ -3492,7 +3493,7 @@ class Handler(SimpleHTTPRequestHandler):
             elapsed = round(time.monotonic() - t0, 2)
             if isinstance(result, dict):
                 result["generation_sec"] = elapsed
-                if result.get("ok"):
+                if result.get("ok") and (result.get("lesson_source") != "rules" or lang.split("-")[0] == "en"):
                     _cache_set(_WORD_LESSON_CACHE, cache_key, dict(result))
             print(f"[word-lesson] {word_tr!r} → {elapsed}s ok={result.get('ok') if isinstance(result, dict) else '?'}")
             self._send_json(result)

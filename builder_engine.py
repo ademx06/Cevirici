@@ -462,6 +462,11 @@ def generate_word_lesson(
             ai_example_count = len(examples)
 
     timing["ai"] = round(_tm.monotonic() - _t0, 2)
+    if not skip_ai and target_lang.split("-")[0] != "en" and ai_example_count == 0 and llm_available():
+        # Kural şablonları yalnızca İngilizce üretir → yanlış ders göstermek yerine tekrar denet
+        return {"ok": False, "ai_retry": True,
+                "error_tr": f"«{word_tr}» dersi şu an hazırlanamadı (yapay zekâ yoğun). Birkaç saniye sonra tekrar dene.",
+                "timing": {**timing, "ai_issue": (ai_issues[0] if ai_issues else "")[:120], "dbg": _wl_dbg()}}
     lesson_source = "ai" if ai_example_count >= 7 else ("hybrid" if ai_example_count >= 1 else "rules")
 
     # AI-only: yeterince zengin AI örneği varsa şablonla doldurma (sadeleşmesin)
