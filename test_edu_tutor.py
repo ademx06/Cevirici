@@ -28,6 +28,12 @@ def test_rule_okunus_languages():
         assert ok.okunus(text, lang), lang  # never empty for rule languages
 
 
+def test_arabic_transliteration_normalized():
+    n = ok.normalize_okunus("Anā uḥibbu al-qahwa ayḍan.")
+    assert n == "Anâ uhibbu al-kahva aydan.", n
+    assert ok.looks_valid(n, "أَنَا أُحِبُّ الْقَهْوَةَ أَيْضًا.", "ar")
+
+
 def test_okunus_validation():
     assert ok.looks_valid("Hav ar yu?", "How are you?", "en")
     assert not ok.looks_valid("你好", "你好", "zh")

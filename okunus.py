@@ -309,6 +309,24 @@ def cached(text: str, lang: str) -> str:
 _TR_ALLOWED = re.compile(r"^[A-Za-zÇĞİÖŞÜçğıöşüâîûÂÎÛ0-9\s.,!?;:'’\"“”«»()\-–—…/]+$")
 
 
+_TRANSLIT_MAP = str.maketrans({
+    "ā": "â", "ī": "î", "ū": "û", "Ā": "Â", "Ī": "Î", "Ū": "Û", "ē": "e", "ō": "o",
+    "ḥ": "h", "Ḥ": "H", "ḫ": "h", "ṣ": "s", "Ṣ": "S", "ḍ": "d", "Ḍ": "D", "ṭ": "t", "Ṭ": "T",
+    "ẓ": "z", "Ẓ": "Z", "ḏ": "z", "ṯ": "s", "ġ": "ğ", "Ġ": "Ğ", "ž": "j", "š": "ş", "č": "ç",
+    "ʿ": "'", "ʾ": "'", "ʼ": "'", "‘": "'", "`": "'", "é": "e", "è": "e", "á": "a", "à": "a",
+    "ó": "o", "ò": "o", "í": "i", "ì": "i", "ú": "u", "ù": "u", "ñ": "ny", "q": "k", "Q": "K",
+    "w": "v", "W": "V", "x": "h", "X": "H",
+})
+
+
+def normalize_okunus(text: str) -> str:
+    """Model çıktısındaki transliterasyon harflerini Türk alfabesine çevir (ā→â, ḥ→h, q→k, w→v…)."""
+    t = (text or "").translate(_TRANSLIT_MAP)
+    t = re.sub(r"\bth", "t", t)
+    t = re.sub(r"dh", "z", t)
+    return re.sub(r"\s+", " ", t).strip()
+
+
 def looks_valid(okunus: str, source: str, lang: str) -> bool:
     """LLM okunuşu kontrolü: yalnız Türk alfabesi (IPA yok), kaynak yazı değil, makul uzunluk."""
     o = (okunus or "").strip()

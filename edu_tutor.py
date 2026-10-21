@@ -265,7 +265,7 @@ def llm_okunus_batch(texts: list[str], lang: str) -> list[str]:
         arr = [arr]
     if not isinstance(arr, list):
         return [""] * len(texts)
-    out = [re.sub(r"^\s*\d+[.)]\s*", "", _s(x, 900)) for x in arr[: len(texts)]]
+    out = [ok.normalize_okunus(re.sub(r"^\s*\d+[.)]\s*", "", _s(x, 900))) for x in arr[: len(texts)]]
     return out + [""] * (len(texts) - len(out))
 
 
