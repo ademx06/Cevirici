@@ -306,10 +306,15 @@ def cached(text: str, lang: str) -> str:
         return _CACHE.get((lang, (text or "").strip()), "")
 
 
+_TR_ALLOWED = re.compile(r"^[A-Za-zÇĞİÖŞÜçğıöşüâîûÂÎÛ0-9\s.,!?;:'’\"“”«»()\-–—…/]+$")
+
+
 def looks_valid(okunus: str, source: str, lang: str) -> bool:
-    """LLM okunuşu kontrolü: Latin harf, kaynak yazı değil, makul uzunluk."""
+    """LLM okunuşu kontrolü: yalnız Türk alfabesi (IPA yok), kaynak yazı değil, makul uzunluk."""
     o = (okunus or "").strip()
     if not o or len(o) < 2:
+        return False
+    if not _TR_ALLOWED.match(o) or re.search(r"[qwx]", o.lower()):
         return False
     if re.search(r"[؀-ۿ一-鿿Ⴀ-ჿЀ-ӿ]", o):
         return False
@@ -327,7 +332,7 @@ def okunus(text: str, lang: str, llm_fn=None) -> str:
     lang = (lang or "").split("-")[0].lower()
     if not text or lang == "tr":
         return ""
-    if lang in RULE_LANGS and lang != "fr":
+    if lang in RULE_LANGS:
         return rule_okunus(text, lang)
     hit = cached(text, lang)
     if hit:

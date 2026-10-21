@@ -126,6 +126,15 @@ def test_strict_grammar_instruction():
     assert "auxiliary" in cap["system"]
 
 
+def test_ipa_okunus_rejected_and_repaired():
+    et._call_llm = _fake_llm({"reply": "Glad to hear that!", "reply_tr": "Duyduğuma sevindim!",
+                              "okunus": "Glad tu hir ðæt!", "fix": None})
+    et.llm_okunus = lambda text, lang: "Glad tu hiır det!"
+    res = et.tutor_turn("I am fine", "en")
+    assert res["okunus"] == "Glad tu hiır det!", res["okunus"]
+    assert not ok.looks_valid("Wot dıd yu", "What did you", "en")
+
+
 def test_greeting_is_instant_and_has_okunus():
     for lang in ["en", "de", "fr", "es", "it", "ru", "ar", "zh", "ka"]:
         g = et.greeting_turn(lang, "A1")

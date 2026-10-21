@@ -43,16 +43,18 @@ SCRIPT_RULE = {
 }
 
 # Languages whose Turkish reading the model must produce (no reliable rules)
-LLM_OKUNUS = {"en", "fr", "ar"}
+LLM_OKUNUS = {"en", "ar"}
 # Chinese: the model writes pinyin (very reliable) → we convert to Turkish letters by rule
 PINYIN_LANGS = {"zh"}
 
 OKUNUS_RULE = (
-    "OKUNUS = how a Turkish speaker should read the exact target text aloud, written with the Turkish "
+    "OKUNUS = how a Turkish speaker should read the exact target text aloud, written ONLY with the Turkish "
     "alphabet (a b c ç d e f g ğ h ı i j k l m n o ö p r s ş t u ü v y z). It is NOT a translation. "
+    "NEVER use IPA or other symbols (ð θ æ ə ɪ ʃ ʒ ŋ ː), never the letters q w x. "
     "Follow real native pronunciation (silent letters dropped, linking, weak vowels as ı). "
     "Examples: English 'How are you today?' -> 'Hav ar yu tıdey?'; 'I would like a coffee.' -> 'Ay vud layk ı kofi.'; "
-    "French 'Je voudrais un café.' -> 'Jö vudre en kafe.'; Arabic 'كَيْفَ حَالُكَ؟' -> 'Keyfe hâlük?'."
+    "'The weather is nice.' -> 'Dı vedır iz nays.'; 'Thank you very much!' -> 'Tenk yu veri maç!'; "
+    "Arabic 'كَيْفَ حَالُكَ؟' -> 'Keyfe hâlük?'; Arabic 'أُحِبُّ الْقَهْوَةَ' -> 'Uhibbu'l-kahve.'"
 )
 
 
@@ -291,9 +293,11 @@ def _okunus_for(text: str, lang: str, llm_value: str = "", pinyin: str = "") -> 
             ok.remember(text, lang, got)
             return got
         return ok.cached(text, lang)
-    if lang in LLM_OKUNUS and ok.looks_valid(llm_value, text, lang):
-        ok.remember(text, lang, llm_value)
-        return llm_value.strip()
+    if lang in LLM_OKUNUS:
+        if ok.looks_valid(llm_value, text, lang):
+            ok.remember(text, lang, llm_value)
+            return llm_value.strip()
+        return ok.cached(text, lang)
     return ok.okunus(text, lang)
 
 
@@ -342,6 +346,31 @@ def _normalize(parsed: dict, lang: str, mode: str, user_text: str) -> dict:
         if word and len(word) <= 40:
             out["words"].append({"word": word, "tr": _s(w.get("tr"), 80), "okunus": ok.okunus(word, lang) if lang not in LLM_OKUNUS else ""})
     return out
+
+
+def _repair_okunus(res: dict, lang: str) -> None:
+    """IPA/bozuk okunuş geldiyse: hızlı modelle (paralel) yeniden üret; olmazsa yedek kurallar."""
+    if lang not in LLM_OKUNUS:
+        return
+    targets: list[tuple[dict, str, str]] = []
+    if res.get("reply") and not res.get("okunus"):
+        targets.append((res, "okunus", res["reply"]))
+    if res.get("fix") and not res["fix"].get("okunus"):
+        targets.append((res["fix"], "okunus", res["fix"]["fixed"]))
+    for ex in res.get("examples") or []:
+        if not ex.get("okunus"):
+            targets.append((ex, "okunus", ex["text"]))
+    if not targets:
+        return
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=min(4, len(targets))) as pool:
+        outs = list(pool.map(lambda t: llm_okunus(t[2], lang), targets))
+    for (obj, key, text), got in zip(targets, outs):
+        if ok.looks_valid(got, text, lang):
+            ok.remember(text, lang, got)
+            obj[key] = got
+        else:
+            obj[key] = ok.okunus(text, lang)
 
 
 def _speak_plan(res: dict, lang: str) -> list[dict]:
@@ -456,6 +485,8 @@ def tutor_turn(
         res = _normalize(parsed, lang, mode, user_text)
         if not res["reply"] and not res["examples"]:
             parsed = None
+        else:
+            _repair_okunus(res, lang)
     if not parsed:
         res = _fallback_turn(user_text, lang, level, mode, history, scenario, translate_fn)
         provider = "rules"
