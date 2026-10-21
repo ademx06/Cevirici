@@ -597,6 +597,7 @@ input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--accent);
 .fix .t-okunus { margin-top: 4px; font-size: 14px; }
 .fix-why { margin: 8px 0 0; font-size: 14px; color: var(--ink-2); }
 .fix .t-btn { background: var(--surface); }
+.fix .t-btn.playing, .t-btn.playing { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .ok-badge { display: inline-flex; align-items: center; gap: 6px; margin-bottom: 10px; padding: 4px 10px; border-radius: 999px; background: var(--ok-soft); color: var(--ok); font-size: 12px; font-weight: 800; }
 .help-note { margin: 0 0 12px; padding: 10px 12px; border-radius: 12px; background: var(--help-soft); color: var(--help-ink); font-size: 14px; }
 .examples { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
