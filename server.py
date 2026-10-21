@@ -22,6 +22,7 @@ from education_engine import (
     llm_verify_and_fix_translation,
 )
 import edu_tutor
+import edu_live
 import okunus as okunus_mod
 from builder_engine import (
     generate_word_lesson,
@@ -31,7 +32,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.10.21-v73.8"
+APP_VERSION = "2026.10.21-v74.0"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -3145,6 +3146,10 @@ class Handler(SimpleHTTPRequestHandler):
             return self.handle_education_chat(parse_qs(parsed.query))
         if parsed.path == "/api/edu/turn":
             return self.handle_edu_turn()
+        if parsed.path == "/api/live/session":
+            return self.handle_live_session()
+        if parsed.path == "/api/edu/annotate":
+            return self.handle_edu_annotate()
         if parsed.path == "/api/education/session-end":
             return self.handle_education_session_end(parse_qs(parsed.query))
         if parsed.path == "/api/builder/word":
@@ -3627,6 +3632,38 @@ class Handler(SimpleHTTPRequestHandler):
         voice = (params.get("voice") or [""])[0].strip()[:12] or None
         res = edu_tutor.greeting_turn(lang, level, scenario)
         tts_prewarm(res.get("speak") or [], slow=slow, locale=voice)
+        self._send_json(res)
+
+    def handle_live_session(self):
+        """Gemini Live için kısa ömürlü jeton + kurulum mesajı (telefon doğrudan Google'a bağlanır)."""
+        p = self._read_json_body()
+        kind = "translate" if p.get("kind") == "translate" else "tutor"
+        weak = p.get("weak") if isinstance(p.get("weak"), list) else []
+        res = edu_live.live_session(
+            kind,
+            lang=safe_str(p.get("lang") or "en")[:5],
+            level=safe_str(p.get("level") or "A1").upper()[:2],
+            scenario=safe_str(p.get("scenario")).strip() or None,
+            weak=[safe_str(w)[:100] for w in weak[:4]],
+            target=safe_str(p.get("target") or "en")[:8],
+            voice=re.sub(r"[^A-Za-z-]", "", safe_str(p.get("voice")))[:20],
+            model=re.sub(r"[^\w./:-]", "", safe_str(p.get("model")))[:60],
+            variant=int(p.get("variant") or 0) if str(p.get("variant") or "0").isdigit() else 0,
+        )
+        if not res.get("ok") and p.get("model"):
+            edu_live.mark_model_dead(safe_str(p.get("model")))
+        self._send_json(res, 200 if res.get("ok") else 503)
+
+    def handle_edu_annotate(self):
+        p = self._read_json_body()
+        try:
+            res = edu_tutor.annotate(
+                safe_str(p.get("lang") or "en")[:5], safe_str(p.get("tutor_text")), safe_str(p.get("user_text")),
+                level=safe_str(p.get("level") or "A1").upper()[:2],
+                mode="help" if p.get("mode") == "help" else "speak", translate_fn=translate_text,
+            )
+        except Exception as e:
+            return self.send_json_error(500, f"annotate: {type(e).__name__}")
         self._send_json(res)
 
     def handle_edu_turn(self):

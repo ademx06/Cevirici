@@ -593,3 +593,76 @@ _GREETING_OKUNUS = {
 for _k, _v in _GREETING_OKUNUS.items():
     for _lg in ("en", "fr", "ar", "zh"):
         ok.remember(_k, _lg, _v)
+
+
+
+def annotate(lang: str, tutor_text: str, user_text: str = "", *, level: str = "A1", mode: str = "speak",
+             translate_fn: Callable[[str, str, str], str] | None = None) -> dict:
+    """Canlı (sesli) turdan sonra ekrana: öğretmen cümlesinin okunuşu + Türkçesi, öğrenci cümlesinin düzeltmesi.
+
+    Ses zaten çalmıştır; bu bilgiler bir an sonra karta eklenir (kullanıcıyı bekletmez).
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    lang = (lang or "en").split("-")[0].lower()
+    tutor_text = _clean_target(_s(tutor_text, 800))
+    user_text = _s(user_text, 400)
+    out: dict[str, Any] = {"okunus": "", "tr": "", "fix": None, "user_level": "", "words": []}
+
+    def do_okunus() -> str:
+        if not tutor_text:
+            return ""
+        if lang in PINYIN_LANGS:
+            return llm_okunus(tutor_text, lang)
+        if lang in LLM_OKUNUS:
+            got = llm_okunus_batch([tutor_text], lang)[0]
+            return got if _okunus_ok(got, tutor_text, lang) else (ok.okunus(tutor_text, lang) if lang == "en" else "")
+        return ok.okunus(tutor_text, lang)
+
+    def do_tr() -> str:
+        if not tutor_text or not translate_fn:
+            return ""
+        try:
+            return _s(translate_fn(tutor_text, lang, "tr"), 800)
+        except Exception:
+            return ""
+
+    def do_check() -> dict | None:
+        if mode == "help" or not user_text or len(user_text) < 2:
+            return None
+        name = LANG_NAMES.get(lang, lang)
+        system = (
+            f"You are a strict but kind {name} teacher for a Turkish learner (level {level}). Check the learner sentence: "
+            "verb forms/tense, auxiliaries, articles, gender, case, agreement, prepositions, word order. Ignore punctuation, "
+            "capitalisation and speech-recognition filler. Return ONLY JSON: "
+            '{"check": "<short analysis>", "ok": true|false, "fixed": "<corrected sentence or empty>", '
+            '"fixed_tr": "<Turkish meaning>", "explain_tr": "<1 short Turkish sentence: the rule>", '
+            '"user_level": "A1|A2|B1|B2|C1|C2", "words": [{"word": "<useful word from the tutor reply>", "tr": "<Turkish>"}]}'
+        )
+        parsed, _ = _call_llm(system, f"Tutor said: {tutor_text}\nLearner sentence: {user_text}", max_tokens=320)
+        return parsed
+
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        f_ok, f_tr, f_ck = pool.submit(do_okunus), pool.submit(do_tr), pool.submit(do_check)
+        out["okunus"] = f_ok.result() or ""
+        out["tr"] = f_tr.result() or ""
+        ck = f_ck.result()
+    if isinstance(ck, dict):
+        lv = _s(ck.get("user_level"), 4).upper()
+        out["user_level"] = lv if lv in LEVELS else ""
+        fixed = _clean_target(_s(ck.get("fixed"), 400))
+        if ck.get("ok") is False and fixed and not _same(fixed, user_text):
+            out["fix"] = {"status": "fix", "fixed": fixed, "fixed_tr": _s(ck.get("fixed_tr"), 400),
+                          "okunus": ok.okunus(fixed, lang) if lang in RULE_LANGS_LOCAL else "",
+                          "explain_tr": _s(ck.get("explain_tr"), 400)}
+        for w in (ck.get("words") or [])[:2]:
+            if isinstance(w, dict) and _s(w.get("word"), 40):
+                out["words"].append({"word": _clean_target(_s(w.get("word"), 40)), "tr": _s(w.get("tr"), 60)})
+    if out["fix"] and not out["fix"]["okunus"] and lang in LLM_OKUNUS | PINYIN_LANGS:
+        out["fix"]["okunus"] = (llm_okunus_batch([out["fix"]["fixed"]], lang)[0] if lang in LLM_OKUNUS
+                                else llm_okunus(out["fix"]["fixed"], lang))
+        if lang in LLM_OKUNUS and not _okunus_ok(out["fix"]["okunus"], out["fix"]["fixed"], lang, out["fix"]["fixed_tr"]):
+            out["fix"]["okunus"] = ok.okunus(out["fix"]["fixed"], lang) if lang == "en" else ""
+    return out
+
+
+RULE_LANGS_LOCAL = {"es", "it", "de", "fr", "ru", "ka"}
