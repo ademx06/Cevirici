@@ -7834,7 +7834,7 @@ def _llm_json_word_lesson(system: str, user: str, max_tokens: int = 2400) -> dic
                         parsed = {**parsed, **v}
                         break
             # İnce/şablon yanıtları reddet — en az 8 örnek
-            if isinstance(parsed.get("examples"), list) and len(parsed["examples"]) >= 8:
+            if isinstance(parsed.get("examples"), list) and len(parsed["examples"]) >= 6:
                 return parsed
     return None
 

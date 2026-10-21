@@ -466,7 +466,8 @@ def generate_word_lesson(
 
     # AI-only: yeterince zengin AI örneği varsa şablonla doldurma (sadeleşmesin)
     if len(examples) < 13:
-        if ai_only and ai_example_count >= 8:
+        # İngilizce dışı dillerde kural şablonları İngilizce cümle üretir ("I schwimmen…") → AI dersiyle yetin
+        if ai_only and ai_example_count >= (8 if target_lang == "en" else 5):
             lesson_source = "ai"
         else:
             profile, examples, category = _fast_complete_word_lesson(
