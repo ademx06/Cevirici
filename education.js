@@ -111,7 +111,7 @@
   const loadChat = () => { const c = safeGet(chatKey(P.lang), []); return Array.isArray(c) ? c.map(cleanMsg).filter(Boolean).slice(-60) : []; };
   try { ['edu_chat_v3', 'edu_history_v2'].forEach((k) => localStorage.removeItem(k)); } catch { /* ignore */ }
   const saveChat = () => safeSet(chatKey(P.lang), S.msgs.slice(-60).map((m) => {
-    const { _audio, _rate, pending, live, ...rest } = m; // eslint-disable-line no-unused-vars
+    const { _audio, _rate, _final, pending, live, ...rest } = m; // eslint-disable-line no-unused-vars
     return rest;
   }));
 
@@ -249,13 +249,13 @@
     if (m.words && m.words.length) {
       html += `<div class="words">${m.words.map((w) => `<button type="button" class="word-chip" data-word="${esc(w.word)}"><b>${esc(w.word)}</b>${w.tr ? ` ${esc(w.tr)}` : ''}</button>`).join('')}</div>`;
     }
-    return `<div class="msg msg-tutor"><div class="msg-body">${html}</div></div>`;
+    return `<div class="msg msg-tutor" data-i="${idx}"><div class="msg-body">${html}</div></div>`;
   }
 
-  function renderUser(m) {
+  function renderUser(m, i) {
     const help = m.mode === 'help';
-    const txt = m.text || (m.pending ? '…' : '');
-    return `<div class="msg msg-user ${help ? 'help' : ''} ${m.pending ? 'is-live' : ''}">${help ? '<span class="msg-tag">Yardım · Türkçe</span>' : ''}<div class="msg-body">${esc(txt)}</div></div>`;
+    const txt = m.text || (m.pending ? 'Dinliyorum…' : '');
+    return `<div class="msg msg-user ${help ? 'help' : ''} ${m.pending ? 'is-live' : ''}" data-i="${i}">${help ? '<span class="msg-tag">Yardım · Türkçe</span>' : ''}<div class="msg-body">${esc(txt)}</div></div>`;
   }
 
   function render() {
@@ -271,9 +271,10 @@
       </div>`;
       return;
     }
-    feed.innerHTML = S.msgs.map((m, i) => (m.role === 'user' ? renderUser(m) : renderTutor(m, i))).join('')
+    const nearBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 160;
+    feed.innerHTML = S.msgs.map((m, i) => (m.role === 'user' ? renderUser(m, i) : renderTutor(m, i))).join('')
       + (S.busy && !L.tutorMsg ? '<div class="msg msg-tutor"><div class="typing"><i></i><i></i><i></i></div></div>' : '');
-    requestAnimationFrame(() => { feed.scrollTop = feed.scrollHeight; });
+    if (nearBottom || S.busy || L.talking) feed.scrollTop = feed.scrollHeight;
   }
 
   function partItems(m, part) {
@@ -602,12 +603,15 @@
           if (P.autoSpeak) L.player.enqueue(u8, rate);
         },
         onInput: (t) => {
-          if (L.userMsg) { L.userMsg.text = (L.userMsg.text + t).replace(/\s+/g, ' '); renderSoon(); }
+          if (L.userMsg) { L.userMsg.text = (L.userMsg._final = (L.userMsg._final || '') + t).replace(/\s+/g, ' '); patchSoon(); }
+        },
+        onInterim: (t) => {
+          if (L.userMsg && !L.userMsg._final) { L.userMsg.text = String(t).replace(/\s+/g, ' '); patchSoon(); }
         },
         onOutput: (t) => {
           if (!L.tutorMsg) startTutorMsg();
           L.tutorMsg.reply = (L.tutorMsg.reply + t).replace(/\s+/g, ' ');
-          renderSoon();
+          patchSoon();
         },
         onInterrupted: () => { L.player.stop(); },
         onTurnComplete: () => finishLiveTurn(),
@@ -626,6 +630,36 @@
       pending: true, t: Date.now(), _audio: [], _rate: 24000 };
     S.msgs.push(L.tutorMsg);
     renderSoon();
+  }
+
+  /** Akan metni yerinde güncelle (tüm sohbeti yeniden çizmeden) → titreme yok */
+  let patchPending = false;
+  function patchSoon() {
+    if (patchPending) return;
+    patchPending = true;
+    requestAnimationFrame(() => {
+      patchPending = false;
+      const feed = $('feed');
+      let structural = false;
+      [L.userMsg, L.tutorMsg].forEach((m) => {
+        if (!m) return;
+        const i = S.msgs.indexOf(m);
+        const el = feed.querySelector(`[data-i="${i}"]`);
+        if (!el) { structural = true; return; }
+        if (m.role === 'user') {
+          const b = el.querySelector('.msg-body');
+          const t = m.text || 'Dinliyorum…';
+          if (b && b.textContent !== t) b.textContent = t;
+        } else {
+          const tgt = el.querySelector('.t-target');
+          if (!tgt) { structural = true; return; }
+          if (tgt.textContent !== m.reply) tgt.textContent = m.reply;
+        }
+      });
+      if (structural) { render(); return; }
+      const nearBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 200;
+      if (nearBottom) feed.scrollTop = feed.scrollHeight;
+    });
   }
 
   let renderPending = false;

@@ -99,8 +99,27 @@
   }
 
   let rp = false;
-  function renderSoon() { if (rp) return; rp = true; requestAnimationFrame(() => { rp = false; render(); }); }
+  let lastSig = '';
+  function sig() { return bubbles.filter((b) => b.visible).map((b) => `${bubbles.indexOf(b)}:${b.done ? 1 : 0}:${b.okunus ? 1 : 0}`).join('|'); }
+  function renderSoon() {
+    if (rp) return; rp = true;
+    requestAnimationFrame(() => {
+      rp = false;
+      if (sig() !== lastSig) { render(); return; }
+      // yapı aynı → yalnızca akan metni yerinde güncelle (titreme yok)
+      const el = $(ids.msgs);
+      bubbles.forEach((b, i) => {
+        if (!b.visible) return;
+        const a = el.querySelector(`[data-b="${i}"]`);
+        if (!a) return;
+        const o = a.querySelector('.bubble-original'); const t = a.querySelector('.bubble-translated');
+        if (o && o.textContent !== (b.orig || '…')) o.textContent = b.orig || '…';
+        if (t && t.textContent !== b.trans) t.textContent = b.trans;
+      });
+    });
+  }
   function render() {
+    lastSig = sig();
     const el = $(ids.msgs);
     const list = bubbles.filter((b) => b.visible);
     if ($(ids.clear)) $(ids.clear).classList.toggle('hidden', !list.length);
@@ -113,7 +132,7 @@
     el.innerHTML = list.slice().reverse().map((b) => {
       const f = lang(b.from), t = lang(b.to);
       const i = bubbles.indexOf(b);
-      return `<article class="bubble ${b.dir === 'toOther' ? 'me' : 'other'} ${b.done ? '' : 'is-live'}">
+      return `<article class="bubble ${b.dir === 'toOther' ? 'me' : 'other'} ${b.done ? '' : 'is-live'}" data-b="${i}">
         <div class="bubble-label">${f.flag} ${esc(f.name)}</div>
         <div class="bubble-original">${esc(b.orig || '…')}</div>
         <div class="bubble-divider"></div>

@@ -222,7 +222,7 @@ input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--accent);
   flex-shrink: 0;
   transition: background .2s;
 }
-.status-dot.active { background: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); animation: pulse-dot 1.2s ease-in-out infinite; }
+.status-dot.active { background: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
 @keyframes pulse-dot { 50% { box-shadow: 0 0 0 7px transparent; } }
 .error-box, .notice {
   margin: 6px 0;
@@ -279,12 +279,11 @@ input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--accent);
   background: var(--surface);
   border: 1px solid var(--line);
   box-shadow: var(--shadow-sm);
-  animation: rise .22s ease-out;
 }
 .bubble.other, .live-talk-bubble.other { background: var(--surface-2); }
 .bubble.me, .live-talk-bubble.me { border-left: 3px solid var(--accent); }
 .bubble.other, .live-talk-bubble.other { border-left: 3px solid var(--help); }
-@keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes rise { from { opacity: 0; } to { opacity: 1; } }
 .bubble-label, .live-talk-bubble-meta {
   font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
   color: var(--ink-3);
@@ -347,7 +346,7 @@ input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--accent);
   transition: transform .12s ease, background .2s;
 }
 .mic-btn[data-side="other"] { background: var(--ink); color: var(--bg); box-shadow: var(--shadow); }
-.mic-btn:active { transform: scale(.98); }
+.mic-btn { -webkit-user-select: none; user-select: none; }
 .mic-btn:disabled { opacity: .5; }
 .mic-icon {
   width: 44px; height: 44px; flex-shrink: 0;
@@ -365,8 +364,8 @@ input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--accent);
 .mic-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
 .mic-text strong { font-size: 16px; font-weight: 700; letter-spacing: -.005em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mic-text small { margin-top: 3px; font-size: 12px; font-weight: 600; opacity: .78; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.mic-btn.recording { background: var(--danger); color: #fff; transform: scale(1.02); }
-.mic-btn.recording .mic-icon { background: rgba(255, 255, 255, .22); animation: rec-ring 1s ease-out infinite; }
+.mic-btn.recording { background: var(--danger); color: #fff; }
+.mic-btn.recording .mic-icon { background: rgba(255, 255, 255, .25); box-shadow: 0 0 0 4px rgba(255,255,255,.18); }
 .mic-btn.processing { opacity: .75; }
 @keyframes rec-ring { 0% { box-shadow: 0 0 0 0 rgba(255,255,255,.5); } 100% { box-shadow: 0 0 0 14px rgba(255,255,255,0); } }
 .test-btn {
@@ -485,7 +484,7 @@ input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--accent);
   font-size: 13px; font-weight: 600;
 }
 .edu-feed { flex: 1; display: flex; flex-direction: column; gap: 14px; padding: 14px 0 18px; }
-.msg { display: flex; flex-direction: column; animation: rise .22s ease-out; }
+.msg { display: flex; flex-direction: column; }
 .msg-user { align-items: flex-end; }
 .msg-user .msg-body {
   max-width: 82%;
@@ -840,8 +839,7 @@ body.shell .messages { padding-bottom: 16px; }
 .edu-start h2 { margin: 12px 0 6px; font: 800 22px/1.15 var(--font-display); letter-spacing: -.02em; }
 .edu-start p { margin: 0 0 18px; font-size: 15px; color: var(--ink-2); }
 .edu-feed { display: flex; flex-direction: column; gap: 14px; padding-top: 14px; padding-bottom: 16px; }
-.msg-user.is-live .msg-body { opacity: .85; }
-.msg-user.is-live .msg-body::after { content: ""; display: inline-block; width: 8px; height: 8px; margin-left: 6px; border-radius: 50%; background: currentColor; animation: blink 1s infinite; vertical-align: middle; }
+.msg-user.is-live .msg-body { opacity: .8; font-style: italic; }
 .t-pending { margin: 8px 0 0; font-size: 13px; color: var(--ink-3); font-style: italic; }
 body.shell .edu-meta, body.shell .edu-scenario-row { flex-shrink: 0; }
 
@@ -858,7 +856,7 @@ body.shell .edu-meta, body.shell .edu-scenario-row { flex-shrink: 0; }
 .live-dot { display: inline-block; width: 7px; height: 7px; margin-right: 4px; border-radius: 50%; background: #2FBF71; vertical-align: 1px; animation: live-pulse-g 1.6s infinite; }
 @keyframes live-pulse-g { 0% { box-shadow: 0 0 0 0 rgba(47,191,113,.6); } 70% { box-shadow: 0 0 0 6px rgba(47,191,113,0); } 100% { box-shadow: 0 0 0 0 rgba(47,191,113,0); } }
 .bubble.is-live { border-style: dashed; }
-.bubble.is-live .bubble-translated::after { content: " ▍"; color: var(--accent); animation: blink 1s infinite; }
+.bubble.is-live .bubble-translated::after { content: " …"; color: var(--accent); }
 .talk-dock { flex-shrink: 0; margin: 0 -16px; padding: 10px 16px calc(14px + var(--safe-b)); background: var(--bg); border-top: 1px solid var(--line); }
 .talk-status { justify-content: center; }
 .talk-toggle {

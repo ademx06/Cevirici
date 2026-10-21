@@ -80,7 +80,6 @@
       this.active = true;
       const c = audioCtx();
       if (c.state !== 'running') await c.resume().catch(() => {});
-      setSession('play-and-record');
       if (!workletReady) {
         const url = URL.createObjectURL(new Blob([WORKLET], { type: 'application/javascript' }));
         workletReady = c.audioWorklet.addModule(url);
@@ -110,7 +109,7 @@
         try { if (src) src.disconnect(); } catch { /* ignore */ }
         try { if (node) node.disconnect(); } catch { /* ignore */ }
         if (stream) stream.getTracks().forEach((t) => t.stop());
-        setSession('playback');
+        setSession('auto');
       }, 60);
     }
   }
@@ -133,7 +132,8 @@
       const s = c.createBufferSource();
       s.buffer = buf; s.connect(c.destination);
       const now = c.currentTime;
-      if (this.next < now + 0.02) this.next = now + 0.04;
+      // Ağ dalgalanmasına karşı küçük tampon: yeni bir akışta ~120 ms önde başla, boşluk olursa yeniden tamponla
+      if (this.next < now + 0.03) this.next = now + (this.playing ? 0.08 : 0.12);
       s.start(this.next);
       this.next += buf.duration;
       this.sources.add(s);
@@ -227,6 +227,7 @@
       const sc = m.serverContent;
       if (!sc) return;
       if (sc.interrupted && this.o.onInterrupted) this.o.onInterrupted();
+      if (sc.interimInputTranscription && sc.interimInputTranscription.text && this.o.onInterim) this.o.onInterim(sc.interimInputTranscription.text);
       if (sc.inputTranscription && sc.inputTranscription.text && this.o.onInput) this.o.onInput(sc.inputTranscription.text);
       if (sc.modelTurn && sc.modelTurn.parts) {
         for (const p of sc.modelTurn.parts) {
