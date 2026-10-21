@@ -367,7 +367,9 @@ def _normalize(parsed: dict, lang: str, mode: str, user_text: str) -> dict:
 def _okunus_ok(okn: str, text: str, lang: str, tr: str = "") -> bool:
     if not ok.looks_valid(okn, text, lang):
         return False
-    src_words = len(re.findall(r"\w+", text))
+    import unicodedata
+    bare = "".join(c for c in unicodedata.normalize("NFD", text) if unicodedata.category(c) != "Mn")
+    src_words = len(re.findall(r"\w+", bare))
     ok_words = len(re.findall(r"\w+", okn))
     if src_words >= 3 and not (0.6 <= ok_words / src_words <= 1.7):
         return False

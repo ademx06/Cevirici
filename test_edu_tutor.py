@@ -32,6 +32,8 @@ def test_arabic_transliteration_normalized():
     n = ok.normalize_okunus("Anā uḥibbu al-qahwa ayḍan.")
     assert n == "Anâ uhibbu al-kahva aydan.", n
     assert ok.looks_valid(n, "أَنَا أُحِبُّ الْقَهْوَةَ أَيْضًا.", "ar")
+    assert et._okunus_ok("Saîdun enneke tuhibbu'l-kahve. Mâzâ tufaddılu şurben?",
+                         "سَعِيدٌ أَنَّكَ تُحِبُّ القَهْوَةَ. مَاذَا تُفَضِّلُ شَرْبًا؟", "ar", "Kahveyi sevmene sevindim.")
 
 
 def test_okunus_validation():
