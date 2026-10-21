@@ -159,7 +159,7 @@
   function renderCardActions(ex, lang, idx) {
     return `
       <div class="mod-card-actions">
-        <button type="button" class="mod-listen-btn builder-listen" data-text="${esc(ex.target)}" data-lang="${lang}">🔊 Dinle</button>
+        <button type="button" class="mod-listen-btn builder-listen" data-text="${esc(ex.target)}" data-lang="${lang}">▶ Dinle</button>
         <button type="button" class="mod-detail-btn builder-sentence-detail" data-ex-idx="${idx}" data-lang="${lang}">📖 Cümle detay</button>
       </div>`;
   }
@@ -220,7 +220,7 @@
         ${pron ? `<span class="mod-pron-inline">${pron}</span>` : ''}
         ${mean ? `<span>→ ${esc(mean)}</span>` : ''}
         ${role ? `<small>(${esc(role)})</small>` : ''}
-        <button type="button" class="mod-listen-btn builder-listen mod-listen-sm" data-text="${esc(tok)}" data-lang="${lang}">🔊</button>
+        <button type="button" class="mod-listen-btn builder-listen mod-listen-sm" data-text="${esc(tok)}" data-lang="${lang}">▶</button>
       </div>`;
     }).join('');
     const overlay = document.createElement('div');
@@ -235,7 +235,7 @@
         <div class="mod-card-line mod-card-target"><span class="mod-flag">🇺🇸</span>${esc(ex.target || '')}</div>
         ${renderPronunciationBlock(ex, lang, cardId)}
         <div class="mod-card-actions mod-card-actions-inline">
-          <button type="button" class="mod-listen-btn builder-listen" data-text="${esc(ex.target)}" data-lang="${lang}">🔊 Cümleyi dinle</button>
+          <button type="button" class="mod-listen-btn builder-listen" data-text="${esc(ex.target)}" data-lang="${lang}">▶ Cümleyi dinle</button>
         </div>
         ${how ? `<div class="mod-detail-section"><h4>🧠 Adım adım açıklama</h4><div class="mod-detail-text mod-teach-body">${formatTeachingText(how)}</div></div>` : ''}
         ${wbLines ? `<div class="mod-detail-section"><h4>🔤 Kelime kelime</h4><div class="mod-detail-words">${wbLines}</div></div>` : ''}
@@ -321,7 +321,7 @@
         <div class="mod-card-line"><span class="mod-flag">🇺🇸</span>${esc(item.en)}</div>
         ${item.tr ? `<div class="mod-card-line"><span class="mod-flag">🇹🇷</span>${esc(item.tr)}</div>` : ''}
         ${pronLine ? `<div class="mod-pron-row"><span class="mod-pron-label">${pronLine}</span></div>` : ''}
-        ${listen ? `<button type="button" class="mod-listen-btn builder-listen mod-listen-sm" data-text="${esc(item.en)}" data-lang="${lang || 'en'}">🔊 Dinle</button>` : ''}
+        ${listen ? `<button type="button" class="mod-listen-btn builder-listen mod-listen-sm" data-text="${esc(item.en)}" data-lang="${lang || 'en'}">▶ Dinle</button>` : ''}
       </div>`;
   }
 
@@ -379,7 +379,7 @@
           ${p.tr ? `<div class="mod-card-line mod-card-tr"><span class="mod-flag">🇹🇷</span>${esc(p.tr)}</div>` : ''}
           <div class="mod-card-line mod-card-target"><span class="mod-flag">🇺🇸</span>${esc(p.target)}</div>
           ${p.pronunciation_tr ? `<div class="mod-pron-row"><span class="mod-pron-label">🗣️ Okunuş</span><span class="mod-pron-value">${esc(p.pronunciation_tr)}</span></div>` : ''}
-          <button type="button" class="mod-listen-btn builder-listen mod-listen-sm" data-text="${esc(p.target)}" data-lang="${lang}">🔊 Dinle</button>
+          <button type="button" class="mod-listen-btn builder-listen mod-listen-sm" data-text="${esc(p.target)}" data-lang="${lang}">▶ Dinle</button>
           ${nw ? `<div class="mod-new-words"><strong>📖 Yeni kelimeler</strong>${nw}</div>` : ''}
         </li>`;
     }).join('');
@@ -517,7 +517,7 @@
         <h4>${esc(word)}</h4>
         ${meaning ? `<p><strong>Türkçesi:</strong> ${esc(meaning)}</p>` : ''}
         ${pron ? `<p><strong>Okunuş:</strong> ${esc(pron)}</p>` : ''}
-        <button type="button" class="mod-listen-btn builder-listen" data-text="${esc(word)}" data-lang="${lang}">🔊 Dinle</button>
+        <button type="button" class="mod-listen-btn builder-listen" data-text="${esc(word)}" data-lang="${lang}">▶ Dinle</button>
         ${exTarget ? `<div class="mod-popup-example"><span class="mod-flag">🇺🇸</span>${esc(exTarget)}</div>` : ''}
         ${exTr ? `<div class="mod-popup-example"><span class="mod-flag">🇹🇷</span>${esc(exTr)}</div>` : ''}
       </div>`;
@@ -701,7 +701,7 @@
         <div class="mod-card-line mod-card-tr"><span class="mod-flag">🇹🇷</span>${esc(data.tr_sentence)}</div>
         <div class="mod-card-line mod-card-target"><span class="mod-flag">🌍</span>${esc(data.target_sentence)}</div>
         ${altBlock}
-        <button type="button" class="mod-listen-btn builder-listen" data-text="${esc(data.target_sentence)}" data-lang="${data.target_lang}">🔊 Cümleyi dinle</button>
+        <button type="button" class="mod-listen-btn builder-listen" data-text="${esc(data.target_sentence)}" data-lang="${data.target_lang}">▶ Cümleyi dinle</button>
         ${renderPronunciationBlock(data, data.target_lang, cardId)}
         ${chunks ? `<div class="mod-chunks"><h4>Telaffuz parçaları</h4>${chunks}</div>` : ''}
         ${renderClauseBreakdown(data.clause_breakdown)}
@@ -864,9 +864,9 @@
       tailMs: TAIL_MS,
       minHoldMs: MIN_HOLD_MS,
       minBlobBytes: MIN_BLOB_BYTES,
-      onSpeaking: () => setUi('🎤 Dinleniyor…', true),
+      onSpeaking: () => setUi('Dinleniyor…', true),
       onProcessing: () => setUi('🔄 Yazıya çevriliyor…', true),
-      onIdle: () => { if (!busy) setUi('Kelime veya cümle yaz — veya 🎤 ile söyle', false); },
+      onIdle: () => { if (!busy) setUi('Türkçe bir kelime ya da cümle yaz veya söyle', false); },
       onError: (m) => setUi(m || 'Tekrar dene', false),
       isBusy: () => busy,
       canBegin: () => !busy,
@@ -960,7 +960,7 @@
     $('panelSentence')?.classList.toggle('hidden', tab !== 'sentence');
     $('wordComposer')?.classList.toggle('hidden', tab !== 'word');
     $('sentenceComposer')?.classList.toggle('hidden', tab !== 'sentence');
-    setUi(tab === 'word' ? 'Türkçe kelime yaz veya 🎤 ile söyle' : 'Türkçe cümle yaz veya 🎤 ile söyle', false);
+    setUi(tab === 'word' ? 'Türkçe bir kelime yaz veya söyle' : 'Türkçe bir cümle yaz veya söyle', false);
   }
 
   function debouncedSearch() {

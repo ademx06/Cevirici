@@ -75,7 +75,7 @@
   }
 
   function speakLabel(code) {
-    return code === 'en' ? 'HOLD TO SPEAK' : 'BASILI TUT';
+    return ({ tr: 'Basılı tut, konuş', en: 'Hold to speak', de: 'Gedrückt halten', fr: 'Maintenir pour parler', es: 'Mantén para hablar', it: 'Tieni premuto', ru: 'Удерживай', ar: 'اضغط مطولاً', zh: '按住说话', ka: 'დააჭირე და ილაპარაკე' })[code] || 'Basılı tut, konuş';
   }
 
   function setStatus(text, live) {
@@ -375,7 +375,7 @@
       pauseMicForTts(active);
     }
     try {
-      setStatus('🔊 ' + langOf(item.lang).flag + ' sesli çeviri…', !!(active && active.active));
+      setStatus('Seslendiriliyor ' + langOf(item.lang).flag + ' sesli çeviri…', !!(active && active.active));
       var b64 = await fetchTts(item.text, item.lang);
       if (b64) {
         if (active && active.id === item.sessId && active.lastAudioMsg) {
@@ -550,7 +550,7 @@
         '<div class="live-talk-bubble-meta">' + to.flag + ' ÇEVİRİ · ' + to.name + '</div>' +
         '<div class="live-talk-bubble-trans">' + escapeHtml(m.trans) + '</div>' +
         '<div class="live-talk-bubble-actions">' +
-        (m.audio ? '<button type="button" class="live-talk-replay" data-idx="' + i + '">🔊 Tekrar dinle</button>' : '') +
+        (m.audio ? '<button type="button" class="live-talk-replay" data-idx="' + i + '">▶ Tekrar dinle</button>' : '') +
         '</div></article>';
     }).join('');
     el.querySelectorAll('.live-talk-replay').forEach(function (btn) {
@@ -575,8 +575,8 @@
     $('ltOtherLangName').textContent = other.name;
     $('ltMicTitleMe').textContent = speakLabel(S.my);
     $('ltMicTitleOther').textContent = speakLabel(S.other);
-    $('ltMicHintMe').textContent = my.name + ' → canlı çeviri + ses';
-    $('ltMicHintOther').textContent = other.name + ' → canlı çeviri + ses';
+    $('ltMicHintMe').textContent = my.name + ' → çeviri + ses';
+    $('ltMicHintOther').textContent = other.name + ' → çeviri + ses';
   }
 
   function abortFetches(sess) {
@@ -928,7 +928,7 @@
 
     markMic(side, 'recording');
     showLivePanel(from, to);
-    setStatus('🎙️ ' + langOf(from).flag + ' dinleniyor → ' + langOf(to).flag + ' canlı çeviri + ses', true);
+    setStatus(langOf(from).flag + ' dinleniyor → ' + langOf(to).flag + ' canlı çeviri + ses', true);
 
     recorder.ondataavailable = function (e) {
       if (!e.data || !e.data.size) return;

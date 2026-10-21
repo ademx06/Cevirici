@@ -2,14 +2,16 @@
 <html lang="tr">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="theme-color" content="#060B18">
-  <meta name="app-version" content="2026.09.02-v43">
-  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Sesli Çevirmen">
+  <meta name="theme-color" content="#F4F1EA" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#121311" media="(prefers-color-scheme: dark)">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="manifest" href="manifest.json">
   <title>Cümle Kur — Sesli Çevirmen</title>
-  <link rel="stylesheet" href="styles.css?v=62">
+  <link rel="stylesheet" href="styles.css?v=100">
 </head>
 <body>
   <div class="app mod-app builder-app">
@@ -21,7 +23,7 @@
           <p class="tagline" id="langLabel">🇺🇸 American English</p>
         </div>
       </div>
-      <a href="self-test.html" class="ghost-btn mod-link-btn">🎯 Test</a>
+      <a href="self-test.html" class="ghost-btn mod-link-btn">Test et</a>
     </header>
 
     <section class="lang-card mod-lang-card">
@@ -38,7 +40,7 @@
 
     <div class="status-bar mod-status">
       <span id="statusDot" class="status-dot"></span>
-      <span id="statusText">Kelime veya cümle yaz — veya 🎤 ile söyle</span>
+      <span id="statusText">Türkçe bir kelime ya da cümle yaz veya söyle</span>
     </div>
 
     <main class="mod-scroll" id="modScroll">
@@ -48,7 +50,7 @@
         <section class="mod-saved">
           <div class="mod-saved-head">
             <h2>Öğrendiğim Kelimeler</h2>
-            <input id="wordSearch" type="search" placeholder="🔎 Ara" class="mod-search" autocomplete="off">
+            <input id="wordSearch" type="search" placeholder="Ara" class="mod-search" autocomplete="off">
           </div>
           <div id="savedWords" class="mod-saved-list"></div>
         </section>
@@ -60,7 +62,7 @@
         <section class="mod-saved">
           <div class="mod-saved-head">
             <h2>Öğrendiğim Cümleler</h2>
-            <input id="sentenceSearch" type="search" placeholder="🔎 Ara" class="mod-search" autocomplete="off">
+            <input id="sentenceSearch" type="search" placeholder="Ara" class="mod-search" autocomplete="off">
           </div>
           <div id="savedSentences" class="mod-saved-list"></div>
         </section>
@@ -71,25 +73,25 @@
       <div id="wordComposer" class="mod-composer">
         <input id="wordInput" type="text" placeholder="Türkçe kelime… (kahve)" maxlength="60" enterkeyhint="go" autocomplete="off">
         <button id="wordMicBtn" class="mod-mic-btn" type="button" aria-label="Basılı tut konuş">
-          <span class="mod-mic-icon">🎤</span>
+          <span class="mod-mic-icon"></span>
         </button>
         <button id="wordGoBtn" class="mod-send-btn" type="button" aria-label="Oluştur">➤</button>
       </div>
       <div id="sentenceComposer" class="mod-composer hidden">
         <input id="sentenceInput" type="text" placeholder="Türkçe cümle…" maxlength="300" enterkeyhint="go" autocomplete="off">
         <button id="sentenceMicBtn" class="mod-mic-btn" type="button" aria-label="Basılı tut konuş">
-          <span class="mod-mic-icon">🎤</span>
+          <span class="mod-mic-icon"></span>
         </button>
         <button id="sentenceGoBtn" class="mod-send-btn" type="button" aria-label="Analiz">➤</button>
       </div>
-      <p class="mod-dock-hint">🎤 Basılı tut → Türkçe söyle → bırak</p>
+      <p class="mod-dock-hint">Mikrofona basılı tut, Türkçe söyle, bırak</p>
     </footer>
   </div>
 
-  <script src="api-client.js?v=6"></script>
+  <script src="api-client.js?v=7"></script>
   <script src="keepalive.js?v=2"></script>
   <script src="mic-hold.js?v=13"></script>
   <script src="learn-storage.js?v=13"></script>
-  <script src="sentence-builder.js?v=30"></script>
+  <script src="sentence-builder.js?v=31"></script>
 </body>
 </html>

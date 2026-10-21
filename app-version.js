@@ -58,23 +58,18 @@
     const target = d?.target_app_version || clientBundleVersion() || v;
     const stale = shouldOfferUpdate(v);
     const updating = !!opts.updating;
-    const ai = d?.ai_fallback_enabled
-      ? ` · AI: ${d.ai_provider_label || d.ai_provider || ''}`
-      : d?.ai_provider_label
-        ? ` · ${d.ai_provider_label}`
-        : '';
-    const ok = d?.ok ? '✅' : '⚠️';
+    const short = String(v).replace(/^.*-v/, 'v');
     text.textContent = updating
-      ? `⏳ Güncelleniyor… (şu an ${v})`
+      ? `Güncelleniyor… (${short})`
       : stale
-        ? `${ok} Eski sürüm: ${v} · Hedef: ${target}${ai}`
-        : `${ok} Sürüm ${v}${ai}`;
+        ? `Yeni sürüm hazır · şu an ${short}`
+        : (d?.app_version ? `Sürüm ${short}` : '');
     bar.classList.toggle('app-version-stale', stale || updating);
     bar.classList.toggle('app-version-ok', !stale && !!d?.app_version);
     if (btn) {
       btn.classList.toggle('hidden', !stale && !updating);
       btn.disabled = updating;
-      btn.textContent = updating ? 'Güncelleniyor…' : 'Programı Güncelle';
+      btn.textContent = updating ? 'Güncelleniyor…' : 'Güncelle';
     }
     if (!stale && v && v !== '?') {
       try { localStorage.setItem('appVersion', v); } catch { /* ignore */ }

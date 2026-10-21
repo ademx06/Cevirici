@@ -2,13 +2,16 @@
 <html lang="tr">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="theme-color" content="#060B18">
-  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Sesli Çevirmen">
+  <meta name="theme-color" content="#F4F1EA" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#121311" media="(prefers-color-scheme: dark)">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="manifest" href="manifest.json">
   <title>Kendini Test Et — Sesli Çevirmen</title>
-  <link rel="stylesheet" href="styles.css?v=56">
+  <link rel="stylesheet" href="styles.css?v=100">
 </head>
 <body>
   <div class="app mod-app quiz-app">
@@ -20,7 +23,7 @@
           <p class="tagline" id="langLabel">🇬🇧 English</p>
         </div>
       </div>
-      <a href="sentence-builder.html" class="ghost-btn mod-link-btn">📝 Kur</a>
+      <a href="sentence-builder.html" class="ghost-btn mod-link-btn">Cümle Kur</a>
     </header>
 
     <section class="lang-card mod-lang-card">
@@ -58,9 +61,9 @@
         <div id="quizPrompt" class="mod-quiz-prompt"></div>
         <div id="quizResult" class="mod-result-card hidden"></div>
         <div class="mod-quiz-actions hidden" id="quizActions">
-          <button type="button" id="retryBtn" class="ghost-btn">🔄 Tekrar Dene</button>
-          <button type="button" id="listenCorrectBtn" class="ghost-btn">🔊 Doğru telaffuz</button>
-          <button type="button" id="nextBtn" class="mod-action-btn">➡️ Sonraki</button>
+          <button type="button" id="retryBtn" class="ghost-btn">Tekrar dene</button>
+          <button type="button" id="listenCorrectBtn" class="ghost-btn">▶ Doğru telaffuz</button>
+          <button type="button" id="nextBtn" class="mod-action-btn">Sonraki</button>
         </div>
       </section>
 
@@ -76,7 +79,7 @@
         <span id="quizStatus">Basılı tut ve hedef dilde konuş</span>
       </div>
       <button id="micBtn" class="mic-btn mic-btn-mod" type="button">
-        <span class="mic-icon">🎤</span>
+        <span class="mic-icon"></span>
         <span class="mic-text">
           <strong id="micTitle">Basılı Tut ve Konuş</strong>
           <small id="micSubtitle">Hedef dilde cevap ver</small>
@@ -85,10 +88,10 @@
     </footer>
   </div>
 
-  <script src="api-client.js?v=3"></script>
+  <script src="api-client.js?v=7"></script>
   <script src="keepalive.js?v=2"></script>
   <script src="mic-hold.js?v=3"></script>
   <script src="learn-storage.js?v=2"></script>
-  <script src="self-test.js?v=3"></script>
+  <script src="self-test.js?v=4"></script>
 </body>
 </html>

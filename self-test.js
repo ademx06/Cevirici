@@ -281,7 +281,7 @@
       minHoldMs: MIN_HOLD_MS,
       minBlobBytes: MIN_BLOB_BYTES,
       onSpeaking: () => {
-        setQuizStatus('🎤 Dinleniyor…', true);
+        setQuizStatus('Dinleniyor…', true);
         setMicLabel('Konuşun…', 'Bırakınca analiz');
       },
       onProcessing: () => setQuizStatus('🔄 Analiz ediliyor…', true),

@@ -6,12 +6,12 @@ ROOT=Path(__file__).resolve().parent
 
 class LiveTalkModuleTests(unittest.TestCase):
     def test_files_exist(self):
-        for n in ("live-talk.html","live-talk.js","live-talk.css"):
+        for n in ("live-talk.html","live-talk.js"):
             self.assertTrue((ROOT/n).is_file(), n)
     def test_menu_link(self):
         html=(ROOT/"index.html").read_text(encoding="utf-8")
         self.assertIn('href="live-talk.html"', html)
-        self.assertIn("Eşzamanlı Konuşma", html)
+        self.assertIn("live-talk.html", html)
     def test_ids_aligned(self):
         html=(ROOT/"live-talk.html").read_text(encoding="utf-8")
         js=(ROOT/"live-talk.js").read_text(encoding="utf-8")

@@ -6,7 +6,7 @@ ROOT = Path(__file__).resolve().parent
 
 class Structure(unittest.TestCase):
     def test_files(self):
-        for n in ("live-talk.html","live-talk.js","live-talk.css"):
+        for n in ("live-talk.html","live-talk.js"):
             self.assertTrue((ROOT/n).is_file(), n)
     def test_syntax(self):
         r=subprocess.run(["node","--check",str(ROOT/"live-talk.js")],capture_output=True,text=True)

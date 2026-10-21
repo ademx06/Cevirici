@@ -1,1904 +1,711 @@
-const LANGUAGES = [
-  { code: 'tr', speech: 'tr-TR', name: 'Türkçe', flag: '🇹🇷' },
-  { code: 'en', speech: 'en-US', name: 'English', flag: '🇬🇧' },
-  { code: 'ka', speech: 'ka-GE', name: 'ქართული', flag: '🇬🇪' },
-  { code: 'de', speech: 'de-DE', name: 'Deutsch', flag: '🇩🇪' },
-  { code: 'fr', speech: 'fr-FR', name: 'Français', flag: '🇫🇷' },
-  { code: 'es', speech: 'es-ES', name: 'Español', flag: '🇪🇸' },
-  { code: 'ar', speech: 'ar-SA', name: 'العربية', flag: '🇸🇦' },
-  { code: 'ru', speech: 'ru-RU', name: 'Русский', flag: '🇷🇺' },
-  { code: 'it', speech: 'it-IT', name: 'Italiano', flag: '🇮🇹' },
-  { code: 'zh', speech: 'zh-CN', name: '中文', flag: '🇨🇳' },
-];
+/* Eğitim — yapay zekâ öğretmen istemcisi (v3)
+ * Tek istek/tur · seviye takibi · kelime & düzeltme kaydı · anında seslendirme
+ */
+(function () {
+  'use strict';
 
-const LEARN_LANGS = LANGUAGES.filter((l) => l.code !== 'tr');
+  // ------------------------------------------------------------------ data
+  const LANGS = [
+    { code: 'en', flag: '🇬🇧', name: 'English', tr: 'İngilizce' },
+    { code: 'de', flag: '🇩🇪', name: 'Deutsch', tr: 'Almanca' },
+    { code: 'fr', flag: '🇫🇷', name: 'Français', tr: 'Fransızca' },
+    { code: 'es', flag: '🇪🇸', name: 'Español', tr: 'İspanyolca' },
+    { code: 'it', flag: '🇮🇹', name: 'Italiano', tr: 'İtalyanca' },
+    { code: 'ru', flag: '🇷🇺', name: 'Русский', tr: 'Rusça' },
+    { code: 'ar', flag: '🇸🇦', name: 'العربية', tr: 'Arapça', rtl: true },
+    { code: 'zh', flag: '🇨🇳', name: '中文', tr: 'Çince' },
+    { code: 'ka', flag: '🇬🇪', name: 'ქართული', tr: 'Gürcüce' },
+  ];
+  const LEVELS = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
+  const LEVEL_TR = { A1: 'Başlangıç', A2: 'Temel', B1: 'Orta', B2: 'Orta üstü', C1: 'İleri', C2: 'Ustalık' };
+  const ACCENTS = {
+    en: [['en-US', 'Amerikan'], ['en-GB', 'İngiliz'], ['en-AU', 'Avustralya'], ['en-IE', 'İrlanda']],
+    es: [['es-ES', 'İspanya'], ['es-MX', 'Meksika']],
+    fr: [['fr-FR', 'Fransa'], ['fr-CA', 'Kanada']],
+    de: [['de-DE', 'Almanya'], ['de-AT', 'Avusturya'], ['de-CH', 'İsviçre']],
+    ar: [['ar-SA', 'Suudi Arabistan'], ['ar-EG', 'Mısır']],
+    zh: [['zh-CN', 'Mandarin (Çin)'], ['zh-TW', 'Tayvan']],
+  };
+  const SCENARIOS = [
+    ['Günlük hayat', [['friend', 'Arkadaşla sohbet'], ['daily_chat', 'Günlük sohbet'], ['meet_new', 'Yeni biriyle tanışma'], ['neighbor', 'Komşuyla konuşma'], ['phone_call', 'Telefonda konuşma'], ['weekend_plans', 'Hafta sonu planı'], ['hobbies', 'Hobiler'], ['sports', 'Spor'], ['movies', 'Film ve dizi'], ['music', 'Müzik'], ['food_talk', 'Yemek sohbeti'], ['shopping_chat', 'Alışveriş sohbeti'], ['teacher', 'Sınıf öğretmeni']]],
+    ['Seyahat', [['airport', 'Havalimanı'], ['flight', 'Uçakta'], ['passport_control', 'Pasaport kontrolü'], ['taxi', 'Taksi'], ['hotel', 'Otel check-in'], ['hotel_checkout', 'Otel check-out'], ['hotel_problem', 'Otel problemi'], ['restaurant', 'Restoran'], ['cafe', 'Kafe'], ['market', 'Market'], ['directions', 'Yol tarifi'], ['car_rental', 'Araba kiralama'], ['tour', 'Tur rezervasyonu'], ['shop', 'Mağaza']]],
+    ['İş', [['interview', 'İş görüşmesi'], ['colleagues', 'İş arkadaşlarıyla sohbet'], ['meeting', 'Toplantı'], ['work_phone', 'İş telefonu'], ['customer', 'Müşteri görüşmesi'], ['boss', 'Patronla görüşme'], ['salary', 'Maaş görüşmesi']]],
+    ['Sosyal', [['make_friends', 'Yeni arkadaş edinme'], ['invite', 'Birini davet etme'], ['ask_advice', 'Tavsiye isteme'], ['apology', 'Özür dileme'], ['thanks', 'Teşekkür etme']]],
+    ['Gerçek hayat', [['doctor', 'Doktor'], ['pharmacy', 'Eczane'], ['bank', 'Banka'], ['post_office', 'Postane'], ['rent_apartment', 'Ev kiralama'], ['tech_support', 'Teknik destek']]],
+  ];
+  const SCENARIO_NAME = Object.fromEntries(SCENARIOS.flatMap(([, items]) => items));
 
-// Accent options per target language (locale must match server ACCENT_VOICES)
-const ACCENTS = {
-  en: [['en-US', 'Amerikan (ABD)'], ['en-GB', 'İngiliz (Londra)'], ['en-AU', 'Avustralya'], ['en-IE', 'İrlanda']],
-  es: [['es-ES', 'İspanya'], ['es-MX', 'Meksika']],
-  fr: [['fr-FR', 'Fransa'], ['fr-CA', 'Kanada (Québec)']],
-  de: [['de-DE', 'Almanya'], ['de-AT', 'Avusturya'], ['de-CH', 'İsviçre']],
-  ar: [['ar-SA', 'Suudi Arabistan'], ['ar-EG', 'Mısır']],
-  zh: [['zh-CN', 'Mandarin (Çin)'], ['zh-TW', 'Tayvan']],
-};
-const ACCENT_KEY = 'edu_accent_v1';
+  const PROFILE_KEY = 'edu_v3_profile';
+  const chatKey = (lang) => `edu_v3_chat_${lang}`;
+  const TURN_TIMEOUT = 40000;
 
-function loadAccents() {
-  try {
-    const raw = JSON.parse(localStorage.getItem(ACCENT_KEY) || '{}');
-    return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
-  } catch {
-    return {};
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+  const langOf = (c) => LANGS.find((l) => l.code === c) || LANGS[0];
+  const ICON = {
+    play: '<svg viewBox="0 0 24 24"><path d="M11 5L6 9H3v6h3l5 4zM15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg>',
+    slow: '<svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2M9 2h6"/></svg>',
+    fill: '<svg viewBox="0 0 24 24"><path d="M7 4.5v15l13-7.5z"/></svg>',
+  };
+
+  // ------------------------------------------------------------------ storage
+  function safeGet(key, fallback) {
+    try { const v = JSON.parse(localStorage.getItem(key)); return v ?? fallback; } catch { return fallback; }
   }
-}
-
-function accentFor(lang) {
-  const opts = ACCENTS[lang];
-  if (!opts) return '';
-  const chosen = safeStr(loadAccents()[lang]);
-  return opts.some(([loc]) => loc === chosen) ? chosen : '';
-}
-
-function syncAccentSelect() {
-  const sel = document.getElementById('accentSelect');
-  const field = document.getElementById('accentField');
-  if (!sel) return;
-  const opts = ACCENTS[S.learnLang] || [];
-  if (field) field.classList.toggle('hidden', !opts.length);
-  sel.innerHTML = opts.map(([loc, label]) => `<option value="${loc}">${label}</option>`).join('');
-  if (opts.length) sel.value = accentFor(S.learnLang) || opts[0][0];
-}
-
-const PROFILE_KEY = 'edu_profile_v2';
-const HISTORY_KEY = 'edu_history_v2';
-const CHAT_KEY = 'edu_chat_v3';
-
-const STATES = {
-  IDLE: { text: 'Hedef dilde konuş', mic: 'Basılı Tut ve Konuş', live: false },
-  LISTENING: { text: 'Dinleniyor...', mic: 'Konuşun...', live: true },
-  PROCESSING: { text: 'Düşünüyor...', mic: 'Düşünüyor...', live: true },
-  SPEAKING: { text: 'Öğretmen konuşuyor...', mic: 'Dinleyin...', live: true },
-  ERROR: { text: 'Tekrar deneyin', mic: 'Basılı Tut ve Konuş', live: false },
-};
-
-function idleStatusText() {
-  const lg = getLang(S.learnLang);
-  const name = lg?.name || 'hedef dil';
-  return `Hazır · ${name} konuş`;
-}
-
-function syncMicLabels() {
-  const lg = getLang(S.learnLang);
-  const flag = lg?.flag || '🌐';
-  const name = lg?.name || 'Hedef dil';
-  safeText('micTitle', 'Konuş');
-  safeText('conversationSubtitle', `${flag} ${name}`);
-  safeText('helpMicTitle', 'Yardım');
-  safeText('helpMicSubtitle', '🇹🇷 Türkçe');
-}
-
-const audio = document.createElement('audio');
-audio.setAttribute('playsinline', 'true');
-audio.setAttribute('webkit-playsinline', 'true');
-if (document.body) document.body.appendChild(audio);
-else document.addEventListener('DOMContentLoaded', () => document.body.appendChild(audio));
-
-const TAIL_MS = 280;
-const MIN_HOLD_MS = 350;
-const MIN_BLOB_BYTES = 400;
-
-const S = {
-  learnLang: 'en',
-  roleplay: '',
-  speakSlow: false,
-  msgs: [],
-  history: [],
-  profile: null,
-  weeklyProgress: null,
-  sessionStart: null,
-  uiState: 'IDLE',
-  holdActive: false,
-  holdGen: 0,
-  audioReady: false,
-  stream: null,
-  recorder: null,
-  chunks: [],
-  fingerDownAt: 0,
-  pressMs: 0,
-  stopHandled: false,
-  usedTouch: false,
-  stopTimer: null,
-  safetyTimer: null,
-  busyCount: 0,
-  lastAudio: null,
-  greetingLoaded: false,
-  greetingBusy: false,
-  greetingAbort: null,
-  spokenMessageIds: {},
-  forcedSource: null,
-  helpMode: false,
-  sessionSaved: false,
-  softMsgTimer: null,
-  processWatchdog: null,
-  busySince: 0,
-  lastUserLang: 'tr',
-};
-
-let mic;
-
-const VOICE_FETCH_MS = 55000;
-const CHAT_FETCH_MS = 45000;
-const TTS_PLAY_MS = 12000;
-const EN_TTS_MAX = 480;
-const TR_TTS_MAX = 220;
-const STALE_BUSY_MS = 18000;
-const MIC_OPEN_MS = 12000;
-
-const $ = (id) => document.getElementById(id);
-
-function on(id, event, handler) {
-  const el = $(id);
-  if (el) el.addEventListener(event, handler);
-}
-
-function safeText(id, value) {
-  const el = $(id);
-  if (el) el.textContent = value;
-}
-
-function safeClass(id, method, ...args) {
-  const el = $(id);
-  if (el?.classList) el.classList[method](...args);
-}
-
-function ensureArray(val, fallback = []) {
-  if (Array.isArray(val)) return val;
-  if (val == null || val === '') return fallback.slice();
-  if (typeof val === 'string') return val.split(',').map((s) => s.trim()).filter(Boolean);
-  return fallback.slice();
-}
-
-function safeStr(val) {
-  if (val == null) return '';
-  return typeof val === 'string' ? val : String(val);
-}
-
-function normalizeProfile(p) {
-  if (!p || typeof p !== 'object' || Array.isArray(p)) {
-    return loadProfile();
+  function safeSet(key, val) {
+    try { localStorage.setItem(key, JSON.stringify(val)); } catch { /* storage full / private mode */ }
   }
-  const out = {
-    ...p,
-    grammarErrors: ensureArray(p.grammarErrors).filter((e) => e && typeof e === 'object'),
-    vocabularyWeaknesses: ensureArray(p.vocabularyWeaknesses),
-    repeatedMistakes: ensureArray(p.repeatedMistakes).filter((e) => e && (typeof e === 'object' || typeof e === 'string')),
-    masteredTopics: ensureArray(p.masteredTopics),
-    masteredLessonTopics: ensureArray(p.masteredLessonTopics),
-    taughtPatterns: ensureArray(p.taughtPatterns),
-    weakAreas: ensureArray(p.weakAreas),
-    strongAreas: ensureArray(p.strongAreas),
-    srsItems: ensureArray(p.srsItems).filter((e) => e && typeof e === 'object'),
-    vocabularyBank: ensureArray(p.vocabularyBank).filter((e) => e && typeof e === 'object'),
-    dailyStats: ensureArray(p.dailyStats).filter((e) => e && typeof e === 'object'),
-    sessionLog: ensureArray(p.sessionLog).filter((e) => e && typeof e === 'object'),
-    sessions: ensureArray(p.sessions),
-    newWords: ensureArray(p.newWords),
-  };
-  if (typeof out.pendingPracticePhrase === 'number') out.pendingPracticePhrase = String(out.pendingPracticePhrase);
-  if (typeof out.lastTeacherText === 'number') out.lastTeacherText = String(out.lastTeacherText);
-  return out;
-}
 
-function sanitizeHistory(raw) {
-  return ensureArray(raw).map((h) => {
-    if (!h || typeof h !== 'object') return null;
-    const role = h.role === 'teacher' ? 'teacher' : 'user';
-    const text = safeStr(h.text).slice(0, 500);
-    return text ? { role, text } : null;
-  }).filter(Boolean).slice(0, 24);
-}
-
-function sanitizeCorrectionDetail(cd) {
-  if (!cd || typeof cd !== 'object' || Array.isArray(cd)) return null;
-  return {
-    userSaid: safeStr(cd.userSaid),
-    correctEn: safeStr(cd.correctEn),
-    correctTr: safeStr(cd.correctTr),
-    explainTr: safeStr(cd.explainTr),
-    explainEn: safeStr(cd.explainEn),
-    grammarTr: safeStr(cd.grammarTr),
-    wordBreakdown: safeStr(cd.wordBreakdown),
-    inferredMeaning: safeStr(cd.inferredMeaning),
-    level: Number(cd.level) || 1,
-  };
-}
-
-function sanitizeHelpExample(ex) {
-  if (!ex || typeof ex !== 'object' || Array.isArray(ex)) return null;
-  const target = safeStr(ex.target || ex.en || ex.english || ex.text).slice(0, 400);
-  if (!target) return null;
-  return {
-    label: safeStr(ex.label || ex.title || ex.level).slice(0, 80),
-    target,
-    tr: safeStr(ex.tr || ex.turkish || ex.turkishText || ex.meaningTr).slice(0, 400),
-    phonetic: safeStr(ex.phonetic || ex.pronunciation || ex.pronunciation_tr).slice(0, 400),
-  };
-}
-
-function sanitizeHelpExamples(raw) {
-  return ensureArray(raw).map(sanitizeHelpExample).filter(Boolean).slice(0, 6);
-}
-
-function sanitizeHelpStructure(hs) {
-  if (!hs || typeof hs !== 'object' || Array.isArray(hs)) return null;
-  const answer = (hs.answer && typeof hs.answer === 'object') ? {
-    structure: safeStr(hs.answer.structure).slice(0, 400),
-    explain_tr: safeStr(hs.answer.explain_tr || hs.answer.explainTr).slice(0, 500),
-  } : null;
-  const question = (hs.question && typeof hs.question === 'object') ? {
-    structure: safeStr(hs.question.structure).slice(0, 400),
-    explain_tr: safeStr(hs.question.explain_tr || hs.question.explainTr).slice(0, 500),
-  } : null;
-  return {
-    active_question: safeStr(hs.active_question || hs.activeQuestion).slice(0, 280),
-    answer,
-    question,
-    pattern_tip: safeStr(hs.pattern_tip || hs.patternTip).slice(0, 300),
-    commands: safeStr(hs.commands).slice(0, 800),
-  };
-}
-
-function sanitizeHelpTtsPairs(raw) {
-  return ensureArray(raw).map((p) => {
-    if (!p || typeof p !== 'object') return null;
-    const en = safeStr(p.en || p.target || p.text).slice(0, 400);
-    if (!en) return null;
-    return {
-      en,
-      tr: safeStr(p.tr || p.turkish).slice(0, 400),
-      phonetic: safeStr(p.phonetic || p.pronunciation).slice(0, 400),
+  function defaultProfile() {
+    const p = {
+      lang: 'en', levels: {}, autoLevel: true, scenario: '', slow: false,
+      showOkunus: true, showTr: true, autoSpeak: true, accents: {}, goalMin: 10,
+      days: {}, streak: 0, lastDay: '', ema: {}, sinceChange: {}, recent: {},
+      words: {}, mistakes: {}, turns: 0, correct: 0,
     };
-  }).filter(Boolean).slice(0, 6);
-}
-
-function sanitizeChatMsg(m) {
-  if (!m || typeof m !== 'object' || Array.isArray(m)) return null;
-  const role = m.role === 'user' ? 'user' : 'teacher';
-  if (role === 'user') {
-    const text = safeStr(m.text).slice(0, 500);
-    return text ? { role, text, lang: safeStr(m.lang || S.learnLang), time: safeStr(m.time) } : null;
+    // eski sürümden seviye/dil taşı
+    const old = safeGet('edu_profile_v2', null);
+    if (old && typeof old === 'object') {
+      const lg = String(old.targetLang || 'en');
+      if (LANGS.some((l) => l.code === lg)) p.lang = lg;
+      if (LEVELS.includes(old.currentLevel)) p.levels[p.lang] = old.currentLevel;
+    }
+    return p;
   }
-  const correctionDetail = sanitizeCorrectionDetail(m.correctionDetail);
-  const nw = m.newWord;
-  const newWord = nw && typeof nw === 'object' && !Array.isArray(nw) && nw.word
-    ? { word: safeStr(nw.word), meaningTr: safeStr(nw.meaningTr) }
-    : null;
-  // Preserve help examples from API (help_examples) and in-memory (helpExamples)
-  const helpExamples = sanitizeHelpExamples(
-    m.helpExamples || m.help_examples || m.examples || m.answerExamples,
-  );
-  const helpTtsPairs = sanitizeHelpTtsPairs(
-    m.helpTtsPairs || m.help_tts_pairs,
-  );
-  const helpStructure = sanitizeHelpStructure(
-    m.helpStructure || m.help_structure,
-  );
-  return {
-    role: 'teacher',
-    teacher: safeStr(m.teacher || m.teacherEn),
-    teacherEn: safeStr(m.teacherEn || m.teacher),
-    teacherTr: safeStr(m.teacherTr || m.explain),
-    explain: safeStr(m.explain || m.teacherTr),
-    correction: safeStr(m.correction),
-    correctionLevel: Number(m.correctionLevel) || 1,
-    correctionDetail,
-    userSaid: safeStr(m.userSaid),
-    targetLang: safeStr(m.targetLang || S.learnLang),
-    audio: typeof m.audio === 'string' && m.audio ? m.audio : null,
-    type: safeStr(m.type),
-    newWord,
-    speakTr: safeStr(m.speakTr),
-    speakText: safeStr(m.speakText || m.speak_text),
-    phoneticEn: safeStr(m.phoneticEn || m.phonetic_en),
-    questionText: safeStr(m.questionText || m.question_text),
-    hasQuestion: !!(m.hasQuestion || m.has_question),
-    messageId: safeStr(m.messageId || m.message_id),
-    ttsLanguage: safeStr(m.ttsLanguage || m.tts_language || m.targetLang || S.learnLang),
-    helpExamples,
-    helpTtsPairs,
-    helpStructure,
-    orch: sanitizeOrchestrator(m.orch || m.orchestrator),
-    time: safeStr(m.time),
+  const P = Object.assign(defaultProfile(), safeGet(PROFILE_KEY, {}));
+  ['levels', 'accents', 'days', 'ema', 'sinceChange', 'recent', 'words', 'mistakes'].forEach((k) => {
+    if (!P[k] || typeof P[k] !== 'object' || Array.isArray(P[k])) P[k] = {};
+  });
+  if (!LANGS.some((l) => l.code === P.lang)) P.lang = 'en';
+  const saveProfile = () => safeSet(PROFILE_KEY, P);
+
+  const S = {
+    msgs: [],
+    busy: false,
+    mode: 'speak',
+    lastActive: Date.now(),
+    holdActive: false, holdGen: 0, recorder: null, stream: null, chunks: [],
   };
-}
 
-function sanitizeOrchestrator(o) {
-  if (!o || typeof o !== 'object' || Array.isArray(o)) return null;
-  const level = /^(A1|A2|B1|B2|C1|C2)$/.test(safeStr(o.level)) ? safeStr(o.level) : '';
-  const emotion = safeStr(o.emotion).slice(0, 24);
-  const intent = safeStr(o.intent).slice(0, 16);
-  const tone = safeStr(o.tone).slice(0, 80);
-  const alternatives = ensureArray(o.alternatives).map((a) => safeStr(a).slice(0, 160)).filter(Boolean).slice(0, 2);
-  if (!level && !emotion && !alternatives.length) return null;
-  return { level, emotion, intent, tone, alternatives };
-}
-
-function sanitizeMsgs(raw) {
-  return ensureArray(raw).map(sanitizeChatMsg).filter(Boolean).slice(-80);
-}
-
-function chatMsgForStorage(m) {
-  if (!m || typeof m !== 'object') return null;
-  const { audio, ...rest } = m;
-  return rest;
-}
-
-const getLang = (c) => LANGUAGES.find((l) => l.code === c) || LANGUAGES[0];
-
-function safeErrMsg(e) {
-  if (e instanceof Error) return e.message;
-  if (typeof e === 'string') return e;
-  return 'Bir hata oluştu — tekrar dene';
-}
-
-const MIC_OPTS = {
-  audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-};
-
-function loadProfile() {
-  const defaults = {
-    targetLang: 'en', currentLevel: 'A1', dailyGoalMinutes: 10,
-    todayMinutes: 0, dailyStats: [], sessionLog: [], srsItems: [], vocabularyBank: [],
-    weakAreas: [], strongAreas: [], newWords: [], grammarErrors: [],
-  };
-  try {
-    const raw = localStorage.getItem(PROFILE_KEY);
-    if (raw) {
-      const p = JSON.parse(raw);
-      if (p && typeof p === 'object' && !Array.isArray(p)) return normalizeProfile({ ...defaults, ...p });
-    }
-  } catch { /* ignore */ }
-  return normalizeProfile(defaults);
-}
-
-function saveProfile() {
-  if (!S.profile) return;
-  try {
-    localStorage.setItem(PROFILE_KEY, JSON.stringify(S.profile));
-  } catch { /* ignore */ }
-}
-
-function loadHistory() {
-  try {
-    const raw = localStorage.getItem(HISTORY_KEY);
-    if (raw) return sanitizeHistory(JSON.parse(raw));
-  } catch { /* ignore */ }
-  return [];
-}
-
-function saveChat() {
-  try {
-    const slim = sanitizeMsgs(S.msgs).map(chatMsgForStorage).filter(Boolean);
-    localStorage.setItem(CHAT_KEY, JSON.stringify(slim));
-  } catch { /* ignore */ }
-}
-
-function loadChat() {
-  try {
-    const raw = localStorage.getItem(CHAT_KEY);
-    if (!raw) return [];
-    return sanitizeMsgs(JSON.parse(raw));
-  } catch { /* ignore */ }
-  return [];
-}
-
-function saveHistory() {
-  try {
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(sanitizeHistory(S.history)));
-  } catch { /* ignore */ }
-}
-
-function setUiState(name) {
-  S.uiState = name;
-  const st = STATES[name] || STATES.IDLE;
-  if (document.body) document.body.dataset.state = STATES[name] ? name : 'IDLE';
-  const text = name === 'IDLE' ? idleStatusText() : st.text;
-  safeText('statusText', text);
-  safeClass('statusDot', 'toggle', 'active', st.live);
-  safeText('micTitle', st.mic);
-}
-
-function showErr(t) {
-  const msg = safeStr(t).slice(0, 120) || 'Tekrar dene';
-  safeText('statusText', msg);
-  safeText('micTitle', msg.slice(0, 42));
-  hideErr();
-  if (S.uiState !== 'SPEAKING' && S.uiState !== 'RECORDING') setUiState('IDLE');
-  clearTimeout(S.softMsgTimer);
-  S.softMsgTimer = setTimeout(() => {
-    if (S.busyCount === 0 && !isRecording() && !S.holdActive) {
-      safeText('statusText', 'Hazır');
-      safeText('micTitle', STATES.IDLE.mic);
-    }
-  }, 4500);
-}
-
-function hideErr() {
-  safeClass('errorBox', 'add', 'hidden');
-}
-
-async function fetchAiStatus() {
-  try {
-    const { data: d } = await ApiClient.fetchJson('/api/status', {}, { wakeFirst: false, retries: 1, timeoutMs: 8000 });
-    const banner = $('aiBanner');
-    if (!banner) return;
-    const showBanner = (title, detail) => {
-      banner.innerHTML = `<details><summary>⚠️ ${esc(title)} · detay</summary><p>${esc(detail)}</p></details>`;
-      banner.classList.remove('hidden');
+  const level = () => (LEVELS.includes(P.levels[P.lang]) ? P.levels[P.lang] : 'A1');
+  const str = (v, n = 600) => (typeof v === 'string' ? v : v == null ? '' : String(v)).slice(0, n);
+  function cleanMsg(m) {
+    if (!m || typeof m !== 'object') return null;
+    if (m.role === 'user') return m.text ? { role: 'user', text: str(m.text, 500), mode: m.mode === 'help' ? 'help' : 'speak', t: Number(m.t) || 0 } : null;
+    if (m.role !== 'tutor') return null;
+    const fix = m.fix && typeof m.fix === 'object' && m.fix.fixed
+      ? { status: m.fix.status === 'better' ? 'better' : 'fix', fixed: str(m.fix.fixed), okunus: str(m.fix.okunus), explain_tr: str(m.fix.explain_tr) } : null;
+    const arr = (v) => (Array.isArray(v) ? v.filter((x) => x && typeof x === 'object') : []);
+    const out = {
+      role: 'tutor', lang: str(m.lang, 5) || P.lang, mode: str(m.mode, 10), you: str(m.you, 500),
+      reply: str(m.reply), reply_tr: str(m.reply_tr), okunus: str(m.okunus, 900), fix,
+      examples: arr(m.examples).filter((e) => e.text).map((e) => ({ text: str(e.text), tr: str(e.tr), okunus: str(e.okunus) })),
+      explain_tr: str(m.explain_tr), words: arr(m.words).filter((w) => w.word).map((w) => ({ word: str(w.word, 60), tr: str(w.tr, 80) })),
+      speak: arr(m.speak).filter((i) => i.text).map((i) => ({ text: str(i.text, 480), lang: str(i.lang, 5) })),
+      provider: str(m.provider, 10), t: Number(m.t) || 0,
     };
-    if (d.groq_key_configured && d.groq_key_valid === false && d.groq_key_hint_tr) {
-      showBanner('Groq anahtarı hatalı', safeStr(d.groq_key_hint_tr));
-      safeText('statusText', 'Groq anahtarı hatalı');
-      return;
-    }
-    if (d.ai_enabled) {
-      banner.classList.add('hidden');
-      const st = $('statusText');
-      if (st) st.title = safeStr(d.ai_provider_label || '');
-      if (S.uiState === 'IDLE') safeText('statusText', idleStatusText());
-      return;
-    }
-    showBanner(
-      'AI mentor kapalı — kural modu',
-      'Ücretsiz Groq anahtarı: console.groq.com → API Keys → Create → gsk_... anahtarını Render\'da '
-      + 'GROQ_API_KEY olarak kaydet. Yedek olarak GEMINI_API_KEY / GEMINI_API_KEY_2 de eklenebilir.',
-    );
-    safeText('statusText', 'Kural modu (AI kapalı)');
-  } catch {
-    /* ignore */
+    return out.reply || out.examples.length ? out : null;
   }
-}
+  const loadChat = () => { const c = safeGet(chatKey(P.lang), []); return Array.isArray(c) ? c.map(cleanMsg).filter(Boolean).slice(-60) : []; };
+  try { ['edu_chat_v3', 'edu_history_v2'].forEach((k) => localStorage.removeItem(k)); } catch { /* ignore */ }
+  const saveChat = () => safeSet(chatKey(P.lang), S.msgs.slice(-60));
 
-function showTyping() {
-  safeClass('typingIndicator', 'remove', 'hidden');
-}
-
-function hideTyping() {
-  safeClass('typingIndicator', 'add', 'hidden');
-}
-
-function clearInterim() {
-  const box = $('interimBox');
-  const text = $('interimText');
-  if (box) box.classList.add('hidden');
-  if (text) text.textContent = '';
-}
-
-function isRecording() {
-  return mic ? mic.isRecording() : S.recorder?.state === 'recording';
-}
-
-function showTranslating() {
-  safeClass('micBtn', 'remove', 'recording');
-  safeClass('helpMicBtn', 'remove', 'recording');
-  showTyping();
-  setUiState('PROCESSING');
-  safeText('micTitle', S.helpMode ? 'Yardım…' : 'Anlaşılıyor...');
-}
-
-function showSpeaking() {
-  const speakBtn = $('micBtn');
-  const helpBtn = $('helpMicBtn');
-  if (S.helpMode) {
-    safeClass('helpMicBtn', 'add', 'recording');
-    safeClass('micBtn', 'remove', 'recording');
-  } else {
-    safeClass('micBtn', 'add', 'recording');
-    safeClass('helpMicBtn', 'remove', 'recording');
+  // ------------------------------------------------------------------ status
+  let statusTimer = null;
+  function setStatus(text, live = false, sticky = false) {
+    $('statusText').textContent = text;
+    $('statusDot').classList.toggle('active', !!live);
+    clearTimeout(statusTimer);
+    if (!sticky && !live) statusTimer = setTimeout(() => idleStatus(), 5000);
   }
-  hideTyping();
-  setUiState('LISTENING');
-}
-
-function resetIdle() {
-  clearTimeout(S.stopTimer);
-  clearTimeout(S.safetyTimer);
-  clearTimeout(S.processWatchdog);
-  S.stopTimer = null;
-  S.safetyTimer = null;
-  S.processWatchdog = null;
-  S.holdActive = false;
-  safeClass('micBtn', 'remove', 'recording');
-  safeClass('helpMicBtn', 'remove', 'recording');
-  hideTyping();
-  if (S.busyCount === 0) {
-    const speaking = S.uiState === 'SPEAKING' && !audio.paused && audio.currentTime > 0 && !audio.ended;
-    if (!speaking) setUiState('IDLE');
+  function idleStatus() {
+    if (S.busy) return;
+    $('statusText').textContent = `${langOf(P.lang).name} konuş · takılırsan Yardım`;
+    $('statusDot').classList.remove('active');
   }
-}
 
-function cleanupRecorder() {
-  if (!S.recorder) return;
-  S.recorder.ondataavailable = null;
-  S.recorder.onstop = null;
-  S.recorder = null;
-}
-
-function releaseStream() {
-  if (S.stream) {
-    S.stream.getTracks().forEach((t) => t.stop());
-    S.stream = null;
-  }
-}
-
-function releaseMic() {
-  if (mic) mic.releaseMic();
-  else {
-    cleanupRecorder();
-    releaseStream();
-  }
-}
-
-function forceFinishRecording() {
-  if (!S.recorder || S.recorder.state !== 'recording') return;
-  try {
-    S.recorder.requestData();
-    S.recorder.stop();
-  } catch {
-    cleanupRecorder();
-    releaseStream();
-    if (S.busyCount === 0) resetIdle();
-  }
-}
-
-function forceUnlockMic(reason) {
-  S.busyCount = 0;
-  S.busySince = 0;
-  S.holdActive = false;
-  clearTimeout(S.processWatchdog);
-  S.processWatchdog = null;
-  releaseMic();
-  stopTts();
-  resetIdle();
-  if (reason) showErr(reason);
-}
-
-function markBusy() {
-  S.busyCount += 1;
-  S.busySince = Date.now();
-}
-
-function armProcessWatchdog() {
-  clearTimeout(S.processWatchdog);
-  S.processWatchdog = setTimeout(() => {
-    if (S.busyCount > 0 || S.uiState === 'PROCESSING') {
-      forceUnlockMic('Yanıt gecikti — tekrar dene');
-    }
-  }, VOICE_FETCH_MS + 5000);
-}
-
-function esc(s) {
-  const d = document.createElement('div');
-  d.textContent = s ?? '';
-  return d.innerHTML;
-}
-
-/** Escaped text with **bold** and line breaks (teacher messages use light markdown). */
-function richText(s) {
-  return esc(s)
-    .replace(/\*\*([^*\n]+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\n/g, '<br>');
-}
-
-function formatDate(dateStr) {
-  if (!dateStr) return '—';
-  const d = new Date(`${dateStr}T12:00:00`);
-  return d.toLocaleDateString('tr-TR', { day: 'numeric', month: 'long' });
-}
-
-function updateLevelBadge() {
-  safeText('levelBadge', S.profile?.currentLevel || 'A1');
-}
-
-function updateDailyGoal() {
-  const goal = S.profile?.dailyGoalMinutes || 10;
-  const mins = S.profile?.todayMinutes || 0;
-  const pct = Math.min(100, Math.round((mins / goal) * 100));
-  safeText('goalText', `${goal} dk konuşma`);
-  safeText('goalMeta', `${Number(mins).toFixed(1)} / ${goal} dk`);
-  const bar = $('goalProgress');
-  if (bar) bar.style.width = `${pct}%`;
-}
-
-function updatePersonalLesson(lesson) {
-  if (!lesson || typeof lesson !== 'object' || Array.isArray(lesson)) return;
-  safeText('lessonWeak', lesson.mainWeakness || '—');
-  safeText('lessonVocab', lesson.vocabulary || '—');
-  safeText('lessonTopic', lesson.conversation || '—');
-  safeText('lessonPractice', `${lesson.practiceMinutes || 10} dk`);
-  const srs = lesson.srsReviewsDue || 0;
-  const vocab = lesson.vocabReviewsDue || 0;
-  if (srs + vocab > 0) {
-    safeText('lessonSrsMeta', `🔄 Tekrar bekleyen: ${srs} gramer · ${vocab} kelime`);
-  } else {
-    safeText('lessonSrsMeta', '✓ Tekrar konuları güncel');
-  }
-}
-
-function showMotivation(text) {
-  const el = $('motivationBanner');
-  if (!el) return;
-  const msg = safeStr(text);
-  if (!msg) {
-    el.classList.add('hidden');
-    return;
-  }
-  el.textContent = msg;
-  el.classList.remove('hidden');
-}
-
-function renderProgressBar(label, pct, color) {
-  return `<div class="prog-row">
-    <div class="prog-label"><span>${label}</span><span>${pct}%</span></div>
-    <div class="prog-bar"><div class="prog-fill" style="width:${pct}%;background:${color}"></div></div>
-  </div>`;
-}
-
-function renderWeekProgress(data) {
-  if (!data) return '<p class="empty-hint">Henüz yeterli veri yok.</p>';
-  const wp = data.weeklyProgress || data;
-  let html = `
-    ${renderProgressBar('Konuşma', wp.speaking || 0, 'linear-gradient(90deg,#38BDF8,#6366F1)')}
-    ${renderProgressBar('Gramer', wp.grammar || 0, '#A78BFA')}
-    ${renderProgressBar('Kelime', wp.vocabulary || 0, '#34D399')}
-    ${renderProgressBar('Akıcılık', wp.fluency || 0, '#FBBF24')}
-  `;
-  const days = ensureArray(wp.days);
-  if (days.length) {
-    html += '<div class="week-days"><span class="week-days-title">Günlük dakika</span><div class="week-chart">';
-    const maxMin = Math.max(...days.map((d) => d.minutes || 0), 1);
-    days.forEach((d) => {
-      if (!d?.date) return;
-      const h = Math.max(4, Math.round(((d.minutes || 0) / maxMin) * 48));
-      const dayLabel = safeStr(d.date).slice(5);
-      html += `<div class="week-bar-col" title="${d.date}: ${d.minutes || 0} dk">
-        <div class="week-bar" style="height:${h}px"></div>
-        <span>${dayLabel}</span>
-      </div>`;
-    });
-    html += '</div></div>';
-  }
-  return html;
-}
-
-function renderSessionLog(log) {
-  const items = ensureArray(log || S.profile?.sessionLog);
-  if (!items.length) return '<p class="empty-hint">Henüz kayıtlı konuşma yok.</p>';
-  return items.slice(0, 15).map((s) => {
-    if (!s || typeof s !== 'object') return '';
-    return `
-    <article class="history-item">
-      <div class="history-item-top">
-        <strong>${formatDate(s.date)}</strong>
-        <span class="history-level">${esc(safeStr(s.level || 'A1'))}</span>
-      </div>
-      <div class="history-item-meta">
-        <span>⏱ ${s.minutes || 0} dk</span>
-        <span>💬 ${esc(safeStr(s.sentences || '—'))} cümle</span>
-        ${s.corrections != null ? `<span>✏️ ${s.corrections} düzeltme</span>` : ''}
-      </div>
-      <div class="history-item-topic">${esc(safeStr(s.topic || s.weakArea || 'Konuşma'))}</div>
-    </article>`;
-  }).join('');
-}
-
-function renderCorrectionCard(detail) {
-  if (!detail || typeof detail !== 'object') return '';
-  try {
-  const parts = [];
-  const inf = safeStr(detail.inferredMeaning);
-  const userSaid = safeStr(detail.userSaid);
-  const words = safeStr(detail.wordBreakdown);
-  const grammar = safeStr(detail.grammarTr);
-  const correct = safeStr(detail.correctEn);
-  const explain = safeStr(detail.explainTr || detail.explainEn);
-  if (inf) {
-    parts.push(`<div class="corr-row corr-tip"><span>🤔 Sanırım bunu demek istedin</span><p>${esc(inf)}</p></div>`);
-  }
-  if (userSaid) {
-    parts.push(`<div class="corr-row corr-wrong"><span>❌ Senin cümlen</span><p>${esc(userSaid)}</p></div>`);
-  }
-  if (words) {
-    parts.push(`<div class="corr-row corr-words"><span>📖 Kelimeler</span><p>${esc(words).replace(/\n/g, '<br>')}</p></div>`);
-  }
-  if (grammar) {
-    parts.push(`<div class="corr-row corr-structure"><span>🧩 Cümle yapısı</span><p>${esc(grammar).replace(/\n/g, '<br>')}</p></div>`);
-  }
-  if (correct) {
-    parts.push(`<div class="corr-row corr-right"><span>✅ Doğrusu</span><p>${esc(correct)}</p></div>`);
-    const ph = safeStr(detail.phoneticEn);
-    if (ph) {
-      parts.push(`<div class="corr-row corr-phonetic"><span>🔊 Okunuş</span><p>${esc(ph)}</p></div>`);
-    }
-    const correctTr = safeStr(detail.correctTr);
-    if (correctTr) {
-      parts.push(`<div class="corr-row corr-tr-meaning"><span>🇹🇷 Türkçesi</span><p>${esc(correctTr)}</p></div>`);
-    }
-  }
-  if (explain && !words && !grammar) {
-    parts.push(`<div class="corr-row corr-tip"><span>💡 Açıklama</span><p>${richText(explain)}</p></div>`);
-  }
-  if (!parts.length) return '';
-  return `<div class="correction-card">${parts.join('')}</div>`;
-  } catch {
-    return '';
-  }
-}
-
-function render() {
-  const el = $('messages');
-  if (!el) return;
-  try {
-  S.msgs = sanitizeMsgs(S.msgs);
-  if (!S.msgs.length) {
-    const wl = getLang(S.learnLang);
-    el.innerHTML = `<div class="jv-boot">
-      <span class="jv-boot-title">MENTOR ÇEVRİMİÇİ</span>
-      <p><strong>${esc(wl.flag)} ${esc(wl.name)}</strong> konuş — seni anlar, doğal şekilde cevap veririm.<br>
-      Takıldığında <strong>Yardım</strong>'a bas ve Türkçe söyle.</p></div>`;
-    return;
-  }
-  el.innerHTML = S.msgs.map((m, i) => {
+  // ------------------------------------------------------------------ audio (instant)
+  const audio = new Audio();
+  audio.setAttribute('playsinline', '');
+  audio.preload = 'auto';
+  let audioUnlocked = false;
+  function unlockAudio() {
+    if (audioUnlocked) return;
+    audioUnlocked = true;
     try {
-    const lg = getLang(S.learnLang);
-    const time = m.time ? `<span class="chat-time">${m.time}</span>` : '';
-    if (m.role === 'user') {
-      return `<div class="chat-row chat-row-user">
-        <div class="chat-bubble chat-bubble-user">
-          <div class="chat-meta">Sen · ${time}</div>
-          <div class="chat-text">${esc(safeStr(m.text))}</div>
-        </div></div>`;
-    }
-    const teacherEn = safeStr(m.teacherEn || m.teacher || '');
-    const teacherTr = safeStr(m.teacherTr || m.explain || '');
-    const corrLevel = Number(m.correctionLevel) || 1;
-    // intent_teach / help: içerik teacher_en içinde — çift kart gösterme
-    const skipCorrCard = ['intent_teach', 'intent_soft_confirm', 'help', 'help_offer', 'help_idle', 'help_change_tr', 'help_change_target', 'help_more', 'help_easier', 'help_natural', 'dont_know_help', 'conversation', 'greeting', 'natural_teach', 'scaffold_hint', 'scaffold_produce', 'scaffold_transfer', 'scaffold_success', 'stt_clarify', 'practice_retry'].includes(safeStr(m.type));
-    let corr = (!skipCorrCard && corrLevel >= 2 && m.correctionDetail) ? renderCorrectionCard(m.correctionDetail) : '';
-    if (!corr && !skipCorrCard && m.correction && corrLevel >= 2) {
-      corr = renderCorrectionCard({
-        userSaid: m.userSaid,
-        correctEn: m.correction,
-        explainTr: m.explain,
-      });
-    }
-    const isTeaching = !!corr;
-    const hideEnBlock = false;
-    const vocab = m.newWord && m.newWord.word
-      ? `<div class="chat-vocab">📚 <strong>${esc(safeStr(m.newWord.word))}</strong> = ${esc(safeStr(m.newWord.meaningTr))}</div>` : '';
-    // Prefer structured helpExamples; fall back to helpTtsPairs (same payload TTS uses)
-    let helpExamples = Array.isArray(m.helpExamples) ? m.helpExamples : [];
-    if (!helpExamples.length && Array.isArray(m.helpTtsPairs) && m.helpTtsPairs.length) {
-      helpExamples = m.helpTtsPairs.map((p, idx) => ({
-        label: ['1️⃣ Kolay', '2️⃣ Orta', '3️⃣ Daha doğal'][idx] || `${idx + 1}️⃣`,
-        target: safeStr(p.en || p.target),
-        tr: safeStr(p.tr),
-        phonetic: safeStr(p.phonetic),
-      })).filter((ex) => ex.target);
-    }
-    const hs = (m.helpStructure && typeof m.helpStructure === 'object') ? m.helpStructure : null;
-    const langFlag = lg.flag || '🌐';
-    const langName = (lg.name || 'Hedef dil').toUpperCase();
-    const helpBlocks = helpExamples.length
-      ? `<div class="chat-help-examples" data-help-count="${helpExamples.length}">${helpExamples.map((ex, idx) => {
-          const tgt = safeStr(ex.target || ex.en || '');
-          const tr = safeStr(ex.tr || '');
-          const ph = safeStr(ex.phonetic || '');
-          const label = safeStr(ex.label || `💬 Örnek ${idx + 1}`);
-          if (!tgt) return '';
-          return `<div class="chat-help-ex">
-            <p class="chat-help-ex-label">${esc(label)}</p>
-            <p class="chat-help-ex-lang">${esc(langFlag)} ${esc(langName)}</p>
-            <p class="chat-help-ex-target">${esc(tgt)}</p>
-            ${tr ? `<p class="chat-help-ex-tr"><span>🇹🇷 TÜRKÇE</span><br>${esc(tr)}</p>` : ''}
-            ${ph ? `<p class="chat-phonetic"><span>🔤 TÜRKÇE OKUNUŞ</span><br>${esc(ph)}</p>` : ''}
-            <button type="button" class="replay-btn chat-help-listen" data-text="${esc(tgt)}" data-lang="${esc(m.ttsLanguage || S.learnLang)}">🔊 Dinle</button>
-          </div>`;
-        }).join('')}</div>`
-      : '';
-    const helpTeach = hs ? `<div class="chat-help-teach">
-      ${hs.active_question ? `<p class="chat-help-active-q">❓ ${esc(safeStr(hs.active_question))}</p>` : ''}
-      ${hs.answer && hs.answer.structure ? `<p class="chat-help-struct"><strong>📚 Cümle yapısı</strong><br>${esc(safeStr(hs.answer.structure))}${hs.answer.explain_tr ? `<br><span class="chat-help-note">${esc(safeStr(hs.answer.explain_tr))}</span>` : ''}</p>` : ''}
-      ${hs.question && hs.question.structure ? `<p class="chat-help-struct"><strong>❓ Sorunun yapısı</strong><br>${esc(safeStr(hs.question.structure))}${hs.question.explain_tr ? `<br><span class="chat-help-note">${esc(safeStr(hs.question.explain_tr))}</span>` : ''}</p>` : ''}
-      ${hs.pattern_tip ? `<p class="chat-help-note">🔁 ${esc(safeStr(hs.pattern_tip))}</p>` : ''}
-      ${hs.commands ? `<pre class="chat-help-cmds">${esc(safeStr(hs.commands))}</pre>` : ''}
-    </div>` : '';
-    const enBlock = teacherEn && !hideEnBlock
-      ? `<div class="chat-lang-block chat-en ${isTeaching ? 'chat-en-compact' : ''}"><span${isTeaching ? '' : ` lang="${esc(S.learnLang)}"`}>${lg.flag} ${isTeaching ? 'Devam' : lg.name}</span><p>${richText(teacherEn)}</p>${(!helpBlocks && m.phoneticEn) ? `<p class="chat-phonetic">🔤 ${esc(m.phoneticEn)}</p>` : ''}</div>`
-      : '';
-    // When structured help cards exist, keep a short TR cue (examples live in cards)
-    let trShow = teacherTr;
-    if (helpExamples.length && teacherTr && teacherTr.length > 280) {
-      const lines = teacherTr.split('\n').filter(Boolean);
-      trShow = lines.slice(0, 4).join('\n');
-      if (!/öğretmenin sorusu|yardım|örnek/i.test(trShow)) {
-        trShow = (hs && hs.active_question)
-          ? `❓ Öğretmenin sorusu: ${hs.active_question}\nÖrnekler aşağıda — birini Konuş mikrofonuyla söyle.`
-          : 'Örnekler aşağıda — birini Konuş mikrofonuyla söyle.';
-      }
-    }
-    const trLooksDuplicate = trShow && teacherEn && trShow.length > 40 && (
-      teacherEn.includes(trShow.slice(0, 30)) || trShow.includes((m.correction || '').toString().slice(0, 20))
-    );
-    const trBlock = trShow && !isTeaching && !trLooksDuplicate
-      ? `<div class="chat-lang-block chat-tr"><span>🇹🇷 Türkçe</span><p>${richText(trShow)}</p></div>`
-      : (trShow && !isTeaching && trShow.length <= 220
-        ? `<div class="chat-lang-block chat-tr"><span>🇹🇷 Türkçe</span><p>${richText(trShow)}</p></div>`
-        : '');
-    const replayBtn = shouldShowReplay({ correction_level: m.correctionLevel, speak_tr: m.speakTr, type: m.type, teacher_en: m.teacherEn, teacher_tr: m.teacherTr, help_tts_pairs: m.helpTtsPairs })
-      ? `<button type="button" class="replay-btn chat-replay" data-idx="${i}">🔊 Dinle</button>`
-      : '';
-    const orch = m.orch || null;
-    const orchTags = orch
-      ? `${orch.level ? `<span class="jv-tag" title="Tahmini seviye">${esc(orch.level)}</span>` : ''}${orch.emotion ? `<span class="jv-tag jv-tag-mood" title="Algılanan ruh hali">${esc(orch.emotion)}</span>` : ''}`
-      : '';
-    const alts = orch && orch.alternatives && orch.alternatives.length && !helpExamples.length
-      ? `<div class="jv-alts"><p class="jv-alts-title">ŞÖYLE DE DİYEBİLİRSİN</p>${orch.alternatives.map((a) => `<button type="button" class="jv-alt" data-text="${esc(a)}" data-lang="${esc(m.ttsLanguage || S.learnLang)}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5L6 9H3v6h3l5 4V5zM16 9a4 4 0 0 1 0 6"/></svg><span>${esc(a)}</span></button>`).join('')}</div>`
-      : '';
-    return `<div class="chat-row chat-row-teacher">
-        <div class="chat-avatar" aria-hidden="true"></div>
-        <div class="chat-bubble chat-bubble-teacher ${isTeaching ? 'chat-bubble-teaching' : ''}">
-          <div class="chat-meta">Mentor · ${time}${orchTags}</div>
-          ${corr}${enBlock}${helpBlocks}${helpTeach}${trBlock}${alts}${vocab}${replayBtn}
-        </div></div>`;
-    } catch {
-      return '';
-    }
-  }).join('');
-  el.querySelectorAll('.chat-replay').forEach((btn) => {
-    btn.onclick = (e) => {
-      e.preventDefault();
-      unlockAudioSync();
-      const msg = S.msgs[parseInt(btn.dataset.idx, 10)];
-      if (msg) playTeacherAudio({
-        speak_tr: msg.speakTr,
-        speak_text: msg.speakText || msg.teacherEn,
-        help_tts_pairs: msg.helpTtsPairs,
-        correction_level: msg.correctionLevel,
-        type: msg.type,
-        teacher_en: msg.teacherEn,
-        teacher_tr: msg.teacherTr,
-        explain_tr: msg.explain,
-        speak_tr_first: msg.type === 'confusion_help',
-        question_text: msg.questionText,
-        message_id: msg.messageId,
-        tts_language: msg.ttsLanguage || S.learnLang,
-      });
-    };
-  });
-  el.querySelectorAll('.chat-help-listen, .jv-alt').forEach((btn) => {
-    btn.onclick = (e) => {
-      e.preventDefault();
-      unlockAudioSync();
-      const text = safeStr(btn.dataset.text);
-      const lang = safeStr(btn.dataset.lang || S.learnLang);
-      if (text) void fetchAndPlayTts(text, lang, S.speakSlow);
-    };
-  });
-  requestAnimationFrame(() => {
-    el.scrollTop = el.scrollHeight;
-  });
-  } catch {
-    el.innerHTML = '<p class="empty-hint">Görüntüleme hatası — Veriyi sıfırla ile düzelt.</p>';
+      audio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAA=';
+      const p = audio.play();
+      if (p && p.catch) p.catch(() => { audioUnlocked = false; });
+    } catch { audioUnlocked = false; }
   }
-}
+  document.addEventListener('touchstart', unlockAudio, { passive: true, capture: true });
+  document.addEventListener('mousedown', unlockAudio, { capture: true });
 
-function unlockAudioSync() {
-  if (S.audioReady) return;
-  try {
-    audio.volume = 1;
-    audio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAA=';
-    const p = audio.play();
-    if (p?.then) {
-      p.then(() => {
-        audio.pause();
-        audio.currentTime = 0;
-        S.audioReady = true;
-      }).catch(() => {});
-    }
-  } catch { /* ignore */ }
-}
-
-function stopTts() {
-  audio.pause();
-  audio.currentTime = 0;
-  if (S.uiState === 'SPEAKING') setUiState('IDLE');
-}
-
-async function fetchAndPlayTts(phrase, lang, slow = false) {
-  const text = safeStr(phrase).trim();
-  if (!text) return;
-  const params = new URLSearchParams({ q: text.slice(0, 600), tl: lang });
-  if (slow) params.set('slow', '1');
-  const voice = accentFor(lang);
-  if (voice) params.set('voice', voice);
-  const r = await fetch(`/api/tts?${params}`);
-  if (!r.ok) return;
-  const blob = await r.blob();
-  if (!blob.size) return;
-  const u = URL.createObjectURL(blob);
-  stopTts();
-  setUiState('SPEAKING');
-  audio.volume = 1;
-  audio.src = u;
-  await Promise.race([
-    new Promise((resolve) => {
-      const done = () => {
-        URL.revokeObjectURL(u);
-        resolve();
-      };
+  const ttsCache = new Map(); // key -> Promise<objectURL>
+  function ttsUrl(text, lang, slow) {
+    const q = new URLSearchParams({ q: text.slice(0, 480), tl: lang, n: '1' });
+    if (slow) q.set('slow', '1');
+    const acc = P.accents[lang];
+    if (acc) q.set('voice', acc);
+    return `/api/tts?${q}`;
+  }
+  function fetchTts(text, lang, slow) {
+    const key = `${lang}|${slow ? 1 : 0}|${P.accents[lang] || ''}|${text}`;
+    if (ttsCache.has(key)) return ttsCache.get(key);
+    const pr = fetch(ttsUrl(text, lang, slow))
+      .then((r) => (r.ok ? r.blob() : null))
+      .then((b) => (b && b.size > 100 ? URL.createObjectURL(b) : null))
+      .catch(() => null);
+    ttsCache.set(key, pr);
+    pr.then((u) => { if (!u) ttsCache.delete(key); });
+    if (ttsCache.size > 80) ttsCache.delete(ttsCache.keys().next().value);
+    return pr;
+  }
+  let playToken = 0;
+  let playingBtn = null;
+  function stopAudio() {
+    playToken += 1;
+    try { audio.pause(); } catch { /* ignore */ }
+    if (playingBtn) playingBtn.classList.remove('playing');
+    playingBtn = null;
+  }
+  function playUrl(url, token) {
+    return new Promise((resolve) => {
+      if (!url || token !== playToken) return resolve();
+      const done = () => { audio.onended = null; audio.onerror = null; resolve(); };
       audio.onended = done;
       audio.onerror = done;
-      audio.play().catch(done);
-    }),
-    new Promise((resolve) => setTimeout(resolve, TTS_PLAY_MS)),
-  ]);
-}
-
-const TR_HELP_TYPES = new Set([
-  'help', 'confusion_help', 'explain_tr', 'help_offer', 'dont_know_help',
-  'help_idle', 'help_change_tr', 'help_change_target', 'help_more', 'help_easier', 'help_natural',
-]);
-const SKIP_TTS_TYPES = new Set(['intent_guess', 'practice_retry']);
-
-function englishTextForTts(d) {
-  // Speak the teacher's real target-language reply (same source as on screen).
-  // Never prefer phonetic / Turkish pronunciation text.
-  let text = safeStr(d.speak_text || d.teacher_en || d.teacher_text || d.robot_target || '');
-  // If speak_text is only a short question but teacher_en has reaction+question, prefer fuller reply
-  const full = safeStr(d.teacher_en || d.teacher_text || '').trim();
-  if (full && text && full.length > text.length + 8 && !TR_HELP_TYPES.has(safeStr(d.type))) {
-    text = full;
+      audio.src = url;
+      const p = audio.play();
+      if (p && p.catch) p.catch(done);
+    });
   }
-  if (!text && safeStr(d.question_text).trim()) text = safeStr(d.question_text);
-  text = text.replace(/[\u{1F300}-\u{1FAFF}\u{02700}-\u{027BF}\u2600-\u26FF\uFE0F]+/gu, ' ');
-  text = text.replace(/🇩🇪|🇪🇸|🇷🇺|🇫🇷|🇮🇹|🇬🇧|🇹🇷|🇺🇸/g, ' ');
-  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
-  const conv = lines.filter((l) => !/^(🎯|📌|📖|🧩|✅|💡|🔄|❌|🤔|🇩🇪|🇪🇸|🇷🇺|🔤)/.test(l));
-  text = (conv.length ? conv.join(' ') : lines.join(' ')).replace(/\s+/g, ' ').trim();
-  // Do NOT strip down to only the last question — speak the full natural teacher turn
-  const parts = text.match(/[^.!?]+[.!?]?/g) || [text];
-  return parts.slice(0, 5).join(' ').trim().slice(0, EN_TTS_MAX);
-}
-
-function turkishHelpForTts(d) {
-  const fromSpeak = trTextForTts(d.speak_tr || '');
-  if (fromSpeak) return fromSpeak.slice(0, TR_TTS_MAX);
-  return trTextForTts(d.teacher_tr || d.explain_tr || '').slice(0, TR_TTS_MAX);
-}
-
-async function playHelpTts(d) {
-  const en = safeStr(d.speak_text).trim();
-  if (en) await fetchAndPlayTts(en, S.learnLang, S.speakSlow);
-  const pairs = Array.isArray(d.help_tts_pairs) ? d.help_tts_pairs : [];
-  for (const p of pairs.slice(0, 8)) {
-    if (p?.tr) await fetchAndPlayTts(safeStr(p.tr), 'tr', S.speakSlow);
-    if (p?.en) await fetchAndPlayTts(safeStr(p.en), S.learnLang, S.speakSlow);
-  }
-}
-
-async function playTeacherAudio(d) {
-  if (!d || typeof d !== 'object') return;
-  const msgId = safeStr(d.message_id || d.messageId);
-  if (msgId && S.spokenMessageIds[msgId]) return;
-  if (msgId) {
-    S.spokenMessageIds[msgId] = true;
-    // keep map bounded
-    const keys = Object.keys(S.spokenMessageIds);
-    if (keys.length > 40) keys.slice(0, keys.length - 30).forEach((k) => { delete S.spokenMessageIds[k]; });
+  /** items: [{text, lang}] — all fetched in parallel right away, played in order. */
+  async function speak(items, { slow = P.slow, btn = null } = {}) {
+    const list = (items || []).filter((i) => i && i.text);
+    if (!list.length) return;
+    stopAudio();
+    const token = playToken;
+    const urls = list.map((i) => fetchTts(i.text, i.lang || P.lang, slow));
+    if (btn) { playingBtn = btn; btn.classList.add('playing'); }
+    for (const u of urls) {
+      if (token !== playToken) break;
+      await playUrl(await u, token);
+    }
+    if (token === playToken && btn) btn.classList.remove('playing');
   }
 
-  const level = Number(d.correction_level) || 1;
-  const type = safeStr(d.type);
-  const ttsLang = safeStr(d.tts_language || d.target_lang || S.learnLang) || S.learnLang;
+  // ------------------------------------------------------------------ rendering
+  function okunusLine(text) {
+    return P.showOkunus && text ? `<p class="t-okunus">${esc(text)}</p>` : '';
+  }
+  function trLine(text) {
+    return P.showTr && text ? `<p class="t-tr">${esc(text)}</p>` : '';
+  }
+  function playBtns(idx, part, label = 'Dinle') {
+    return `<button type="button" class="t-btn" data-play="${idx}" data-part="${part}">${ICON.play}${label}</button>`
+      + `<button type="button" class="t-btn" data-play="${idx}" data-part="${part}" data-slow="1">${ICON.slow}Yavaş</button>`;
+  }
 
-  try {
-    if (level >= 2) {
-      // TR tip first (optional), then target-language correction + question
-      const cd = d.correction_detail || {};
-      const corrTr = safeStr(cd.correctTr || d.correct_tr || '').trim();
-      const tip = corrTr || trTextForTts(d.speak_tr || '');
-      if (tip && d.speak_tr_first !== false) {
-        await fetchAndPlayTts(tip.slice(0, TR_TTS_MAX), 'tr', S.speakSlow);
+  function renderTutor(m, idx) {
+    const lg = langOf(m.lang || P.lang);
+    const dir = lg.rtl ? ' dir="rtl"' : '';
+    let html = '';
+    if (m.fix && m.fix.fixed) {
+      const better = m.fix.status === 'better';
+      html += `<div class="fix ${better ? 'is-better' : ''}">
+        <div class="fix-head">${better ? 'Daha doğal söyleyiş' : 'Doğrusu'}</div>
+        ${m.you ? `<p class="fix-you"${dir}>${esc(m.you)}</p>` : ''}
+        <p class="fix-right"${dir}>${esc(m.fix.fixed)}</p>
+        ${okunusLine(m.fix.okunus)}
+        ${m.fix.explain_tr ? `<p class="fix-why">${esc(m.fix.explain_tr)}</p>` : ''}
+        <div class="t-actions">${playBtns(idx, 'fix')}</div>
+      </div>`;
+    } else if (m.mode === 'speak' && m.you && m.provider && m.provider !== 'rules') {
+      html += '<span class="ok-badge">✓ Doğru söyledin</span>';
+    }
+    if (m.examples && m.examples.length) {
+      if (m.explain_tr) html += `<p class="help-note">${esc(m.explain_tr)}</p>`;
+      html += `<div class="examples">${m.examples.map((ex, j) => `
+        <div class="ex">
+          <span class="ex-target"${dir}>${esc(ex.text)}</span>
+          ${okunusLine(ex.okunus)}
+          ${P.showTr && ex.tr ? `<span class="ex-tr">${esc(ex.tr)}</span>` : ''}
+          <button type="button" class="play" data-play="${idx}" data-part="ex${j}" aria-label="Dinle">${ICON.fill}</button>
+        </div>`).join('')}</div>`;
+    } else if (m.explain_tr) {
+      html += `<p class="help-note">${esc(m.explain_tr)}</p>`;
+    }
+    if (m.reply) {
+      html += `<p class="t-target"${dir} lang="${esc(m.lang || P.lang)}">${esc(m.reply)}</p>${okunusLine(m.okunus)}${trLine(m.reply_tr)}`;
+      html += `<div class="t-actions">${playBtns(idx, 'reply')}</div>`;
+    }
+    if (m.words && m.words.length) {
+      html += `<div class="words">${m.words.map((w) => `<button type="button" class="word-chip" data-word="${esc(w.word)}"><b>${esc(w.word)}</b>${w.tr ? ` ${esc(w.tr)}` : ''}</button>`).join('')}</div>`;
+    }
+    return `<div class="msg msg-tutor"><div class="msg-body">${html}</div></div>`;
+  }
+
+  function renderUser(m) {
+    const help = m.mode === 'help';
+    return `<div class="msg msg-user ${help ? 'help' : ''}">${help ? '<span class="msg-tag">Yardım · Türkçe</span>' : ''}<div class="msg-body">${esc(m.text)}</div></div>`;
+  }
+
+  function render() {
+    const feed = $('feed');
+    if (!S.msgs.length) {
+      const lg = langOf(P.lang);
+      feed.innerHTML = `<div class="edu-intro"><b>${lg.flag} ${lg.tr} · ${level()}</b><br>
+        <b>Konuş</b>'a basılı tut ve ${lg.tr} konuş — öğretmen cevap verir, hatanı düzeltir.<br>
+        Takılırsan <b>Yardım</b>'a basılı tut, ne demek istediğini <b>Türkçe</b> söyle.</div>`;
+      return;
+    }
+    feed.innerHTML = S.msgs.map((m, i) => (m.role === 'user' ? renderUser(m) : renderTutor(m, i))).join('')
+      + (S.busy ? '<div class="msg msg-tutor"><div class="typing"><i></i><i></i><i></i></div></div>' : '');
+    requestAnimationFrame(() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }));
+  }
+
+  function partItems(m, part) {
+    if (!m) return [];
+    const lang = m.lang || P.lang;
+    if (part === 'reply') return [{ text: m.reply, lang }];
+    if (part === 'fix' && m.fix) return [{ text: m.fix.fixed, lang }];
+    if (part.startsWith('ex')) { const ex = (m.examples || [])[Number(part.slice(2))]; return ex ? [{ text: ex.text, lang }] : []; }
+    return [];
+  }
+
+  $('feed').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-play]');
+    if (b) {
+      unlockAudio();
+      const m = S.msgs[Number(b.dataset.play)];
+      void speak(partItems(m, b.dataset.part), { slow: b.dataset.slow === '1' || P.slow, btn: b });
+      return;
+    }
+    const w = e.target.closest('[data-word]');
+    if (w) { unlockAudio(); void speak([{ text: w.dataset.word, lang: P.lang }], { btn: w }); }
+  });
+
+  // ------------------------------------------------------------------ header/meta
+  function syncHeader() {
+    const lg = langOf(P.lang);
+    $('langLabel').textContent = `${lg.flag} ${lg.tr}`;
+    $('levelBtn').textContent = level();
+    $('levelBtn').title = `${level()} · ${LEVEL_TR[level()]}`;
+    $('micSub').textContent = `${lg.flag} ${lg.name}`;
+    $('scenarioBtn').textContent = P.scenario ? `Senaryo: ${SCENARIO_NAME[P.scenario] || P.scenario}` : 'Serbest sohbet · senaryo seç';
+    const d = P.days[today()] || { min: 0 };
+    $('todayMin').textContent = String(Math.round(d.min || 0));
+    $('goalMin').textContent = String(P.goalMin || 10);
+    $('goalBar').style.width = `${Math.min(100, Math.round(((d.min || 0) / (P.goalMin || 10)) * 100))}%`;
+    $('streak').textContent = String(P.streak || 0);
+    document.documentElement.lang = 'tr';
+  }
+
+  // ------------------------------------------------------------------ progress bookkeeping
+  function bumpDay(isCorrect) {
+    const t = today();
+    const now = Date.now();
+    const gap = Math.min(2, Math.max(0.15, (now - S.lastActive) / 60000));
+    S.lastActive = now;
+    const d = P.days[t] || (P.days[t] = { min: 0, turns: 0, correct: 0 });
+    d.min = Math.round(((d.min || 0) + gap) * 10) / 10;
+    d.turns = (d.turns || 0) + 1;
+    if (isCorrect) d.correct = (d.correct || 0) + 1;
+    if (P.lastDay !== t) {
+      const y = new Date(Date.now() - 86400000);
+      const yk = `${y.getFullYear()}-${String(y.getMonth() + 1).padStart(2, '0')}-${String(y.getDate()).padStart(2, '0')}`;
+      P.streak = P.lastDay === yk ? (P.streak || 0) + 1 : 1;
+      P.lastDay = t;
+    }
+    const keys = Object.keys(P.days).sort();
+    while (keys.length > 60) delete P.days[keys.shift()];
+  }
+
+  function adaptLevel(res) {
+    const lang = P.lang;
+    const cur = LEVELS.indexOf(level()) + 1;
+    const isFix = !!(res.fix && res.fix.status === 'fix');
+    const rec = Array.isArray(P.recent[lang]) ? P.recent[lang] : [];
+    rec.push(isFix ? 0 : 1);
+    P.recent[lang] = rec.slice(-8);
+    const guess = LEVELS.indexOf(res.user_level) + 1;
+    if (guess > 0) {
+      const prev = Number(P.ema[lang]) || cur;
+      P.ema[lang] = Math.round((prev * 0.75 + guess * 0.25) * 100) / 100;
+    }
+    P.sinceChange[lang] = (Number(P.sinceChange[lang]) || 0) + 1;
+    if (!P.autoLevel || P.sinceChange[lang] < 6 || P.recent[lang].length < 6) return;
+    const acc = P.recent[lang].reduce((a, b) => a + b, 0) / P.recent[lang].length;
+    const ema = Number(P.ema[lang]) || cur;
+    let next = cur;
+    if (ema >= cur + 0.6 && acc >= 0.65 && cur < 6) next = cur + 1;
+    else if ((ema <= cur - 0.75 || acc <= 0.25) && cur > 1) next = cur - 1;
+    if (next !== cur) {
+      P.levels[lang] = LEVELS[next - 1];
+      P.sinceChange[lang] = 0;
+      P.ema[lang] = next;
+      setStatus(next > cur ? `Tebrikler! Seviyen ${LEVELS[next - 1]} oldu` : `Seviye ${LEVELS[next - 1]}'e ayarlandı — daha rahat ilerleyelim`, false);
+    }
+  }
+
+  function recordLearning(res, userText) {
+    const lang = P.lang;
+    const words = Array.isArray(P.words[lang]) ? P.words[lang] : [];
+    (res.words || []).forEach((w) => {
+      if (!w.word || words.some((x) => x.w.toLowerCase() === w.word.toLowerCase())) return;
+      words.unshift({ w: w.word, tr: w.tr || '', ts: Date.now() });
+    });
+    P.words[lang] = words.slice(0, 300);
+    if (res.fix && res.fix.status === 'fix') {
+      const ms = Array.isArray(P.mistakes[lang]) ? P.mistakes[lang] : [];
+      ms.unshift({ you: userText, fixed: res.fix.fixed, ok: res.fix.okunus || '', why: res.fix.explain_tr || '', ts: Date.now() });
+      P.mistakes[lang] = ms.slice(0, 100);
+    }
+  }
+
+  // ------------------------------------------------------------------ turns
+  function historyForApi() {
+    return S.msgs.slice(-12).map((m) => (m.role === 'user'
+      ? { role: 'user', text: (m.mode === 'help' ? '(Türkçe yardım istedi) ' : '') + m.text }
+      : { role: 'tutor', text: m.reply || (m.examples && m.examples[0] && m.examples[0].text) || '' }))
+      .filter((h) => h.text);
+  }
+  function weakForApi() {
+    const ms = Array.isArray(P.mistakes[P.lang]) ? P.mistakes[P.lang] : [];
+    return ms.slice(0, 4).map((m) => `${m.you} → ${m.fixed}`.slice(0, 120));
+  }
+
+  async function postTurn(body) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), TURN_TIMEOUT);
+    try {
+      let r;
+      try {
+        r = await fetch('/api/edu/turn', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: ctrl.signal });
+      } catch (e) {
+        if (e && e.name === 'AbortError') throw new Error('Yanıt gecikti — tekrar dene');
+        // sunucu uykudaysa uyandırıp bir kez daha dene
+        setStatus('Sunucu uyanıyor…', true, true);
+        if (window.ApiClient) await ApiClient.wakeServer(30000);
+        r = await fetch('/api/edu/turn', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: ctrl.signal });
       }
-      const targetPhrase = safeStr(d.correction || cd.correctEn || '').trim();
-      if (targetPhrase) await fetchAndPlayTts(targetPhrase.slice(0, EN_TTS_MAX), ttsLang, S.speakSlow);
-      const q = safeStr(d.question_text).trim() || englishTextForTts({ ...d, speak_text: '', correction: '' });
-      if (q && q !== targetPhrase) await fetchAndPlayTts(q.slice(0, EN_TTS_MAX), ttsLang, S.speakSlow);
-      return;
-    }
-    if (TR_HELP_TYPES.has(type)) {
-      if (type === 'confusion_help') {
-        const tr = safeStr(d.speak_tr).trim();
-        if (tr && d.speak_tr_first) await fetchAndPlayTts(tr.slice(0, TR_TTS_MAX), 'tr', S.speakSlow);
-        const en = safeStr(d.speak_text || d.question_text).trim();
-        if (en) await fetchAndPlayTts(en, ttsLang, S.speakSlow);
-        return;
+      if (r.status === 502 || r.status === 503) {
+        setStatus('Sunucu uyanıyor…', true, true);
+        if (window.ApiClient) await ApiClient.wakeServer(30000);
+        r = await fetch('/api/edu/turn', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: ctrl.signal });
       }
-      await playHelpTts(d);
-      return;
-    }
-    if (SKIP_TTS_TYPES.has(type)) return;
-    if (type === 'intent_guess' || type === 'intent_retry') {
-      const en = safeStr(d.speak_text || d.teacher_en).trim();
-      if (en) await fetchAndPlayTts(en, ttsLang, S.speakSlow);
-      const tr = trTextForTts(d.speak_tr || '');
-      if (tr) await fetchAndPlayTts(tr, 'tr', S.speakSlow);
-      return;
-    }
-    if (type === 'stt_clarify') {
-      const en = safeStr(d.speak_text || d.question_text || d.teacher_en).trim();
-      if (en) await fetchAndPlayTts(en, ttsLang, S.speakSlow);
-      return;
-    }
-    // Normal conversation: speak teacher reply (includes question)
-    const en = englishTextForTts(d);
-    if (en) await fetchAndPlayTts(en, ttsLang, S.speakSlow);
-  } catch { /* ignore */ }
-  finally {
-    if (!S.holdActive && !isRecording() && S.busyCount === 0) {
-      if (S.uiState === 'SPEAKING') setUiState('IDLE');
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || 'Bağlantı sorunu — tekrar dene');
+      return d;
+    } finally {
+      clearTimeout(timer);
     }
   }
-}
 
-async function playB64(b64) {
-  if (!b64 || typeof b64 !== 'string') return;
-  try {
-    stopTts();
-    S.lastAudio = b64;
-    setUiState('SPEAKING');
-    const bin = atob(b64);
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    const blob = new Blob([bytes], { type: 'audio/mpeg' });
-    const u = URL.createObjectURL(blob);
-    audio.volume = 1;
-    audio.src = u;
-    const done = () => {
-      URL.revokeObjectURL(u);
-      if (!S.holdActive && !isRecording() && S.busyCount === 0) setUiState('IDLE');
+  async function runTurn({ text = '', audioB64 = '', mode = 'speak' }) {
+    if (S.busy) return;
+    S.busy = true;
+    stopAudio();
+    if (text) S.msgs.push({ role: 'user', text, mode, t: Date.now() });
+    render();
+    setStatus(audioB64 ? 'Anlıyorum…' : 'Düşünüyorum…', true, true);
+    const body = {
+      lang: P.lang, mode, level: level(), scenario: P.scenario || null,
+      slow: P.slow, voice: P.accents[P.lang] || null,
+      history: historyForApi().slice(0, text ? -1 : undefined), weak: weakForApi(),
     };
-    audio.onended = done;
-    audio.onerror = done;
-    try { await audio.play(); } catch { done(); }
-  } catch {
-    resetIdle();
-  }
-}
-
-function pushHistory(role, text) {
-  // Oldest → newest (AI context). Eski newest-first kayıtları bir kez çevir.
-  S.history = sanitizeHistory(S.history);
-  if (!S._historyChrono) {
-    S.history = S.history.slice().reverse();
-    S._historyChrono = true;
-  }
-  S.history.push({ role, text: safeStr(text).slice(0, 500) });
-  S.history = S.history.slice(-24);
-  saveHistory();
-}
-
-function chatTime() {
-  return new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
-}
-
-function compactProfileForApi() {
-  const p = normalizeProfile(S.profile || {});
-  return {
-    targetLang: safeStr(p.targetLang || S.learnLang),
-    currentLevel: safeStr(p.currentLevel || 'A1'),
-    pendingPracticePhrase: p.pendingPracticePhrase ? safeStr(p.pendingPracticePhrase) : null,
-    pendingPracticeTr: p.pendingPracticeTr ? safeStr(p.pendingPracticeTr) : null,
-    pendingIntentConfirm: p.pendingIntentConfirm ? safeStr(p.pendingIntentConfirm) : null,
-    pendingIntentUserSaid: p.pendingIntentUserSaid ? safeStr(p.pendingIntentUserSaid) : null,
-    pendingIntentReason: p.pendingIntentReason ? safeStr(p.pendingIntentReason) : null,
-    awaitingTargetPhrase: p.awaitingTargetPhrase ? safeStr(p.awaitingTargetPhrase) : null,
-    scaffoldMode: p.scaffoldMode ? safeStr(p.scaffoldMode) : null,
-    scaffoldPattern: p.scaffoldPattern ? safeStr(p.scaffoldPattern) : null,
-    scaffoldTarget: p.scaffoldTarget ? safeStr(p.scaffoldTarget) : null,
-    scaffoldTransferEn: p.scaffoldTransferEn ? safeStr(p.scaffoldTransferEn) : null,
-    scaffoldTransferTr: p.scaffoldTransferTr ? safeStr(p.scaffoldTransferTr) : null,
-    scaffoldTransferHint: p.scaffoldTransferHint ? safeStr(p.scaffoldTransferHint) : null,
-    scaffoldHintAnswer: p.scaffoldHintAnswer ? safeStr(p.scaffoldHintAnswer) : null,
-    lastTeacherText: safeStr(p.lastTeacherText).slice(0, 400),
-    activeTeacherQuestion: (p.activeTeacherQuestion && typeof p.activeTeacherQuestion === 'object')
-      ? {
-          originalText: safeStr(p.activeTeacherQuestion.originalText).slice(0, 220),
-          language: safeStr(p.activeTeacherQuestion.language || S.learnLang),
-          topic: safeStr(p.activeTeacherQuestion.topic).slice(0, 80),
-          questionType: safeStr(p.activeTeacherQuestion.questionType).slice(0, 40),
-        }
-      : null,
-    lastHelpExamples: ensureArray(p.lastHelpExamples).slice(0, 4),
-    failedAnswerStreak: Number(p.failedAnswerStreak) || 0,
-    lessonStep: Number(p.lessonStep) || 0,
-    microStep: Number(p.microStep) || 0,
-    lastMasteredPhrase: p.lastMasteredPhrase ? safeStr(p.lastMasteredPhrase).slice(0, 120) : null,
-    sentenceBuildBase: p.sentenceBuildBase ? safeStr(p.sentenceBuildBase).slice(0, 120) : null,
-    taughtPatterns: ensureArray(p.taughtPatterns).slice(0, 12).map(safeStr),
-    masteredLessonTopics: ensureArray(p.masteredLessonTopics).slice(0, 12).map(safeStr),
-    masteredTopics: ensureArray(p.masteredTopics).slice(0, 12).map(safeStr),
-    totalSentences: Number(p.totalSentences) || 0,
-    correctSentences: Number(p.correctSentences) || 0,
-    totalCorrections: Number(p.totalCorrections) || 0,
-    sessionCorrections: Number(p.sessionCorrections) || 0,
-    todayMinutes: Number(p.todayMinutes) || 0,
-    dailyGoalMinutes: Number(p.dailyGoalMinutes) || 10,
-    weakAreas: ensureArray(p.weakAreas).slice(0, 6).map(safeStr),
-    strongAreas: ensureArray(p.strongAreas).slice(0, 4).map(safeStr),
-    grammarErrors: ensureArray(p.grammarErrors).slice(0, 15).filter((e) => e && typeof e === 'object'),
-    repeatedMistakes: ensureArray(p.repeatedMistakes).slice(0, 12).filter((e) => e && typeof e === 'object'),
-    srsItems: ensureArray(p.srsItems).slice(0, 10).filter((e) => e && typeof e === 'object'),
-    vocabularyBank: ensureArray(p.vocabularyBank).slice(0, 20).filter((e) => e && typeof e === 'object'),
-    dailyStats: ensureArray(p.dailyStats).slice(0, 7).filter((e) => e && typeof e === 'object'),
-    sessionLog: ensureArray(p.sessionLog).slice(0, 10).filter((e) => e && typeof e === 'object'),
-    newWords: ensureArray(p.newWords).slice(0, 20).map(safeStr),
-    pendingSrsId: p.pendingSrsId ? safeStr(p.pendingSrsId) : null,
-    pendingVocabWord: p.pendingVocabWord ? safeStr(p.pendingVocabWord) : null,
-    currentTopic: p.currentTopic ? safeStr(p.currentTopic).slice(0, 40) : '',
-    completedTopics: ensureArray(p.completedTopics).slice(0, 12).map(safeStr),
-    userFacts: ensureArray(p.userFacts).slice(0, 20).map(safeStr),
-    recentAskedQuestions: ensureArray(p.recentAskedQuestions).slice(0, 8).map((q) => safeStr(q).slice(0, 180)),
-    conversationTurn: Number(p.conversationTurn) || 0,
-    activeScenarioId: safeStr(p.activeScenarioId || S.roleplay || '').slice(0, 40),
-    activeScenario: safeStr(p.activeScenario || S.roleplay || '').slice(0, 80),
-  };
-}
-
-function trTextForTts(raw) {
-  const text = safeStr(raw);
-  if (!text) return '';
-  const lines = text.split(/\n+/).map((l) => l.trim()).filter(Boolean);
-  const trLines = lines.filter((line) => {
-    const cleaned = line.replace(/"[^"]*"/g, '').replace(/'[^']*'/g, '').trim();
-    if (!cleaned) return false;
-    if (/[ğüşıöçĞÜŞİÖÇ]/.test(cleaned)) return true;
-    return /\b(sanırım|demek|istedin|doğru|yanlış|kelime|cümle|fiil|neden|malısın|henüz|tam|olmadı|beklenen|tekrar|dene|açıklama|yapısı|anlamı|hata|düzeltme|türkçe|ipucu|yüksek|sesle|doğrusu|demeye|çalıştın|tabii|öğrenelim|küçük|gramer|şimdi|sonra|lütfen|unutma)\b/i.test(cleaned);
-  });
-  const joined = trLines.join(' ').replace(/"[^"]*"/g, '').replace(/'[^']*'/g, '');
-  return joined.replace(/\s+/g, ' ').trim().slice(0, 500);
-}
-
-function shouldShowReplay(d) {
-  if (!d) return false;
-  const level = Number(d.correction_level) || 1;
-  if (level >= 2 && safeStr(d.speak_tr).trim()) return true;
-  const type = safeStr(d.type);
-  if (TR_HELP_TYPES.has(type) && (safeStr(d.speak_text).trim() || (d.help_tts_pairs || []).length)) return true;
-  if (TR_HELP_TYPES.has(type) && turkishHelpForTts(d)) return true;
-  if (!SKIP_TTS_TYPES.has(type) && englishTextForTts(d)) return true;
-  return false;
-}
-
-function appendUserMsg(text, lang) {
-  S.msgs.push({ role: 'user', text: safeStr(text).slice(0, 500), lang: lang || S.learnLang, time: chatTime() });
-  saveChat();
-  pushHistory('user', safeStr(text));
-}
-
-function appendTeacherMsg(d) {
-  if (!d || typeof d !== 'object') return;
-  try {
-  const teacherEn = safeStr(d.teacher_en || d.robot_target || d.teacher_text || '');
-  const teacherTr = safeStr(d.teacher_tr || d.explain_tr || '');
-  const corrLevel = Number(d.correction_level) || 1;
-  const helpExamples = sanitizeHelpExamples(
-    d.help_examples || d.helpExamples || d.examples || d.answerExamples,
-  );
-  const helpTtsPairs = sanitizeHelpTtsPairs(d.help_tts_pairs || d.helpTtsPairs);
-  // If API only sent pairs (TTS path), still show cards
-  const examplesForUi = helpExamples.length
-    ? helpExamples
-    : helpTtsPairs.map((p, idx) => ({
-        label: ['1️⃣ Kolay', '2️⃣ Orta', '3️⃣ Daha doğal'][idx] || `${idx + 1}️⃣`,
-        target: p.en,
-        tr: p.tr,
-        phonetic: p.phonetic,
-      }));
-  S.msgs.push({
-    role: 'teacher',
-    teacher: safeStr(d.teacher_text || teacherEn),
-    teacherEn,
-    teacherTr,
-    explain: teacherTr,
-    correction: safeStr(d.correction || ''),
-    correctionLevel: corrLevel,
-    correctionDetail: sanitizeCorrectionDetail(d.correction_detail),
-    userSaid: safeStr(d.user_text || ''),
-    targetLang: safeStr(d.target_lang || S.learnLang),
-    speakTr: safeStr(d.speak_tr || ''),
-    speakText: safeStr(d.speak_text || ''),
-    questionText: safeStr(d.question_text || ''),
-    hasQuestion: !!d.has_question,
-    messageId: safeStr(d.message_id || ''),
-    ttsLanguage: safeStr(d.tts_language || d.target_lang || S.learnLang),
-    phoneticEn: safeStr(d.phonetic_en || ''),
-    helpTtsPairs,
-    helpExamples: examplesForUi,
-    helpStructure: sanitizeHelpStructure(d.help_structure || d.helpStructure),
-    orch: sanitizeOrchestrator(d.orchestrator),
-    type: safeStr(d.type),
-    newWord: d.new_word && typeof d.new_word === 'object' && !Array.isArray(d.new_word) && d.new_word.word
-      ? { word: safeStr(d.new_word.word), meaningTr: safeStr(d.new_word.meaningTr) }
-      : null,
-    time: chatTime(),
-  });
-  saveChat();
-  pushHistory('teacher', teacherEn);
-  } catch { /* ignore bad message */ }
-}
-
-async function handleEducationResult(d) {
-  if (!d || typeof d !== 'object') return;
-  try {
-    if (d.profile && typeof d.profile === 'object' && !Array.isArray(d.profile)) {
-      S.profile = normalizeProfile(d.profile);
-      saveProfile();
-      updateLevelBadge();
-      updateDailyGoal();
-    }
-    if (d.weekly_progress || d.weeklyProgress) {
-      S.weeklyProgress = d.weekly_progress || d.weeklyProgress;
-    }
-    if (d.daily_lesson) updatePersonalLesson(d.daily_lesson);
-    if (d.motivation) showMotivation(safeStr(d.motivation));
-
-    if (d.user_text && !d._userShown) {
-      appendUserMsg(safeStr(d.user_text), d.user_lang);
-      S.lastUserLang = d.user_lang || S.lastUserLang;
-    } else if (d.user_text) {
-      S.lastUserLang = d.user_lang || S.lastUserLang;
-    }
-    appendTeacherMsg(d);
-    const hasReply = safeStr(d.teacher_en || d.teacher_tr || d.teacher_text).trim();
-    if (!hasReply) {
-      if (S.msgs.length && S.msgs[S.msgs.length - 1]?.role === 'teacher') S.msgs.pop();
-      throw new Error('Öğretmen yanıtı boş — tekrar dene');
-    }
-    hideTyping();
+    if (text) body.text = text; else body.audio = audioB64;
     try {
-      render();
-    } catch {
-      S.msgs = sanitizeMsgs(S.msgs);
-      try { render(); } catch { /* ignore */ }
-    }
-    if (shouldShowReplay(d)) {
-      void playTeacherAudio(d);
-    }
-  } catch {
-    hideTyping();
-    try {
-      S.msgs = sanitizeMsgs(S.msgs);
-      render();
-    } catch { /* ignore */ }
-  }
-}
-
-function detectInputLang(text) {
-  if (/[ğüşıöçĞÜŞİÖÇ]|\b(merhaba|nasılsın|nasilsin|ben |çok |yorgun|bugün|teşekkür|evet|hayır)\b/i.test(text)) {
-    return 'tr';
-  }
-  return S.learnLang;
-}
-
-async function processEducationChat(text) {
-  const { ok, data: d } = await ApiClient.fetchJson(
-    `/api/education/chat?${new URLSearchParams({ lang: S.learnLang })}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        text,
-        profile: compactProfileForApi(),
-        history: sanitizeHistory(S.history), // chronological oldest→newest
-        roleplay: S.roleplay || null,
-        speak_slow: S.speakSlow,
-        user_lang: detectInputLang(text),
-      }),
-    },
-    { timeoutMs: CHAT_FETCH_MS, retries: 2, wakeFirst: true },
-  );
-  if (!ok) throw new Error(d.error || 'Bağlantı sorunu. Tekrar dene.');
-  return d;
-}
-
-async function sendTextMessage() {
-  const input = $('textInput');
-  if (!input) return;
-  const text = input.value.trim();
-  if (!text) return;
-  if (S.busyCount > 0 && S.busySince && Date.now() - S.busySince > STALE_BUSY_MS) {
-    forceUnlockMic(null);
-  }
-  if (S.busyCount > 0 || isRecording()) return;
-  input.value = '';
-  hideErr();
-  S.busyCount += 1;
-  S.busySince = Date.now();
-  showTyping();
-  setUiState('PROCESSING');
-  try {
-    const d = await processEducationChat(text);
-    await handleEducationResult(d);
-  } catch (e) {
-    hideTyping();
-    showErr(safeErrMsg(e) || 'Gönderilemedi');
-  } finally {
-    S.busyCount = Math.max(0, S.busyCount - 1);
-    if (S.busyCount === 0) S.busySince = 0;
-    resetIdle();
-  }
-}
-
-async function fetchListenEducation(blob) {
-  const help = !!S.helpMode || S.forcedSource === 'tr';
-  const source = help ? 'tr' : (S.forcedSource || S.learnLang || 'en');
-  const last = help
-    ? 'tr'
-    : ((S.lastUserLang === 'tr' || S.lastUserLang === S.learnLang) ? S.lastUserLang : S.learnLang);
-  await ApiClient.wakeServer(12000);
-  const url = `/api/listen?${new URLSearchParams({
-    my: 'tr',
-    other: S.learnLang,
-    last,
-    source,
-  })}`;
-  const { ok, data: d } = await ApiClient.fetchJson(url, {
-    method: 'POST',
-    body: blob,
-    headers: { 'Content-Type': blob.type || 'audio/mp4' },
-  }, { timeoutMs: VOICE_FETCH_MS, retries: 2, wakeFirst: false });
-  if (!ok) throw new Error(d.error || 'Konuşma anlaşılamadı — tekrar dene');
-  return { ...d, _last: last, from: d.from || source, _helpMode: help };
-}
-
-async function processEducationVoice(blob) {
-  const helpArmed = !!S.helpMode || S.forcedSource === 'tr';
-  const stt = await fetchListenEducation(blob);
-  S.forcedSource = null;
-  let original = safeStr(stt.original).trim();
-  let userLang = stt.from || detectInputLang(original);
-  if (!original) throw new Error('Konuşma anlaşılamadı — tekrar dene');
-
-  // Help mic: always Turkish help intent — never grade as target-lang grammar error
-  if (helpArmed || stt._helpMode) {
-    userLang = 'tr';
-    const low = original.toLowerCase();
-    if (!/^\s*yardım\b/i.test(original)) {
-      original = /\byardım\b/i.test(low) ? `yardım ${original}` : `yardım, ${original}`;
-    }
-  }
-
-  appendUserMsg(original, userLang);
-  S.lastUserLang = userLang;
-  S.helpMode = false;
-  render();
-  safeText('statusText', `"${original.slice(0, 36)}${original.length > 36 ? '…' : ''}"`);
-  showTyping();
-  setUiState('PROCESSING');
-
-  const { ok, data: d } = await ApiClient.fetchJson(
-    `/api/education/chat?${new URLSearchParams({ lang: S.learnLang })}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        text: original,
-        profile: compactProfileForApi(),
-        history: sanitizeHistory(S.history),
-        roleplay: S.roleplay || null,
-        speak_slow: S.speakSlow,
-        user_lang: userLang,
-      }),
-    },
-    { timeoutMs: CHAT_FETCH_MS, retries: 2, wakeFirst: true },
-  );
-  if (!ok) throw new Error(d.error || 'Bağlantı sorunu. Tekrar dene.');
-  d.user_text = original;
-  d.user_lang = userLang;
-  d._userShown = true;
-  return d;
-}
-
-mic = MicHold.create({
-  state: S,
-  tailMs: TAIL_MS,
-  minHoldMs: MIN_HOLD_MS,
-  minBlobBytes: MIN_BLOB_BYTES,
-  micOpenMs: MIC_OPEN_MS,
-  micOpts: MIC_OPTS,
-  onHideError: hideErr,
-  onMicOpening: () => {
-    safeText('statusText', 'Mikrofon izni bekleniyor…');
-    safeText('micTitle', 'İzin ver…');
-  },
-  onSpeaking: () => {
-    hideErr();
-    showSpeaking();
-    unlockAudioSync();
-    stopTts();
-  },
-  onProcessing: showTranslating,
-  onIdle: () => {
-    if (S.busyCount === 0) resetIdle();
-  },
-  onError: showErr,
-  isBusy: () => S.busyCount > 0,
-  canBegin: () => {
-    if (S.busyCount > 0 && S.busySince) {
-      const stale = Date.now() - S.busySince > STALE_BUSY_MS;
-      if (!stale) {
-        showErr('Önceki yanıt bekleniyor…');
-        return false;
+      const res = await postTurn(body);
+      // istemci tarafında hemen sesi istemeye başla (sunucu zaten hazırlıyor)
+      const speakItems = Array.isArray(res.speak) ? res.speak : [];
+      if (P.autoSpeak) speakItems.forEach((i) => fetchTts(i.text, i.lang || P.lang, P.slow));
+      if (!text && res.user_text) S.msgs.push({ role: 'user', text: res.user_text, mode, t: Date.now() });
+      const userText = res.user_text || text;
+      const msg = {
+        role: 'tutor', lang: res.lang || P.lang, mode, you: mode === 'speak' ? userText : '',
+        reply: res.reply || '', reply_tr: res.reply_tr || '', okunus: res.okunus || '',
+        fix: res.fix || null, examples: res.examples || [], explain_tr: res.explain_tr || '',
+        words: res.words || [], speak: speakItems, provider: res.provider || '', t: Date.now(),
+      };
+      S.msgs.push(msg);
+      if (mode === 'speak') {
+        P.turns = (P.turns || 0) + 1;
+        if (!msg.fix || msg.fix.status !== 'fix') P.correct = (P.correct || 0) + 1;
+        adaptLevel(res);
       }
-      forceUnlockMic(null);
-    }
-    return true;
-  },
-  beforeBegin: async () => {
-    if (S.greetingBusy && S.greetingAbort) {
-      S.greetingAbort.abort();
-      S.greetingBusy = false;
-      S.greetingAbort = null;
-      hideTyping();
-    }
-  },
-  onBlob: (blob) => {
-    S.busyCount += 1;
-    S.busySince = Date.now();
-    showTranslating();
-    armProcessWatchdog();
-    processEducationVoice(blob)
-      .then(async (d) => {
-        try {
-          await handleEducationResult(d);
-        } catch {
-          hideTyping();
-          try { await handleEducationResult(d); } catch { resetIdle(); }
-        }
-      })
-      .catch((e) => showErr(safeErrMsg(e) || 'Duyamadım — tekrar dene'))
-      .finally(() => {
-        clearTimeout(S.processWatchdog);
-        S.processWatchdog = null;
-        S.busyCount = Math.max(0, S.busyCount - 1);
-        if (S.busyCount === 0) S.busySince = 0;
-        if (!S.holdActive && !mic.isRecording() && S.busyCount === 0) resetIdle();
-      });
-  },
-});
-
-async function fetchLessonPlan() {
-  try {
-    const params = new URLSearchParams({ profile: JSON.stringify(compactProfileForApi()) });
-    const r = await fetch(`/api/education/lesson-plan?${params}`);
-    const d = await r.json().catch(() => ({}));
-    if (r.ok) updatePersonalLesson(d);
-  } catch { /* ignore */ }
-}
-
-async function fetchGreeting() {
-  if (S.greetingLoaded && S.msgs.length > 0) return;
-  if (S.greetingBusy) return;
-  S.greetingBusy = true;
-  S.greetingAbort = new AbortController();
-  showTyping();
-  setUiState('PROCESSING');
-  try {
-    const params = new URLSearchParams({
-      lang: S.learnLang,
-      profile: JSON.stringify(compactProfileForApi()),
-    });
-    if (S.roleplay) params.set('roleplay', S.roleplay);
-    const r = await fetch(`/api/education/greeting?${params}`, {
-      signal: S.greetingAbort.signal,
-    });
-    const d = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(d.error || 'Karşılama yüklenemedi');
-    await handleEducationResult(d);
-    S.greetingLoaded = true;
-    S.sessionStart = Date.now();
-    S.sessionSaved = false;
-    updateActiveScenarioBadge(d);
-  } catch (e) {
-    if (e?.name === 'AbortError') return;
-    hideTyping();
-    showErr(safeErrMsg(e) || 'Karşılama yüklenemedi');
-  } finally {
-    S.greetingBusy = false;
-    S.greetingAbort = null;
-    if (!S.holdActive && !isRecording() && S.busyCount === 0) resetIdle();
-  }
-}
-
-function updateActiveScenarioBadge(d) {
-  const el = document.getElementById('activeScenarioBadge');
-  if (!el) return;
-  const title = safeStr(d?.active_scenario_title || '');
-  const sid = safeStr(S.roleplay || d?.active_scenario || '');
-  const sel = document.getElementById('roleplaySelect');
-  let label = title;
-  if (!label && sel && sid) {
-    const opt = Array.from(sel.options).find((o) => o.value === sid);
-    label = opt ? opt.textContent : sid;
-  }
-  el.textContent = sid ? `🎭 ${label || sid}` : '🗨️ Serbest konuşma';
-  el.title = sid ? 'Senaryoyu değiştir' : 'Senaryo seç';
-  el.classList.remove('hidden');
-}
-
-function getSessionMinutes() {
-  return S.sessionStart ? (Date.now() - S.sessionStart) / 60000 : 0;
-}
-
-async function endSession() {
-  const mins = getSessionMinutes();
-  if (mins < 0.3 || S.sessionSaved) return;
-  S.sessionSaved = true;
-  try {
-    const areas = ensureArray(S.profile?.weakAreas, ['conversation']);
-    const weak = areas[0] || 'conversation';
-    const r = await fetch('/api/education/session-end', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        profile: S.profile,
-        minutes: mins,
-        topic: safeStr(weak).replace(/_/g, ' '),
-      }),
-    });
-    const d = await r.json().catch(() => ({}));
-    if (r.ok && d.profile) {
-      S.profile = normalizeProfile(d.profile);
+      bumpDay(mode === 'speak' && !(msg.fix && msg.fix.status === 'fix'));
+      recordLearning(res, userText);
       saveProfile();
-      updateDailyGoal();
-      S.weeklyProgress = d.weeklyProgress;
-    }
-  } catch { /* ignore */ }
-}
-
-function switchReportTab(tab) {
-  document.querySelectorAll('.modal-tab').forEach((t) => {
-    t.classList.toggle('active', t.dataset.tab === tab);
-  });
-  safeClass('tabToday', 'toggle', 'hidden', tab !== 'today');
-  safeClass('tabWeek', 'toggle', 'hidden', tab !== 'week');
-  safeClass('tabHistory', 'toggle', 'hidden', tab !== 'history');
-}
-
-async function showReport() {
-  switchReportTab('today');
-  const mins = getSessionMinutes();
-  const total = Math.max(S.profile?.totalSentences || 0, 1);
-  const correct = S.profile?.correctSentences || 0;
-  const corrections = S.profile?.sessionCorrections ?? S.profile?.totalCorrections ?? 0;
-  const grammar = Math.min(100, Math.round((correct / total) * 100));
-  const vocab = Math.min(100, 50 + ensureArray(S.profile?.newWords).length * 5);
-  const fluency = Math.min(100, Math.round(40 + mins * 3));
-  const weak = ensureArray(S.profile?.weakAreas).slice(0, 3).map((w) => safeStr(w).replace(/_/g, ' ')).join(', ') || '—';
-  const strong = ensureArray(S.profile?.strongAreas).slice(0, 2).map((w) => safeStr(w).replace(/_/g, ' ')).filter(Boolean).join(', ') || 'Konuşma isteği';
-
-  const reportEl = $('reportContent');
-  if (reportEl) {
-    reportEl.innerHTML = `
-    <div class="report-row"><span>Konuşma süresi</span><strong>${mins.toFixed(1)} dk</strong></div>
-    <div class="report-row"><span>Cümleler</span><strong>${S.profile?.totalSentences || 0}</strong></div>
-    <div class="report-row"><span>Doğru cümleler</span><strong>${correct}</strong></div>
-    <div class="report-row"><span>Düzeltmeler</span><strong>${corrections}</strong></div>
-    <div class="report-row"><span>Yeni kelimeler</span><strong>${ensureArray(S.profile?.newWords).length}</strong></div>
-    <div class="report-row"><span>Gramer</span><strong>${grammar}%</strong></div>
-    <div class="report-row"><span>Kelime</span><strong>${vocab}%</strong></div>
-    <div class="report-row"><span>Akıcılık</span><strong>${fluency}%</strong></div>
-    <div class="report-row"><span>Tahmini seviye</span><strong>${S.profile?.currentLevel || 'A1'}</strong></div>
-    <div class="report-row"><span>Zayıf alanlar</span><strong>${esc(weak)}</strong></div>
-    <div class="report-row"><span>Güçlü alanlar</span><strong>${esc(strong)}</strong></div>`;
-  }
-
-  const weekEl = $('weekProgress');
-  if (weekEl) weekEl.innerHTML = renderWeekProgress(S.weeklyProgress || { weeklyProgress: S.weeklyProgress });
-  const histEl = $('historyContent');
-  if (histEl) histEl.innerHTML = renderSessionLog();
-  safeClass('reportModal', 'remove', 'hidden');
-
-  await endSession();
-  if (S.weeklyProgress && weekEl) {
-    weekEl.innerHTML = renderWeekProgress({ weeklyProgress: S.weeklyProgress });
-  }
-  if (histEl) histEl.innerHTML = renderSessionLog();
-}
-
-function openSettings() {
-  syncAccentSelect();
-  safeClass('settingsSheet', 'remove', 'hidden');
-}
-
-function closeSettings() {
-  safeClass('settingsSheet', 'add', 'hidden');
-}
-
-
-function syncLearnLang() {
-  const lg = getLang(S.learnLang);
-  const sel = $('learnLang');
-  if (sel) sel.value = S.learnLang;
-  safeText('robotName', `${lg.flag} ${lg.name}`);
-  syncMicLabels();
-  syncAccentSelect();
-  if (S.uiState === 'IDLE') safeText('statusText', idleStatusText());
-  if (S.profile) {
-    S.profile.targetLang = S.learnLang;
-    saveProfile();
-  }
-}
-
-const learnLangSelect = $('learnLang');
-if (learnLangSelect) {
-  LEARN_LANGS.forEach((l) => {
-    const o = document.createElement('option');
-    o.value = l.code;
-    o.textContent = `${l.flag} ${l.name}`;
-    learnLangSelect.appendChild(o);
-  });
-  learnLangSelect.addEventListener('change', (e) => {
-    if (!isRecording()) {
-      S.learnLang = e.target.value;
-      // New target language → fresh conversation so history never mixes languages
-      stopTts();
-      endSession();
-      resetConversationContext();
-      syncLearnLang();
+      S.busy = false;
       saveChat();
       render();
-      closeSettings();
-      fetchGreeting();
-      fetchLessonPlan();
-    } else {
-      e.target.value = S.learnLang;
+      syncHeader();
+      if (res.provider === 'rules') showAiNotice();
+      if (!$('statusText').textContent.startsWith('Tebrikler') && !$('statusText').textContent.startsWith('Seviye')) idleStatus();
+      if (P.autoSpeak && speakItems.length) {
+        const btn = document.querySelector('#feed .msg:last-child [data-play]');
+        void speak(speakItems, { btn });
+      }
+    } catch (e) {
+      S.busy = false;
+      render();
+      setStatus((e && e.message) || 'Bir sorun oldu — tekrar dene');
     }
+  }
+
+  async function greet() {
+    S.busy = true;
+    render();
+    try {
+      const q = new URLSearchParams({ lang: P.lang, level: level(), slow: P.slow ? '1' : '0' });
+      if (P.scenario) q.set('scenario', P.scenario);
+      if (P.accents[P.lang]) q.set('voice', P.accents[P.lang]);
+      let r;
+      try { r = await fetch(`/api/edu/greeting?${q}`); } catch { if (window.ApiClient) await ApiClient.wakeServer(30000); r = await fetch(`/api/edu/greeting?${q}`); }
+      const res = await r.json();
+      if (!r.ok) throw new Error(res.error || 'Bağlantı sorunu');
+      S.msgs.push({ role: 'tutor', lang: res.lang, mode: 'greeting', reply: res.reply, reply_tr: res.reply_tr, okunus: res.okunus, speak: res.speak || [], examples: [], words: [], t: Date.now() });
+      saveChat();
+      if (P.autoSpeak && audioUnlocked) void speak(res.speak || []);
+      else (res.speak || []).forEach((i) => fetchTts(i.text, i.lang, P.slow));
+    } catch (e) {
+      setStatus('Sunucuya ulaşılamadı — internetini kontrol et');
+    } finally {
+      S.busy = false;
+      render();
+    }
+  }
+
+  async function sendText() {
+    const input = $('textInput');
+    const text = input.value.trim();
+    if (!text || S.busy) return;
+    input.value = '';
+    unlockAudio();
+    const mode = /^\s*(yardım|yardim)\b/i.test(text) ? 'help' : 'speak';
+    await runTurn({ text: mode === 'help' ? text.replace(/^\s*(yardım|yardim)[\s,:-]*/i, '') || text : text, mode });
+  }
+
+  function blobToBase64(blob) {
+    return new Promise((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(String(fr.result || ''));
+      fr.onerror = () => reject(new Error('Ses okunamadı'));
+      fr.readAsDataURL(blob);
+    });
+  }
+
+  // ------------------------------------------------------------------ microphone
+  let activeMicBtn = null;
+  const mic = window.MicHold && MicHold.create({
+    state: S,
+    tailMs: 260,
+    minHoldMs: 320,
+    minBlobBytes: 400,
+    micOpenMs: 12000,
+    canBegin: () => {
+      if (S.busy) { setStatus('Önceki cevap bekleniyor…'); return false; }
+      return true;
+    },
+    onHideError: () => {},
+    onMicOpening: () => setStatus('Mikrofon açılıyor…', true, true),
+    onSpeaking: () => {
+      stopAudio();
+      if (activeMicBtn) activeMicBtn.classList.add('recording');
+      setStatus(S.mode === 'help' ? 'Dinliyorum — Türkçe söyle…' : `Dinliyorum — ${langOf(P.lang).tr} konuş…`, true, true);
+    },
+    unlockAudio,
+    onProcessing: () => {
+      document.querySelectorAll('.mic-btn.recording').forEach((b) => b.classList.remove('recording'));
+      setStatus('Anlıyorum…', true, true);
+    },
+    onIdle: () => {
+      document.querySelectorAll('.mic-btn.recording').forEach((b) => b.classList.remove('recording'));
+      if (!S.busy) idleStatus();
+    },
+    onShortHold: () => setStatus('Biraz daha uzun basılı tut'),
+    onEmptyBlob: () => setStatus('Ses duyulamadı — tekrar dene'),
+    onError: (msg) => setStatus(msg || 'Mikrofon hatası'),
+    isBusy: () => S.busy,
+    onBlob: async (blob) => {
+      document.querySelectorAll('.mic-btn.recording').forEach((b) => b.classList.remove('recording'));
+      try {
+        const b64 = await blobToBase64(blob);
+        await runTurn({ audioB64: b64, mode: S.mode });
+      } catch (e) {
+        setStatus((e && e.message) || 'Ses gönderilemedi');
+      }
+    },
   });
-}
 
-on('roleplaySelect', 'change', async (e) => {
-  const next = e.target.value || '';
-  const prev = S.roleplay || '';
-  S.roleplay = next;
-  if (next === prev) {
-    updateActiveScenarioBadge();
-    return;
+  function bindMic(btn, mode) {
+    if (!btn || !mic) return;
+    const arm = () => { S.mode = mode; activeMicBtn = btn; };
+    btn.addEventListener('touchstart', arm, { passive: true, capture: true });
+    btn.addEventListener('mousedown', arm, { capture: true });
+    mic.bindHold(btn);
   }
-  // Scenario change → controlled context reset (keep long-term profile learning)
-  stopTts();
-  resetConversationContext();
-  updateActiveScenarioBadge();
-  saveChat();
-  render();
-  closeSettings();
-  await fetchGreeting();
-});
+  bindMic($('micBtn'), 'speak');
+  bindMic($('helpBtn'), 'help');
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    ['micBtn', 'helpBtn'].forEach((id) => { $(id).disabled = true; });
+  }
 
-function resetConversationContext() {
-  S.msgs = [];
-  S.history = [];
-  saveHistory();
-  S.greetingLoaded = false;
-  S.spokenMessageIds = {};
-  S.sessionSaved = false;
-  S.lastAudio = null;
-  if (S.profile && typeof S.profile === 'object') {
-    S.profile.activeScenarioId = S.roleplay || '';
-    S.profile.activeScenario = S.roleplay || '';
-    S.profile.activeTeacherQuestion = null;
-    S.profile.lastTeacherText = '';
-    S.profile.currentTopic = S.roleplay || '';
-    S.profile.currentProblem = '';
-    S.profile.currentSubtopic = '';
-    S.profile.pendingPracticePhrase = null;
-    S.profile.pendingPracticeTr = null;
-    S.profile.awaitingTargetPhrase = null;
-    S.profile.lastHelpExamples = [];
-    S.profile.failedAnswerStreak = 0;
-    // Scene-local facts (room numbers etc.) must not leak into the next scene
-    S.profile.userFacts = ensureArray(S.profile.userFacts).filter((f) => !/^room:/i.test(safeStr(f)));
+  // ------------------------------------------------------------------ sheets
+  function openSheet(id) { $(id).classList.remove('hidden'); }
+  function closeSheet(id) { $(id).classList.add('hidden'); }
+  document.querySelectorAll('.sheet').forEach((sh) => {
+    sh.addEventListener('click', (e) => { if (e.target.hasAttribute('data-close')) closeSheet(sh.id); });
+  });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') document.querySelectorAll('.sheet').forEach((s) => closeSheet(s.id)); });
+
+  function buildSettings() {
+    $('langGrid').innerHTML = LANGS.map((l) => `<button type="button" class="lang-opt ${l.code === P.lang ? 'active' : ''}" data-lang="${l.code}"><span>${l.flag}</span>${l.tr}</button>`).join('');
+    $('levelGrid').innerHTML = LEVELS.map((lv) => `<button type="button" class="${lv === level() ? 'active' : ''}" data-level="${lv}" title="${LEVEL_TR[lv]}">${lv}</button>`).join('');
+    $('autoLevel').checked = !!P.autoLevel;
+    const sel = $('scenarioSelect');
+    sel.innerHTML = '<option value="">Serbest sohbet</option>' + SCENARIOS.map(([g, items]) => `<optgroup label="${esc(g)}">${items.map(([id, name]) => `<option value="${id}">${esc(name)}</option>`).join('')}</optgroup>`).join('');
+    sel.value = P.scenario || '';
+    const acc = ACCENTS[P.lang] || [];
+    $('accentField').classList.toggle('hidden', !acc.length);
+    $('accentSelect').innerHTML = acc.map(([v, n]) => `<option value="${v}">${esc(n)}</option>`).join('');
+    if (acc.length) $('accentSelect').value = P.accents[P.lang] || acc[0][0];
+    $('optAutoSpeak').checked = !!P.autoSpeak;
+    $('optSlow').checked = !!P.slow;
+    $('optOkunus').checked = !!P.showOkunus;
+    $('optTr').checked = !!P.showTr;
+  }
+
+  function switchConversation() {
+    stopAudio();
+    S.msgs = loadChat();
+    syncHeader();
+    render();
+    if (!S.msgs.length) void greet();
+  }
+
+  $('langGrid').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-lang]');
+    if (!b || b.dataset.lang === P.lang) return;
+    P.lang = b.dataset.lang;
     saveProfile();
-  }
-}
-
-on('speedNormal', 'click', () => {
-  S.speakSlow = false;
-  safeClass('speedNormal', 'add', 'active');
-  safeClass('speedSlow', 'remove', 'active');
-});
-
-on('speedSlow', 'click', () => {
-  S.speakSlow = true;
-  safeClass('speedSlow', 'add', 'active');
-  safeClass('speedNormal', 'remove', 'active');
-});
-
-on('repeatBtn', 'click', async () => {
-  unlockAudioSync();
-  if (S.lastAudio) {
-    playB64(S.lastAudio);
-    return;
-  }
-  const last = S.msgs.find((m) => m.role === 'teacher');
-  if (!last) return;
-  const phrase = (last.teacherEn || last.teacher || '').slice(0, 400);
-  if (!phrase) return;
-  try {
-    const rp = new URLSearchParams({ q: phrase, tl: S.learnLang });
-    const voice = accentFor(S.learnLang);
-    if (voice) rp.set('voice', voice);
-    const r = await fetch(`/api/tts?${rp}`);
-    if (!r.ok) return;
-    const buf = await r.arrayBuffer();
-    const bytes = new Uint8Array(buf);
-    let b64 = '';
-    const chunk = 8192;
-    for (let i = 0; i < bytes.length; i += chunk) {
-      b64 += String.fromCharCode(...bytes.subarray(i, i + chunk));
-    }
-    playB64(btoa(b64));
-  } catch { /* ignore */ }
-});
-
-on('accentSelect', 'change', (e) => {
-  const all = loadAccents();
-  all[S.learnLang] = safeStr(e.target.value);
-  try {
-    localStorage.setItem(ACCENT_KEY, JSON.stringify(all));
-  } catch { /* ignore */ }
-  const sample = [...S.msgs].reverse().find((m) => m.role === 'teacher' && m.teacherEn);
-  if (sample) {
-    unlockAudioSync();
-    void fetchAndPlayTts(sample.teacherEn.split('\n')[0].slice(0, 160), S.learnLang, S.speakSlow);
-  }
-});
-
-on('settingsBtn', 'click', () => openSettings());
-on('activeScenarioBadge', 'click', () => openSettings());
-on('closeSettings', 'click', () => closeSettings());
-const settingsBackdrop = $('settingsSheet')?.querySelector('.edu-modal-backdrop');
-if (settingsBackdrop) settingsBackdrop.addEventListener('click', () => closeSettings());
-
-function resetStoredData() {
-  try {
-    localStorage.removeItem(PROFILE_KEY);
-    localStorage.removeItem(HISTORY_KEY);
-    localStorage.removeItem(CHAT_KEY);
-  } catch { /* ignore */ }
-  S.profile = loadProfile();
-  S.history = [];
-  S.msgs = [];
-  S.lastAudio = null;
-  S.greetingLoaded = false;
-  S.sessionStart = null;
-  S.sessionSaved = false;
-  S.weeklyProgress = null;
-  syncLearnLang();
-  updateLevelBadge();
-  updateDailyGoal();
-  hideErr();
-  render();
-  fetchGreeting();
-  fetchLessonPlan();
-}
-
-on('resetDataBtn', 'click', () => {
-  if (isRecording() || S.busyCount > 0) return;
-  if (window.confirm('Kayıtlı sohbet ve profil silinsin mi?')) {
-    closeSettings();
-    resetStoredData();
-  }
-});
-
-on('clearBtn', 'click', () => {
-  if (!isRecording() && S.busyCount === 0) {
-    closeSettings();
-    endSession();
+    buildSettings();
+    switchConversation();
+  });
+  $('levelGrid').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-level]');
+    if (!b) return;
+    P.levels[P.lang] = b.dataset.level;
+    P.sinceChange[P.lang] = 0;
+    P.ema[P.lang] = LEVELS.indexOf(b.dataset.level) + 1;
+    saveProfile();
+    buildSettings();
+    syncHeader();
+  });
+  $('autoLevel').addEventListener('change', (e) => { P.autoLevel = e.target.checked; saveProfile(); });
+  $('scenarioSelect').addEventListener('change', (e) => {
+    P.scenario = e.target.value || '';
+    saveProfile();
     S.msgs = [];
     saveChat();
-    S.history = [];
-    saveHistory();
-    S.greetingLoaded = false;
-    S.sessionStart = null;
-    render();
-    fetchGreeting();
+    closeSheet('settingsSheet');
+    switchConversation();
+  });
+  $('accentSelect').addEventListener('change', (e) => {
+    P.accents[P.lang] = e.target.value;
+    saveProfile();
+    const last = [...S.msgs].reverse().find((m) => m.role === 'tutor' && m.reply);
+    if (last) { unlockAudio(); void speak([{ text: last.reply, lang: P.lang }]); }
+  });
+  const bindOpt = (id, key) => $(id).addEventListener('change', (e) => { P[key] = e.target.checked; saveProfile(); render(); });
+  bindOpt('optAutoSpeak', 'autoSpeak');
+  bindOpt('optSlow', 'slow');
+  bindOpt('optOkunus', 'showOkunus');
+  bindOpt('optTr', 'showTr');
+  $('newChatBtn').addEventListener('click', () => {
+    S.msgs = [];
+    saveChat();
+    closeSheet('settingsSheet');
+    switchConversation();
+  });
+  $('closeSettings').addEventListener('click', () => closeSheet('settingsSheet'));
+  const openSettings = () => { buildSettings(); openSheet('settingsSheet'); };
+  $('settingsBtn').addEventListener('click', openSettings);
+  $('langBtn').addEventListener('click', openSettings);
+  $('levelBtn').addEventListener('click', openSettings);
+  $('scenarioBtn').addEventListener('click', () => { openSettings(); setTimeout(() => $('scenarioSelect').scrollIntoView({ block: 'center' }), 50); });
+
+  function buildProgress() {
+    const lang = P.lang;
+    const lg = langOf(lang);
+    const words = Array.isArray(P.words[lang]) ? P.words[lang] : [];
+    const mistakes = Array.isArray(P.mistakes[lang]) ? P.mistakes[lang] : [];
+    const rec = Array.isArray(P.recent[lang]) ? P.recent[lang] : [];
+    const acc = rec.length ? Math.round((rec.reduce((a, b) => a + b, 0) / rec.length) * 100) : null;
+    const days = [];
+    for (let i = 6; i >= 0; i -= 1) {
+      const d = new Date(Date.now() - i * 86400000);
+      const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      days.push({ label: d.toLocaleDateString('tr-TR', { weekday: 'short' }), min: (P.days[k] && P.days[k].min) || 0 });
+    }
+    const max = Math.max(P.goalMin || 10, ...days.map((d) => d.min));
+    $('progressBody').innerHTML = `
+      <div class="stat-grid">
+        <div class="stat"><b>${level()}</b><span>${lg.tr} · ${LEVEL_TR[level()]}</span></div>
+        <div class="stat"><b>${P.streak || 0}</b><span>gün seri</span></div>
+        <div class="stat"><b>${acc == null ? '—' : `${acc}%`}</b><span>son doğruluk</span></div>
+      </div>
+      <h3>Son 7 gün (dakika)</h3>
+      <div class="week">${days.map((d) => `<div><i style="height:${Math.max(3, Math.round((d.min / max) * 60))}px"></i><span>${esc(d.label)}</span></div>`).join('')}</div>
+      <h3>Kelimelerim (${words.length})</h3>
+      ${words.length ? `<div class="list">${words.slice(0, 40).map((w, i) => `<div class="list-item"><div class="grow"><b>${esc(w.w)}</b><small>${esc(w.tr)}</small></div><button type="button" class="t-btn" data-pw="${i}">${ICON.play}</button></div>`).join('')}</div>` : '<p class="hint">Sohbet ettikçe yeni kelimeler burada birikir.</p>'}
+      <h3>Düzeltmelerim (${mistakes.length})</h3>
+      ${mistakes.length ? `<div class="list">${mistakes.slice(0, 30).map((m, i) => `<div class="list-item"><div class="grow"><b>${esc(m.fixed)}</b><small>${esc(m.you)}${m.why ? ` — ${esc(m.why)}` : ''}</small></div><button type="button" class="t-btn" data-pm="${i}">${ICON.play}</button></div>`).join('')}</div>` : '<p class="hint">Hata yaptığında doğrusu buraya kaydedilir; tekrar dinleyip çalışabilirsin.</p>'}
+    `;
   }
-});
+  $('progressBody').addEventListener('click', (e) => {
+    const w = e.target.closest('[data-pw]');
+    const m = e.target.closest('[data-pm]');
+    unlockAudio();
+    if (w) { const item = (P.words[P.lang] || [])[Number(w.dataset.pw)]; if (item) void speak([{ text: item.w, lang: P.lang }], { btn: w }); }
+    if (m) { const item = (P.mistakes[P.lang] || [])[Number(m.dataset.pm)]; if (item) void speak([{ text: item.fixed, lang: P.lang }], { btn: m }); }
+  });
+  $('progressBtn').addEventListener('click', () => { buildProgress(); openSheet('progressSheet'); });
+  $('closeProgress').addEventListener('click', () => closeSheet('progressSheet'));
+  $('resetBtn').addEventListener('click', () => {
+    const lg = langOf(P.lang);
+    if (!window.confirm(`${lg.tr} için sohbet, kelime ve düzeltme kayıtları silinsin mi?`)) return;
+    delete P.words[P.lang]; delete P.mistakes[P.lang]; delete P.recent[P.lang]; delete P.ema[P.lang];
+    delete P.sinceChange[P.lang];
+    saveProfile();
+    S.msgs = [];
+    saveChat();
+    closeSheet('progressSheet');
+    switchConversation();
+  });
 
-on('sendBtn', 'click', () => sendTextMessage());
-on('textInput', 'keydown', (e) => {
-  if (e.key === 'Enter') {
-    e.preventDefault();
-    sendTextMessage();
+  // ------------------------------------------------------------------ AI notice
+  let noticeShown = false;
+  function showAiNotice() {
+    if (noticeShown) return;
+    noticeShown = true;
+    const el = $('aiNotice');
+    el.innerHTML = '<details><summary>Yapay zekâ şu an yanıt vermiyor — basit modda devam ediliyor</summary><p>Render ayarlarında GROQ_API_KEY ya da GEMINI_API_KEY tanımlı ve geçerli olmalı.</p></details>';
+    el.classList.remove('hidden');
   }
-});
+  fetch('/api/status').then((r) => r.json()).then((d) => { if (d && d.ai_enabled === false) showAiNotice(); }).catch(() => {});
 
-document.querySelectorAll('.modal-tab').forEach((tab) => {
-  tab.addEventListener('click', () => switchReportTab(tab.dataset.tab));
-});
+  // ------------------------------------------------------------------ composer + boot
+  $('sendBtn').addEventListener('click', () => void sendText());
+  $('textInput').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); void sendText(); } });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') { stopAudio(); if (mic) mic.releaseMic(); }
+    else S.lastActive = Date.now();
+  });
 
-on('reportBtn', 'click', () => showReport());
-on('closeReport', 'click', () => safeClass('reportModal', 'add', 'hidden'));
-const reportBackdrop = $('reportModal')?.querySelector('.edu-modal-backdrop');
-if (reportBackdrop) reportBackdrop.addEventListener('click', () => safeClass('reportModal', 'add', 'hidden'));
-document.addEventListener('keydown', (e) => {
-  if (e.key !== 'Escape') return;
-  closeSettings();
-  safeClass('reportModal', 'add', 'hidden');
-});
-
-const micBtn = $('micBtn');
-const helpMicBtn = $('helpMicBtn');
-
-function bindEduMic(btn, getSource, isHelp) {
-  if (!btn || !mic) return;
-  const arm = () => {
-    S.forcedSource = getSource();
-    S.helpMode = !!isHelp;
-  };
-  btn.addEventListener('touchstart', arm, { passive: true, capture: true });
-  btn.addEventListener('mousedown', arm, { capture: true });
-  btn.addEventListener('pointerdown', arm, { capture: true });
-  mic.bindHold(btn);
-}
-
-bindEduMic(micBtn, () => S.learnLang || 'en', false);
-bindEduMic(helpMicBtn, () => 'tr', true);
-
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden') {
-    endSession();
-    releaseMic();
-    return;
-  }
-  if (S.busyCount > 0 && S.busySince && Date.now() - S.busySince > STALE_BUSY_MS) {
-    forceUnlockMic('Devam edelim — tekrar konuş');
-  }
-});
-window.addEventListener('pagehide', () => {
-  endSession();
-  releaseMic();
-});
-
-S.profile = loadProfile();
-S.history = loadHistory();
-S._historyChrono = false; // migrate legacy newest-first on next pushHistory
-S.msgs = loadChat();
-S.learnLang = S.profile?.targetLang || 'en';
-S.roleplay = safeStr(S.profile?.activeScenarioId || S.profile?.activeScenario || S.roleplay || '');
-syncLearnLang();
-const rpSel = $('roleplaySelect');
-if (rpSel) rpSel.value = S.roleplay || '';
-updateActiveScenarioBadge();
-updateLevelBadge();
-updateDailyGoal();
-fetchLessonPlan();
-fetchAiStatus();
-render();
-if (S.msgs.length > 0) {
-  S.greetingLoaded = true;
-  S.sessionStart = Date.now();
-} else {
-  resetIdle();
-  fetchGreeting();
-}
-
-if (!navigator.mediaDevices?.getUserMedia) {
-  showErr('Mikrofon için Safari gerekli');
-  const mic = $('micBtn');
-  if (mic) mic.disabled = true;
-}
+  switchConversation();
+  idleStatus();
+})();

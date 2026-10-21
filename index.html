@@ -2,86 +2,87 @@
 <html lang="tr">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="Sesli Çevirmen">
-  <meta name="theme-color" content="#060B18">
-  <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%23060B18' width='100' height='100' rx='20'/><text x='50' y='62' font-size='48' text-anchor='middle' fill='%2338BDF8'>🌍</text></svg>">
+  <meta name="theme-color" content="#F4F1EA" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#121311" media="(prefers-color-scheme: dark)">
+  <link rel="apple-touch-icon" href="icon-192.png">
   <link rel="manifest" href="manifest.json">
-  <meta name="app-version" content="2026.09.02-v42">
-  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta name="app-version" content="2026.10.21-v73.0">
   <title>Sesli Çevirmen</title>
-  <link rel="stylesheet" href="styles.css?v=76">
+  <link rel="stylesheet" href="styles.css?v=100">
 </head>
 <body>
-  <div class="app menu-app">
-    <header class="menu-header">
-      <div class="menu-logo">🌍</div>
+  <div class="app home">
+    <header class="home-head">
+      <div class="home-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M4 5h9M8.5 3v2M6 5c.5 3 2.5 5.5 6 7M11 5c-.6 3-3 6-7 8"/><path d="M13 21l4-9 4 9M14.5 18h5"/></svg>
+      </div>
       <h1>Sesli Çevirmen</h1>
-      <p class="menu-tagline">Ne yapmak istiyorsun?</p>
+      <p id="homeGreeting">Konuş, çevir, öğren.</p>
     </header>
 
-    <nav class="menu-cards">
-      <a href="translate.html" class="menu-card menu-card-translate">
-        <span class="menu-card-icon">🎤</span>
-        <div class="menu-card-body">
-          <strong>Çeviri</strong>
-          <span>Bas konuş, anında çevir — mevcut uygulaman</span>
-        </div>
-        <span class="menu-card-arrow">→</span>
-      </a>
+    <a href="education.html" class="home-feature">
+      <span class="glyphs" aria-hidden="true">Hello Hola გამარჯობა</span>
+      <span class="kicker">Eğitim</span>
+      <h2>Yapay zekâ öğretmenle konuş</h2>
+      <p>Seviyene göre sohbet, anında düzeltme, birebir okunuş.</p>
+      <span class="go" id="eduContinue">Derse başla
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+      </span>
+    </a>
 
-      <a href="live-talk.html" class="menu-card menu-card-live">
-        <span class="menu-card-icon">🗣️</span>
-        <div class="menu-card-body">
-          <strong>Eşzamanlı Konuşma</strong>
-          <span>İki yönlü canlı çeviri — sen ve karşı taraf</span>
-        </div>
-        <span class="menu-card-arrow">→</span>
+    <nav class="home-grid" aria-label="Bölümler">
+      <a href="translate.html" class="home-tile">
+        <span class="ic"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></span>
+        <strong>Çeviri</strong>
+        <span>Bas, konuş, anında çevir</span>
       </a>
-
-      <a href="education.html" class="menu-card menu-card-edu">
-        <span class="menu-card-icon">🤖</span>
-        <div class="menu-card-body">
-          <strong>Eğitim</strong>
-          <span>Robot öğretmen — konuş, düzelt, öğren</span>
-        </div>
-        <span class="menu-card-arrow">→</span>
+      <a href="live-talk.html" class="home-tile">
+        <span class="ic amber"><svg viewBox="0 0 24 24"><path d="M7 8h10M7 12h6"/><path d="M4 4h16v12H9l-5 4z"/></svg></span>
+        <strong>Karşılıklı</strong>
+        <span>İki kişi, canlı çeviri</span>
       </a>
-
-      <a href="sentence-builder.html" class="menu-card menu-card-builder">
-        <span class="menu-card-icon">📝</span>
-        <div class="menu-card-body">
-          <strong>Cümle Kur</strong>
-          <span>Kelime ve cümle öğren — kaydet, dinle</span>
-        </div>
-        <span class="menu-card-arrow">→</span>
+      <a href="sentence-builder.html" class="home-tile">
+        <span class="ic blue"><svg viewBox="0 0 24 24"><path d="M4 19h16M6 15l8.5-8.5a2.1 2.1 0 0 1 3 3L9 18H6z"/></svg></span>
+        <strong>Cümle Kur</strong>
+        <span>Kelime ve cümle öğren</span>
       </a>
-
-      <a href="self-test.html" class="menu-card menu-card-quiz">
-        <span class="menu-card-icon">🎯</span>
-        <div class="menu-card-body">
-          <strong>Kendini Test Et</strong>
-          <span>Kaydettiklerini konuşarak test et</span>
-        </div>
-        <span class="menu-card-arrow">→</span>
+      <a href="self-test.html" class="home-tile">
+        <span class="ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/></svg></span>
+        <strong>Kendini Test Et</strong>
+        <span>Kaydettiklerini konuşarak sına</span>
       </a>
     </nav>
 
-    <p class="menu-hint">Safari ile aç · Mikrofon izni gerekir</p>
-
-    <footer class="phone-footer">
-      <a href="mobil.html">📱 iPhone: Adres &amp; yardım</a>
+    <footer class="home-foot">
+      Mikrofon izni gerekir · Safari'de “Ana Ekrana Ekle” ile uygulama gibi kullan
+      <div id="appVersionBar" class="app-version-bar" aria-live="polite">
+        <span id="appVersionText"></span>
+        <button type="button" id="appUpdateBtn" class="app-update-btn hidden">Güncelle</button>
+      </div>
     </footer>
   </div>
-  <div id="appVersionBar" class="app-version-bar menu-version-bar" aria-live="polite">
-    <span id="appVersionText">Yükleniyor…</span>
-    <button type="button" id="appUpdateBtn" class="app-update-btn hidden">Programı Güncelle</button>
-  </div>
-  <script src="api-client.js?v=3"></script>
+  <script src="api-client.js?v=7"></script>
   <script src="keepalive.js?v=2"></script>
-  <script src="app-version.js?v=1"></script>
-  <script>document.addEventListener('DOMContentLoaded', () => AppVersion.init());</script>
+  <script src="app-version.js?v=2"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      try { AppVersion.init(); } catch (e) { /* ignore */ }
+      try {
+        const p = JSON.parse(localStorage.getItem('edu_v3_profile') || 'null');
+        const names = { en: 'İngilizce', de: 'Almanca', fr: 'Fransızca', es: 'İspanyolca', it: 'İtalyanca', ru: 'Rusça', ar: 'Arapça', zh: 'Çince', ka: 'Gürcüce' };
+        if (p && p.lang) {
+          const lv = (p.levels && p.levels[p.lang]) || 'A1';
+          document.getElementById('eduContinue').firstChild.textContent = `${names[p.lang] || ''} · ${lv} — devam et `;
+        }
+        const h = new Date().getHours();
+        document.getElementById('homeGreeting').textContent =
+          h < 6 ? 'İyi geceler. Kısa bir pratik?' : h < 12 ? 'Günaydın. Bugün ne öğreniyoruz?' : h < 18 ? 'İyi günler. Konuş, çevir, öğren.' : 'İyi akşamlar. Günün pratiği seni bekliyor.';
+      } catch (e) { /* ignore */ }
+    });
+  </script>
 </body>
 </html>

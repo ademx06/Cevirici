@@ -7296,6 +7296,15 @@ def pronounce_text(text: str, lang: str = "en") -> str:
     text = safe_str(text).strip()
     if not text or lang == "tr":
         return ""
+    try:
+        import okunus as _okn
+        if lang in _okn.RULE_LANGS and lang != "fr":
+            return _okn.rule_okunus(text, lang)[:2500]
+        _hit = _okn.cached(text, lang)
+        if _hit:
+            return _hit
+    except Exception:
+        pass
     # English: Jenny-aligned sentence engine (avoids circular call for non-EN)
     if lang == "en":
         try:

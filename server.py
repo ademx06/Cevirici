@@ -21,6 +21,8 @@ from education_engine import (
     llm_rewrite_georgian, llm_rewrite_turkish, llm_rewrite_turkish_from_georgian,
     llm_verify_and_fix_translation,
 )
+import edu_tutor
+import okunus as okunus_mod
 from builder_engine import (
     generate_word_lesson,
     analyze_sentence_for_builder,
@@ -29,7 +31,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.10.21-v72.32"
+APP_VERSION = "2026.10.21-v73.0"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -144,29 +146,101 @@ def edge_tts(text: str, lang: str, rate: str = "+0%", voice: str | None = None) 
 
     async def _run() -> bytes:
         communicate = edge_tts.Communicate(text, voice, rate=rate)
-        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
-            path = tmp.name
-        try:
-            await communicate.save(path)
-            with open(path, "rb") as f:
-                return f.read()
-        finally:
-            os.unlink(path)
+        buf = bytearray()
+        async for chunk in communicate.stream():
+            if chunk.get("type") == "audio":
+                buf.extend(chunk.get("data") or b"")
+        return bytes(buf)
 
     return asyncio.run(_run())
 
 
-def synthesize(text: str, lang: str, slow: bool = False, locale: str | None = None) -> bytes:
+def synthesize(text: str, lang: str, slow: bool = False, locale: str | None = None,
+               neural: bool = False) -> bytes:
     voice = accent_voice(lang, locale)
-    if voice:
-        # Explicit accent → always the matching neural voice (Google TTS has no accent control)
-        return edge_tts(text, lang, rate="-15%" if slow else "+8%", voice=voice)
+    if voice or neural:
+        # Eğitim / aksan: hedef dilin yerli nöral sesi (doğru telaffuz); hata olursa Google
+        try:
+            data = edge_tts(text, lang, rate="-18%" if slow else "+0%", voice=voice)
+            if data and len(data) > 200:
+                return data
+        except Exception:
+            pass
+        data = google_tts(text[:200], lang)
+        if data:
+            return data
+        raise ValueError("tts failed")
     if slow:
         return edge_tts(text, lang, rate="-15%")
     data = google_tts(text, lang)
     if data:
         return data
     return edge_tts(text, lang, rate="+18%")
+
+
+# ---- TTS önbellek + aynı anda gelen istekleri birleştirme + ön ısıtma ----
+from collections import OrderedDict
+from concurrent.futures import Future
+import threading as _threading
+
+_TTS_CACHE: "OrderedDict[tuple, bytes]" = OrderedDict()
+_TTS_INFLIGHT: dict[tuple, Future] = {}
+_TTS_LOCK = _threading.Lock()
+_TTS_POOL = ThreadPoolExecutor(max_workers=6, thread_name_prefix="tts")
+_TTS_CACHE_MAX = 300
+
+
+def _tts_key(text: str, lang: str, slow: bool, locale: str | None, neural: bool) -> tuple:
+    return (text.strip(), lang, bool(slow), (locale or "").strip(), bool(neural))
+
+
+def tts_get(text: str, lang: str, slow: bool = False, locale: str | None = None,
+            neural: bool = False, timeout: float = 25.0) -> bytes:
+    key = _tts_key(text, lang, slow, locale, neural)
+    owner = False
+    with _TTS_LOCK:
+        hit = _TTS_CACHE.get(key)
+        if hit:
+            _TTS_CACHE.move_to_end(key)
+            return hit
+        fut = _TTS_INFLIGHT.get(key)
+        if fut is None:
+            fut = Future()
+            _TTS_INFLIGHT[key] = fut
+            owner = True
+    if not owner:
+        return fut.result(timeout=timeout)
+    try:
+        data = synthesize(key[0], lang, slow=slow, locale=locale, neural=neural)
+        with _TTS_LOCK:
+            _TTS_CACHE[key] = data
+            while len(_TTS_CACHE) > _TTS_CACHE_MAX:
+                _TTS_CACHE.popitem(last=False)
+        fut.set_result(data)
+        return data
+    except Exception as exc:
+        fut.set_exception(exc)
+        raise
+    finally:
+        with _TTS_LOCK:
+            _TTS_INFLIGHT.pop(key, None)
+
+
+def tts_prewarm(items: list[dict], slow: bool = False, locale: str | None = None) -> None:
+    """Yanıt gönderilirken sesi arka planda üret — istemci istediğinde hazır olsun."""
+    for it in items or []:
+        text = safe_str(it.get("text")).strip()
+        lang = safe_str(it.get("lang")).strip() or "en"
+        if not text:
+            continue
+        loc = locale if (locale or "").split("-")[0].lower() == lang else None
+
+        def _job(t=text, lg=lang, lc=loc):
+            try:
+                tts_get(t, lg, slow=slow, locale=lc, neural=True)
+            except Exception:
+                pass
+        _TTS_POOL.submit(_job)
 
 
 GOOGLE_TL = {
@@ -1071,10 +1145,13 @@ def translate_phonetic(text: str, lang: str) -> str:
     # Telaffuz ASLA Türkçe anlam üzerinden üretilmez; verilen metin hedef dil olmalıdır.
     snippet = re.sub(r"\s+", " ", text.strip())
     try:
-        from pronunciation_service import build_sentence_natural
-        return safe_str(build_sentence_natural(snippet, lang)).strip()[:2500]
+        return safe_str(okunus_mod.okunus(snippet, lang, llm_fn=_llm_okunus)).strip()[:2500]
     except Exception:
         return ""
+
+
+def _llm_okunus(text: str, lang: str) -> str:
+    return edu_tutor.llm_okunus(text, lang)
 
 
 _whisper_model = None
@@ -3024,6 +3101,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self.handle_education_voice(parse_qs(parsed.query))
         if parsed.path == "/api/education/chat":
             return self.handle_education_chat(parse_qs(parsed.query))
+        if parsed.path == "/api/edu/turn":
+            return self.handle_edu_turn()
         if parsed.path == "/api/education/session-end":
             return self.handle_education_session_end(parse_qs(parsed.query))
         if parsed.path == "/api/builder/word":
@@ -3054,6 +3133,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self.handle_tutor_lesson(parse_qs(parsed.query))
         if parsed.path == "/api/education/greeting":
             return self.handle_education_greeting(parse_qs(parsed.query))
+        if parsed.path == "/api/edu/greeting":
+            return self.handle_edu_greeting(parse_qs(parsed.query))
         if parsed.path == "/api/education/lesson-plan":
             return self.handle_education_lesson_plan(parse_qs(parsed.query))
         if parsed.path == "/api/education/progress":
@@ -3496,6 +3577,66 @@ class Handler(SimpleHTTPRequestHandler):
         except Exception as e:
             self.send_json_error(422, self.api_error_message(e))
 
+    def handle_edu_greeting(self, params):
+        lang = (params.get("lang") or ["en"])[0]
+        level = (params.get("level") or ["A1"])[0]
+        scenario = (params.get("scenario") or [""])[0].strip() or None
+        slow = (params.get("slow") or ["0"])[0] in ("1", "true")
+        voice = (params.get("voice") or [""])[0].strip()[:12] or None
+        res = edu_tutor.greeting_turn(lang, level, scenario)
+        tts_prewarm(res.get("speak") or [], slow=slow, locale=voice)
+        self._send_json(res)
+
+    def handle_edu_turn(self):
+        """Eğitim turu: metin veya ses (base64) → tek yanıtta öğretmen cevabı + düzeltme + okunuş."""
+        import base64
+
+        t0 = time.perf_counter()
+        payload = self._read_json_body()
+        lang = safe_str(payload.get("lang") or "en").strip().lower()[:5] or "en"
+        mode = "help" if payload.get("mode") == "help" else "speak"
+        level = safe_str(payload.get("level") or "A1").strip().upper()[:2]
+        scenario = safe_str(payload.get("scenario")).strip() or None
+        slow = bool(payload.get("slow"))
+        voice = safe_str(payload.get("voice")).strip()[:12] or None
+        history = payload.get("history") if isinstance(payload.get("history"), list) else []
+        weak = payload.get("weak") if isinstance(payload.get("weak"), list) else []
+        text = safe_str(payload.get("text")).strip()
+        stt_ms = 0
+        audio_b64 = safe_str(payload.get("audio"))
+        if audio_b64 and not text:
+            try:
+                data = base64.b64decode(audio_b64.split(",")[-1])
+            except Exception:
+                return self.send_json_error(400, "Ses kaydı okunamadı — tekrar dene")
+            if len(data) < 300:
+                return self.send_json_error(400, "Kayıt çok kısa — basılı tutup konuş")
+            stt_lang = "tr" if mode == "help" else lang
+            try:
+                text, _ = transcribe_forced(data, stt_lang)
+            except Exception as e:
+                msg = str(e)
+                if "çözümlenemedi" in msg:
+                    if mode == "help":
+                        return self.send_json_error(422, "Türkçe anlaşılamadı — Yardım'a basılı tutup Türkçe söyle")
+                    return self.send_json_error(422, "Anlaşılamadı — hedef dilde söyle ya da Yardım'ı kullan")
+                return self.send_json_error(422, self.api_error_message(e))
+            stt_ms = int((time.perf_counter() - t0) * 1000)
+        if not text:
+            return self.send_json_error(400, "Bir şey söyle ya da yaz")
+        try:
+            res = edu_tutor.tutor_turn(
+                text, lang, level=level, mode=mode, history=history[-14:],
+                scenario=scenario, weak=[safe_str(w)[:40] for w in weak[:6]],
+                translate_fn=translate_text,
+            )
+        except Exception as e:
+            return self.send_json_error(500, f"Öğretmen yanıt veremedi — tekrar dene ({type(e).__name__})")
+        tts_prewarm(res.get("speak") or [], slow=slow, locale=voice)
+        res["stt_ms"] = stt_ms
+        res["total_ms"] = int((time.perf_counter() - t0) * 1000)
+        self._send_json(res)
+
     def handle_education_voice(self, params):
         lang = (params.get("lang") or ["en"])[0]
         length = int(self.headers.get("Content-Length", 0))
@@ -3622,15 +3763,17 @@ class Handler(SimpleHTTPRequestHandler):
         lang = (params.get("tl") or ["tr"])[0].strip()
         slow = (params.get("slow") or ["0"])[0].lower() in ("1", "true", "yes")
         locale = (params.get("voice") or [""])[0].strip()[:12]
+        neural = (params.get("n") or ["0"])[0].lower() in ("1", "true", "yes")
         if not text:
             self.send_json_error(400, "Metin gerekli")
             return
         try:
-            data = synthesize(text[:2500], lang, slow=slow, locale=locale)
+            data = tts_get(text[:2500], lang, slow=slow, locale=locale, neural=neural)
             if not data:
                 raise ValueError("Ses oluşturulamadı")
             self.send_response(200)
             self.send_header("Content-Type", "audio/mpeg")
+            self.send_header("Cache-Control", "public, max-age=86400")
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
             self.wfile.write(data)

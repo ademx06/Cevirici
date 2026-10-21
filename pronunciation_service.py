@@ -2419,7 +2419,9 @@ def build_sentence_natural(text: str, lang: str = "en") -> str:
         ("dont layk", "dont-layk"),
         ("du yu", "du-yu"),
     )
-    pron = base.lower()
+    pron = (base or "").lower()
+    if not pron:
+        return ""
     for a, b in links:
         pron = pron.replace(a, b)
     if text[0].isupper():

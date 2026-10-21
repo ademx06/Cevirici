@@ -2,15 +2,16 @@
 <html lang="tr">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="Eşzamanlı Konuşma">
-  <meta name="theme-color" content="#060B18">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Sesli Çevirmen">
+  <meta name="theme-color" content="#F4F1EA" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#121311" media="(prefers-color-scheme: dark)">
+  <link rel="apple-touch-icon" href="icon-192.png">
   <link rel="manifest" href="manifest.json">
-  <title>Eşzamanlı Konuşma — Sesli Çevirmen</title>
-  <link rel="stylesheet" href="styles.css?v=77">
-  <link rel="stylesheet" href="live-talk.css?v=9">
+  <title>Karşılıklı Konuşma — Sesli Çevirmen</title>
+  <link rel="stylesheet" href="styles.css?v=100">
 </head>
 <body class="live-talk-page">
   <div class="app live-talk-app">
@@ -18,8 +19,8 @@
       <div class="header-left">
         <a href="/" class="back-btn" aria-label="Ana menü">←</a>
         <div>
-          <h1>Eşzamanlı Konuşma</h1>
-          <p class="tagline">Konuşurken çevir — bitmesini beklemez</p>
+          <h1>Karşılıklı Konuşma</h1>
+          <p class="tagline">İki kişi · konuşurken çevirir</p>
         </div>
       </div>
       <button id="ltClearBtn" class="ghost-btn hidden" type="button">Temizle</button>
@@ -30,7 +31,7 @@
         <label for="ltMyLang">Benim dilim</label>
         <select id="ltMyLang"></select>
       </div>
-      <button id="ltSwapBtn" class="swap-btn" type="button" aria-label="Dilleri değiştir">🔄</button>
+      <button id="ltSwapBtn" class="swap-btn" type="button" aria-label="Dilleri değiştir">⇄</button>
       <div class="live-talk-lang-field">
         <label for="ltOtherLang">Karşı taraf</label>
         <select id="ltOtherLang"></select>
@@ -51,7 +52,7 @@
     <div id="ltErrorBox" class="error-box hidden"></div>
 
     <div id="ltLiveBox" class="live-talk-live hidden" aria-live="polite">
-      <div class="live-talk-live-label">🔴 CANLI ÇEVİRİ</div>
+      <div class="live-talk-live-label">CANLI ÇEVİRİ</div>
       <div class="live-talk-live-row">
         <span id="ltLiveFromFlag" class="live-talk-live-flag">🇹🇷</span>
         <div id="ltLiveOrig" class="live-talk-live-orig">…</div>
@@ -65,7 +66,7 @@
 
     <main id="ltMessages" class="messages live-talk-messages" aria-live="polite">
       <div class="empty-state">
-        <div class="empty-icon">🗣️</div>
+        <div class="empty-icon"></div>
         <h2>Konuşurken çeviri başlar</h2>
         <p>Butona basılı tutup konuş. Cümleyi bitirmeden anlamlı bölümler hedef dile çevrilmeye başlar.</p>
       </div>
@@ -78,9 +79,9 @@
           <span id="ltMeLangName" class="live-talk-lang-name">Türkçe</span>
         </div>
         <button id="ltMicMe" class="mic-btn live-talk-mic" type="button">
-          <span class="mic-icon">🎤</span>
+          <span class="mic-icon"></span>
           <span class="mic-text">
-            <strong id="ltMicTitleMe">BASILI TUT</strong>
+            <strong id="ltMicTitleMe">Basılı tut, konuş</strong>
             <small id="ltMicHintMe">Benim dilim → canlı çeviri</small>
           </span>
         </button>
@@ -92,9 +93,9 @@
           <span id="ltOtherLangName" class="live-talk-lang-name">English</span>
         </div>
         <button id="ltMicOther" class="mic-btn live-talk-mic" type="button">
-          <span class="mic-icon">🎤</span>
+          <span class="mic-icon"></span>
           <span class="mic-text">
-            <strong id="ltMicTitleOther">HOLD TO SPEAK</strong>
+            <strong id="ltMicTitleOther">Hold to speak</strong>
             <small id="ltMicHintOther">Karşı dil → canlı çeviri</small>
           </span>
         </button>
@@ -102,13 +103,8 @@
     </section>
   </div>
 
-  <footer class="phone-footer phone-footer-compact">
-    <a href="/">← Ana menü</a>
-    <a href="translate.html">Klasik çeviri</a>
-  </footer>
-
-  <script src="api-client.js?v=6"></script>
+  <script src="api-client.js?v=7"></script>
   <script src="keepalive.js?v=2"></script>
-  <script src="live-talk.js?v=10"></script>
+  <script src="live-talk.js?v=11"></script>
 </body>
 </html>

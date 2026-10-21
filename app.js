@@ -35,10 +35,16 @@ const S = {
 const $ = (id) => document.getElementById(id);
 const getLang = (c) => LANGUAGES.find((l) => l.code === c) || LANGUAGES[0];
 
+const HOLD_LABEL = {
+  tr: 'Basılı tut, konuş', en: 'Hold to speak', de: 'Gedrückt halten', fr: 'Maintenir pour parler',
+  es: 'Mantén para hablar', it: 'Tieni premuto', ru: 'Удерживай', ar: 'اضغط مطولاً', zh: '按住说话', ka: 'დააჭირე და ილაპარაკე',
+};
 function speakActionLabel(code) {
-  if (code === 'en') return 'PRESS TO SPEAK';
-  if (code === 'tr') return 'BAS KONUŞ';
-  return 'BAS KONUŞ';
+  return HOLD_LABEL[code] || 'Basılı tut, konuş';
+}
+
+function escHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
 function micButtons() {
@@ -123,7 +129,7 @@ function resetIdle() {
 function render() {
   const el = $('messages');
   if (!S.msgs.length) {
-    el.innerHTML = `<div class="empty-state"><div class="empty-icon">🎤</div>
+    el.innerHTML = `<div class="empty-state"><div class="empty-icon"></div>
       <h2>Diline basılı tut ve konuş</h2>
       <p>Basılı tut, konuş, bırak. İstediğin kadar tekrarla.</p></div>`;
     $('clearBtn').classList.add('hidden');
@@ -133,13 +139,13 @@ function render() {
   el.innerHTML = S.msgs.map((m, i) => {
     const f = getLang(m.from), t = getLang(m.to);
     return `<article class="bubble ${m.from === S.my ? 'me' : 'other'}">
-      <div class="bubble-label">${f.flag} ${f.name}</div>
-      <div class="bubble-original">${m.orig}</div>
+      <div class="bubble-label">${f.flag} ${escHtml(f.name)}</div>
+      <div class="bubble-original">${escHtml(m.orig)}</div>
       <div class="bubble-divider"></div>
-      <div class="bubble-label">${t.flag} ${t.name} 🔊</div>
-      <div class="bubble-translated">${m.trans}</div>
-      ${m.phonetic ? `<div class="bubble-phonetic">🔊 ${m.phonetic}</div>` : ''}
-      ${m.audio ? `<button type="button" class="replay-btn" data-idx="${i}">🔊 Tekrar dinle</button>` : ''}</article>`;
+      <div class="bubble-label">${t.flag} ${escHtml(t.name)}</div>
+      <div class="bubble-translated">${escHtml(m.trans)}</div>
+      ${m.phonetic ? `<div class="bubble-phonetic"><b>Okunuş</b> · ${escHtml(m.phonetic)}</div>` : ''}
+      ${m.audio ? `<button type="button" class="replay-btn" data-idx="${i}">▶ Tekrar dinle</button>` : ''}</article>`;
   }).join('');
   el.querySelectorAll('.replay-btn').forEach((btn) => {
     btn.onclick = (e) => {
@@ -520,13 +526,13 @@ LANGUAGES.forEach((l) => {
 function syncLangMicLabels() {
   const my = getLang(S.my);
   const other = getLang(S.other);
-  if ($('micTitleMy')) $('micTitleMy').textContent = `${my.flag} ${my.name.toUpperCase()}`;
+  if ($('micTitleMy')) $('micTitleMy').textContent = `${my.flag} ${my.name}`;
   if ($('micActionMy')) $('micActionMy').textContent = speakActionLabel(S.my);
-  if ($('micTitleOther')) $('micTitleOther').textContent = `${other.flag} ${other.name.toUpperCase()}`;
+  if ($('micTitleOther')) $('micTitleOther').textContent = `${other.flag} ${other.name}`;
   if ($('micActionOther')) $('micActionOther').textContent = speakActionLabel(S.other);
   if ($('conversationSubtitle')) {
     $('conversationSubtitle').textContent =
-      `${my.flag} ${my.name} ↔ ${other.flag} ${other.name} — hangi dilde konuşacaksan o butona bas`;
+      'Hangi dilde konuşacaksan o düğmeye basılı tut';
   }
 }
 

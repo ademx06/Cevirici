@@ -1,0 +1,461 @@
+"""Eğitim — hızlı yapay zekâ öğretmen (tur başına tek çağrı).
+
+Her tur tek bir JSON yanıtı üretir:
+  • hedef dilde doğal, seviyeye uygun cevap + Türkçe anlamı + Türkçe okunuşu
+  • öğrencinin cümlesi için düzeltme / daha doğal hali + Türkçe açıklama
+  • (Yardım modunda) söylenmek istenen şeyin hedef dilde 2-3 kolay örneği
+  • öğrencinin cümlesinin tahmini CEFR seviyesi (istemci seviyeyi buna göre ayarlar)
+
+Yapay zekâ yoksa eski kural motoru yedek olarak kullanılır.
+"""
+from __future__ import annotations
+
+import json
+import os
+import re
+import time
+from typing import Any, Callable
+
+import education_engine as ee
+import okunus as ok
+
+LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"]
+
+LANG_NAMES = {
+    "en": "English", "de": "German", "fr": "French", "es": "Spanish", "it": "Italian",
+    "ru": "Russian", "ar": "Arabic", "zh": "Chinese (Mandarin, simplified)", "ka": "Georgian",
+}
+
+LEVEL_GUIDE = {
+    "A1": "Very short sentences (max ~8 words), only the most common words, present tense. One simple question.",
+    "A2": "Short simple sentences, everyday vocabulary, present/past/future basics. One clear question.",
+    "B1": "Natural everyday sentences, some connectors (because, but, so), common idioms rarely. One open question.",
+    "B2": "Fluent natural speech, varied tenses and connectors, some idioms. Ask an open follow-up.",
+    "C1": "Rich, nuanced, idiomatic native speech. Challenge the learner with a thoughtful question.",
+    "C2": "Fully native, sophisticated register, subtle idioms. Discuss in depth.",
+}
+
+SCRIPT_RULE = {
+    "ka": "Write target-language text ONLY in Georgian Mkhedruli script.",
+    "ru": "Write target-language text ONLY in Cyrillic.",
+    "ar": "Write target-language text in Arabic script WITH full harakat (short-vowel marks).",
+    "zh": "Write target-language text in simplified Chinese characters.",
+}
+
+# Languages whose Turkish reading the model must produce (no reliable rules)
+LLM_OKUNUS = {"en", "fr", "ar", "zh"}
+
+OKUNUS_RULE = (
+    "OKUNUS = how a Turkish speaker should read the exact target text aloud, written with the Turkish "
+    "alphabet (a b c ç d e f g ğ h ı i j k l m n o ö p r s ş t u ü v y z). It is NOT a translation. "
+    "Follow real native pronunciation (silent letters dropped, linking, weak vowels as ı). "
+    "Examples: English 'How are you today?' -> 'Hav ar yu tıdey?'; 'I would like a coffee.' -> 'Ay vud layk ı kofi.'; "
+    "French 'Je voudrais un café.' -> 'Jö vudre en kafe.'; Arabic 'كَيْفَ حَالُكَ؟' -> 'Keyfe hâlük?'; "
+    "Chinese '你好吗？' -> 'Ni hav ma?'."
+)
+
+
+def _scenario_text(sid: str | None, lang: str) -> str:
+    if not sid:
+        return ""
+    rp = ee.ROLEPLAYS.get(sid) or {}
+    if not rp:
+        return ""
+    desc = rp.get(lang) or rp.get("*") or rp.get("en") or ""
+    parts = [f"ROLEPLAY: {rp.get('title') or sid}."]
+    if rp.get("teacherRole"):
+        parts.append(f"You play: {rp['teacherRole']}.")
+    if rp.get("userRole"):
+        parts.append(f"Learner plays: {rp['userRole']}.")
+    if rp.get("goal"):
+        parts.append(f"Goal: {rp['goal']}")
+    if desc:
+        parts.append(desc)
+    parts.append("Stay in role; improvise from what the learner says; never break character except in 'tip_tr'.")
+    return " ".join(parts)
+
+
+def _history_text(history: list[dict]) -> str:
+    lines = []
+    for h in (history or [])[-12:]:
+        if not isinstance(h, dict):
+            continue
+        txt = ee.safe_str(h.get("text")).strip().replace("\n", " ")[:300]
+        if not txt:
+            continue
+        who = "Learner" if h.get("role") == "user" else "Tutor"
+        lines.append(f"{who}: {txt}")
+    return "\n".join(lines) or "(conversation just started)"
+
+
+def _system_prompt(lang: str, level: str, mode: str, scenario: str, weak: list[str]) -> str:
+    name = LANG_NAMES.get(lang, lang)
+    need_ok = lang in LLM_OKUNUS
+    ok_field = ', "okunus": "<Turkish reading of reply>"' if need_ok else ""
+    ok_fix = ', "fixed_okunus": "<Turkish reading of fixed>"' if need_ok else ""
+    ok_ex = ', "okunus": "<Turkish reading>"' if need_ok else ""
+    weak_line = f"Learner's known weak points: {', '.join(weak[:5])}." if weak else ""
+    if mode == "help":
+        task = (
+            f"The learner pressed HELP and spoke TURKISH. They want to know how to say something in {name}, "
+            f"or how to answer the tutor's last question. Give 2-3 short, natural {name} sentences they can say "
+            f"right now (easy -> more natural), fitting the conversation. Put them in 'examples'. "
+            f"'explain_tr' = 1-2 short Turkish sentences teaching the key structure. "
+            f"'reply' = one short {name} line encouraging them to try (e.g. 'Try saying it!'). 'fix' = null."
+        )
+        schema = (
+            '{"reply": "<short target-language line>", "reply_tr": "<Turkish meaning>"' + ok_field + ', '
+            '"examples": [{"text": "<target sentence>", "tr": "<Turkish meaning>"' + ok_ex + '}], '
+            '"explain_tr": "<Turkish teaching note>", "fix": null, "words": [], "user_level": "A1"}'
+        )
+    else:
+        task = (
+            f"The learner spoke {name} (may contain mistakes or speech-recognition noise). "
+            f"1) Understand what they MEANT. 2) If their sentence has a real error, put the corrected sentence in "
+            f"'fix.fixed' with status 'fix' and explain the rule in 1-2 simple Turkish sentences in 'fix.explain_tr'. "
+            f"If it is correct but unnatural, use status 'better' with a more natural version. If it is fine, "
+            f"'fix' = null. Never 'fix' punctuation or capitalization only. "
+            f"3) Reply naturally in {name}: react to what they said, then ask ONE follow-up question so the "
+            f"conversation continues. 4) 'words': 0-2 useful words from your reply that are likely new at this "
+            f"level (word in {name} + Turkish meaning)."
+        )
+        schema = (
+            '{"reply": "<target-language reply>", "reply_tr": "<Turkish meaning>"' + ok_field + ', '
+            '"fix": {"status": "fix|better", "fixed": "<corrected learner sentence>", "fixed_tr": "<Turkish>"'
+            + ok_fix + ', "explain_tr": "<why, in Turkish>"} or null, '
+            '"words": [{"word": "<target word>", "tr": "<Turkish>"}], "user_level": "A1|A2|B1|B2|C1|C2"}'
+        )
+    return "\n".join(filter(None, [
+        f"You are a warm, encouraging {name} tutor for a Turkish native speaker.",
+        f"LEARNER LEVEL: {level}. Style for this level: {LEVEL_GUIDE.get(level, LEVEL_GUIDE['A1'])}",
+        weak_line,
+        scenario,
+        SCRIPT_RULE.get(lang, ""),
+        "Keep 'reply' short (1-3 sentences) so it can be spoken instantly. No emojis in target-language text.",
+        "All Turkish fields must be natural Turkish.",
+        OKUNUS_RULE if need_ok else "",
+        "TASK: " + task,
+        "Return ONLY this JSON (no markdown):",
+        schema,
+    ]))
+
+
+def _strip_think(raw: str) -> str:
+    raw = re.sub(r"<think>.*?</think>", "", raw or "", flags=re.S).strip()
+    m = re.search(r"\{.*\}", raw, re.S)
+    return m.group(0) if m else raw
+
+
+_GROQ_JSON_OK: dict[str, bool] = {}
+
+
+def _call_llm(system: str, user: str, max_tokens: int = 700) -> tuple[dict | None, str]:
+    """Groq first (fast), Gemini as backup. Returns (json, provider)."""
+    providers = ee._llm_providers_in_order()
+    messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
+    for prov in providers:
+        raw = None
+        if prov == "groq":
+            model = os.environ.get("EDU_GROQ_MODEL") or os.environ.get("GROQ_MODEL") or "llama-3.3-70b-versatile"
+            use_json = _GROQ_JSON_OK.get(model, True)
+            raw = ee._groq_chat(messages, max_tokens=max_tokens, json_mode=use_json, timeout_sec=12,
+                                model=model, temperature=0.5)
+            if not raw and use_json:
+                # model may reject json_mode — retry plain once and remember
+                raw = ee._groq_chat(messages, max_tokens=max_tokens, json_mode=False, timeout_sec=12,
+                                    model=model, temperature=0.5)
+                if raw:
+                    _GROQ_JSON_OK[model] = False
+        elif prov == "gemini":
+            raw = ee._gemini_api_request({
+                "systemInstruction": {"parts": [{"text": system}]},
+                "contents": [{"role": "user", "parts": [{"text": user}]}],
+                "generationConfig": {"responseMimeType": "application/json", "temperature": 0.5,
+                                     "maxOutputTokens": max_tokens},
+            }, max_tokens, timeout_sec=14)
+        elif prov == "openai":
+            raw = ee._openai_chat(messages, json_mode=True, max_tokens=max_tokens)
+        if not raw:
+            continue
+        parsed = ee._parse_json_object(_strip_think(raw))
+        if parsed and ee.safe_str(parsed.get("reply")).strip():
+            return parsed, prov
+    return None, ""
+
+
+def llm_okunus(text: str, lang: str) -> str:
+    """Sadece okunuş üret (İngilizce/Fransızca/Arapça/Çince için) — kısa, hızlı çağrı."""
+    name = LANG_NAMES.get(lang, lang)
+    system = (
+        f"You convert {name} text into its Turkish reading. {OKUNUS_RULE} "
+        'Return ONLY JSON: {"okunus": "<Turkish reading>"}'
+    )
+    parsed, _ = _call_llm_simple(system, text[:500])
+    return _s((parsed or {}).get("okunus"), 900)
+
+
+def _call_llm_simple(system: str, user: str) -> tuple[dict | None, str]:
+    messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
+    for prov in ee._llm_providers_in_order():
+        raw = None
+        if prov == "groq":
+            raw = ee._groq_chat(messages, max_tokens=400, json_mode=True, timeout_sec=8,
+                                model=os.environ.get("EDU_GROQ_MODEL") or os.environ.get("GROQ_MODEL") or None,
+                                temperature=0.0)
+        elif prov == "gemini":
+            raw = ee._gemini_api_request({
+                "systemInstruction": {"parts": [{"text": system}]},
+                "contents": [{"role": "user", "parts": [{"text": user}]}],
+                "generationConfig": {"responseMimeType": "application/json", "temperature": 0.0,
+                                     "maxOutputTokens": 400},
+            }, 400, timeout_sec=10)
+        if raw:
+            parsed = ee._parse_json_object(_strip_think(raw))
+            if parsed:
+                return parsed, prov
+    return None, ""
+
+
+def _s(v: Any, n: int = 600) -> str:
+    return re.sub(r"\s+", " ", ee.safe_str(v)).strip()[:n]
+
+
+def _clean_target(text: str) -> str:
+    text = re.sub(r"[\U0001F300-\U0001FAFF☀-➿️]", "", text or "")
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _okunus_for(text: str, lang: str, llm_value: str = "") -> str:
+    if not text:
+        return ""
+    if lang in LLM_OKUNUS and ok.looks_valid(llm_value, text, lang):
+        ok.remember(text, lang, llm_value)
+        return llm_value.strip()
+    return ok.okunus(text, lang)
+
+
+def _same(a: str, b: str) -> bool:
+    norm = lambda s: re.sub(r"[^\w]+", " ", (s or "").lower()).strip()
+    return norm(a) == norm(b)
+
+
+def _normalize(parsed: dict, lang: str, mode: str, user_text: str) -> dict:
+    reply = _clean_target(_s(parsed.get("reply"), 500))
+    out: dict[str, Any] = {
+        "reply": reply,
+        "reply_tr": _s(parsed.get("reply_tr"), 500),
+        "okunus": _okunus_for(reply, lang, _s(parsed.get("okunus"), 700)),
+        "fix": None,
+        "examples": [],
+        "explain_tr": _s(parsed.get("explain_tr"), 500),
+        "words": [],
+        "user_level": _s(parsed.get("user_level"), 4).upper() if _s(parsed.get("user_level"), 4).upper() in LEVELS else "",
+    }
+    fix = parsed.get("fix")
+    if mode != "help" and isinstance(fix, dict):
+        fixed = _clean_target(_s(fix.get("fixed"), 400))
+        status = _s(fix.get("status"), 10).lower()
+        if fixed and not _same(fixed, user_text):
+            out["fix"] = {
+                "status": "better" if status == "better" else "fix",
+                "fixed": fixed,
+                "fixed_tr": _s(fix.get("fixed_tr"), 400),
+                "okunus": _okunus_for(fixed, lang, _s(fix.get("fixed_okunus"), 600)),
+                "explain_tr": _s(fix.get("explain_tr"), 500),
+            }
+    for ex in (parsed.get("examples") or [])[:3]:
+        if not isinstance(ex, dict):
+            continue
+        t = _clean_target(_s(ex.get("text"), 300))
+        if t:
+            out["examples"].append({
+                "text": t, "tr": _s(ex.get("tr"), 300),
+                "okunus": _okunus_for(t, lang, _s(ex.get("okunus"), 500)),
+            })
+    for w in (parsed.get("words") or [])[:3]:
+        if not isinstance(w, dict):
+            continue
+        word = _clean_target(_s(w.get("word"), 60))
+        if word and len(word) <= 40:
+            out["words"].append({"word": word, "tr": _s(w.get("tr"), 80), "okunus": ok.okunus(word, lang) if lang not in LLM_OKUNUS else ""})
+    return out
+
+
+def _speak_plan(res: dict, lang: str) -> list[dict]:
+    """What to say aloud, in order (target language only — fast and clear)."""
+    plan: list[str] = []
+    if res.get("examples"):
+        plan.append(res["examples"][0]["text"])
+    else:
+        if res.get("fix") and res["fix"].get("status") == "fix":
+            plan.append(res["fix"]["fixed"])
+        if res.get("reply"):
+            plan.append(res["reply"])
+    return [{"text": t[:480], "lang": lang} for t in plan if t]
+
+
+_FALLBACK_REPLIES = {
+    "en": [("I see! Tell me more.", "Anlıyorum! Biraz daha anlat."), ("Nice! And what about you?", "Güzel! Peki ya sen?")],
+    "de": [("Ich verstehe! Erzähl mir mehr.", "Anlıyorum! Bana daha fazla anlat."), ("Schön! Und was machst du gern?", "Güzel! Peki ne yapmayı seversin?")],
+    "fr": [("Je vois ! Raconte-moi plus.", "Anlıyorum! Bana daha fazla anlat."), ("Super ! Et toi, qu'est-ce que tu aimes faire ?", "Harika! Peki sen ne yapmayı seversin?")],
+    "es": [("¡Entiendo! Cuéntame más.", "Anlıyorum! Bana daha fazla anlat."), ("¡Qué bien! ¿Y qué te gusta hacer?", "Ne güzel! Peki ne yapmayı seversin?")],
+    "it": [("Capisco! Raccontami di più.", "Anlıyorum! Bana daha fazla anlat."), ("Che bello! E cosa ti piace fare?", "Ne güzel! Peki ne yapmayı seversin?")],
+    "ru": [("Понятно! Расскажи мне больше.", "Anlıyorum! Bana daha fazla anlat."), ("Здорово! А что ты любишь делать?", "Harika! Peki ne yapmayı seversin?")],
+    "ar": [("فَهِمْتُ! أَخْبِرْنِي الْمَزِيدَ.", "Anladım! Bana daha fazla anlat.")],
+    "zh": [("我明白了！再多说一点。", "Anladım! Biraz daha anlat.")],
+    "ka": [("გასაგებია! მეტი მომიყევი.", "Anlaşıldı! Bana daha fazla anlat."), ("კარგია! შენ რა გიყვარს?", "Güzel! Sen neyi seversin?")],
+}
+_TRY_IT = {"en": "Try saying it!", "de": "Versuch es mal!", "fr": "Essaie de le dire !", "es": "¡Inténtalo!",
+           "it": "Prova a dirlo!", "ru": "Попробуй сказать!", "ar": "حَاوِلْ أَنْ تَقُولَهَا!", "zh": "试着说一说！",
+           "ka": "სცადე თქვა!"}
+_HELP_FILLER = re.compile(
+    r"\b(yardım|yardim|nasıl\s+(derim|denir|söylerim|söylenir)|ne\s+demeliyim|ne\s+diyeyim|"
+    r"(ingilizce|almanca|fransızca|ispanyolca|italyanca|rusça|arapça|çince|gürcüce)\s*(de|da|olarak)?|"
+    r"demek\s+istiyorum|söylemek\s+istiyorum|bunu|şunu|lütfen)\b", re.I)
+
+
+def _fallback_turn(user_text: str, lang: str, level: str, mode: str,
+                   history: list[dict], scenario: str | None,
+                   translate_fn: Callable[[str, str, str], str] | None) -> dict:
+    """Yapay zekâ erişilemezse: çeviri tabanlı yardım + basit doğal devam."""
+    res: dict[str, Any] = {"reply": "", "reply_tr": "", "okunus": "", "fix": None, "examples": [],
+                           "explain_tr": "", "words": [], "user_level": ""}
+    if mode == "help":
+        phrase = re.sub(r"\s+", " ", _HELP_FILLER.sub(" ", user_text)).strip(" ,.?!")
+        target = ""
+        if phrase and translate_fn:
+            try:
+                target = _clean_target(translate_fn(phrase, "tr", lang) or "")
+            except Exception:
+                target = ""
+        if target:
+            res["examples"].append({"text": target, "tr": phrase, "okunus": ok.okunus(target, lang)})
+            res["explain_tr"] = "Bu cümleyi Konuş düğmesine basılı tutup söyle."
+        else:
+            res["explain_tr"] = "Söylemek istediğin cümleyi Türkçe olarak tam söyle, sana karşılığını vereyim."
+        res["reply"] = _TRY_IT.get(lang, "Try it!")
+        res["reply_tr"] = "Söylemeyi dene!"
+    else:
+        if lang == "en":
+            try:
+                profile = ee.default_profile(lang)
+                profile["currentLevel"] = level
+                hist = [{"role": "user" if h.get("role") == "user" else "teacher", "text": ee.safe_str(h.get("text"))}
+                        for h in (history or []) if isinstance(h, dict)]
+                d = ee.process_turn(user_text, "en", "en", hist, profile, roleplay=scenario, translate_fn=translate_fn)
+                res["reply"] = _clean_target(_s(d.get("teacher_en") or d.get("speak_text"), 400)).split(" 🇹🇷")[0]
+                res["reply_tr"] = _s(d.get("teacher_tr"), 400)
+                corr = _clean_target(_s(d.get("correction"), 300))
+                if corr and not _same(corr, user_text):
+                    res["fix"] = {"status": "fix", "fixed": corr, "fixed_tr": "", "okunus": ok.okunus(corr, lang),
+                                  "explain_tr": _s((d.get("correction_detail") or {}).get("explainTr"), 300)}
+            except Exception:
+                pass
+        if not res["reply"]:
+            pool = _FALLBACK_REPLIES.get(lang) or _FALLBACK_REPLIES["en"]
+            turn = sum(1 for h in history or [] if isinstance(h, dict) and h.get("role") == "user")
+            res["reply"], res["reply_tr"] = pool[turn % len(pool)]
+    res["okunus"] = ok.okunus(res["reply"], lang)
+    return res
+
+
+def tutor_turn(
+    user_text: str,
+    lang: str,
+    *,
+    level: str = "A1",
+    mode: str = "speak",
+    history: list[dict] | None = None,
+    scenario: str | None = None,
+    weak: list[str] | None = None,
+    translate_fn: Callable[[str, str, str], str] | None = None,
+) -> dict:
+    t0 = time.perf_counter()
+    lang = (lang or "en").split("-")[0].lower()
+    if lang not in LANG_NAMES:
+        lang = "en"
+    level = level if level in LEVELS else "A1"
+    mode = "help" if mode == "help" else "speak"
+    user_text = _s(user_text, 500)
+    scenario = scenario if scenario in ee.ROLEPLAYS else None
+    history = history or []
+
+    system = _system_prompt(lang, level, mode, _scenario_text(scenario, lang), weak or [])
+    user_block = (
+        f"CONVERSATION SO FAR:\n{_history_text(history)}\n\n"
+        f"LEARNER NOW ({'Turkish, asking for help' if mode == 'help' else LANG_NAMES[lang]}): {user_text}"
+    )
+    parsed, provider = _call_llm(system, user_block, max_tokens=750 if lang in LLM_OKUNUS else 560)
+    if parsed:
+        res = _normalize(parsed, lang, mode, user_text)
+        if not res["reply"] and not res["examples"]:
+            parsed = None
+    if not parsed:
+        res = _fallback_turn(user_text, lang, level, mode, history, scenario, translate_fn)
+        provider = "rules"
+    res["speak"] = _speak_plan(res, lang)
+    res["lang"] = lang
+    res["mode"] = mode
+    res["user_text"] = user_text
+    res["provider"] = provider
+    res["ms"] = int((time.perf_counter() - t0) * 1000)
+    return res
+
+
+OPENERS = {
+    "en": {"A1": "Hi! How are you today?", "B1": "Hey! How's your day going so far?", "C1": "Hello! What's been on your mind lately?"},
+    "de": {"A1": "Hallo! Wie geht es dir heute?", "B1": "Hallo! Wie läuft dein Tag bisher?", "C1": "Hallo! Was beschäftigt dich in letzter Zeit?"},
+    "fr": {"A1": "Bonjour ! Comment ça va aujourd'hui ?", "B1": "Salut ! Comment se passe ta journée ?", "C1": "Bonjour ! Qu'est-ce qui t'occupe l'esprit ces temps-ci ?"},
+    "es": {"A1": "¡Hola! ¿Cómo estás hoy?", "B1": "¡Hola! ¿Qué tal va tu día?", "C1": "¡Hola! ¿Qué te ronda por la cabeza últimamente?"},
+    "it": {"A1": "Ciao! Come stai oggi?", "B1": "Ciao! Come sta andando la tua giornata?", "C1": "Ciao! A cosa stai pensando ultimamente?"},
+    "ru": {"A1": "Привет! Как дела?", "B1": "Привет! Как проходит твой день?", "C1": "Привет! О чём ты в последнее время думаешь?"},
+    "ar": {"A1": "مَرْحَبًا! كَيْفَ حَالُكَ الْيَوْمَ؟", "B1": "أَهْلًا! كَيْفَ يَسِيرُ يَوْمُكَ؟", "C1": "أَهْلًا! مَا الَّذِي يَشْغَلُ بَالَكَ هَذِهِ الْأَيَّامَ؟"},
+    "zh": {"A1": "你好！你今天好吗？", "B1": "你好！你今天过得怎么样？", "C1": "你好！最近你在想些什么呢？"},
+    "ka": {"A1": "გამარჯობა! როგორ ხარ დღეს?", "B1": "გამარჯობა! როგორ მიდის შენი დღე?", "C1": "გამარჯობა! რაზე ფიქრობ ბოლო დროს?"},
+}
+OPENERS_TR = {"A1": "Merhaba! Bugün nasılsın?", "B1": "Merhaba! Günün nasıl geçiyor?", "C1": "Merhaba! Son zamanlarda aklını meşgul eden ne?"}
+
+
+def greeting_turn(lang: str, level: str = "A1", scenario: str | None = None) -> dict:
+    """Instant opener (no AI call)."""
+    lang = (lang or "en").split("-")[0].lower()
+    if lang not in LANG_NAMES:
+        lang = "en"
+    band = "A1" if level in ("A1", "A2") else "B1" if level in ("B1", "B2") else "C1"
+    reply = OPENERS[lang][band]
+    reply_tr = OPENERS_TR[band]
+    rp = ee.ROLEPLAYS.get(scenario or "") if scenario else None
+    if rp:
+        opener = (rp.get("opener") or {}).get(lang)
+        if opener:
+            reply = opener
+            reply_tr = f"Senaryo: {rp.get('title') or scenario}"
+    okn = ok.okunus(reply, lang)
+    if not okn and lang in LLM_OKUNUS:
+        okn = _GREETING_OKUNUS.get(reply, "")
+    res = {
+        "reply": reply, "reply_tr": reply_tr, "okunus": okn,
+        "fix": None, "examples": [], "explain_tr": "", "words": [], "user_level": "",
+        "lang": lang, "mode": "greeting", "user_text": "", "provider": "local", "ms": 0,
+    }
+    res["speak"] = [{"text": reply, "lang": lang}]
+    return res
+
+
+_GREETING_OKUNUS = {
+    "Hi! How are you today?": "Hay! Hav ar yu tıdey?",
+    "Hey! How's your day going so far?": "Hey! Havz yor dey going so far?",
+    "Hello! What's been on your mind lately?": "Hılou! Vats bin on yor maynd leytli?",
+    "Bonjour ! Comment ça va aujourd'hui ?": "Bonjur! Koman sa va ojurdüi?",
+    "Salut ! Comment se passe ta journée ?": "Salü! Koman sö pas ta jurne?",
+    "Bonjour ! Qu'est-ce qui t'occupe l'esprit ces temps-ci ?": "Bonjur! Keski tokküp lespri se tan si?",
+    "مَرْحَبًا! كَيْفَ حَالُكَ الْيَوْمَ؟": "Merhaben! Keyfe hâlüke'l-yevm?",
+    "أَهْلًا! كَيْفَ يَسِيرُ يَوْمُكَ؟": "Ehlen! Keyfe yesîru yevmük?",
+    "أَهْلًا! مَا الَّذِي يَشْغَلُ بَالَكَ هَذِهِ الْأَيَّامَ؟": "Ehlen! Me'llezî yeşğalu bâleke hâzihi'l-eyyâm?",
+    "你好！你今天好吗？": "Ni hav! Ni cintyen hav ma?",
+    "你好！你今天过得怎么样？": "Ni hav! Ni cintyen guo dı zımıyang?",
+    "你好！最近你在想些什么呢？": "Ni hav! Zuycin ni zay şiang şiye şınmı nı?",
+}
+for _k, _v in _GREETING_OKUNUS.items():
+    for _lg in ("en", "fr", "ar", "zh"):
+        ok.remember(_k, _lg, _v)

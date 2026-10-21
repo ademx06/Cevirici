@@ -2,15 +2,16 @@
 <html lang="tr">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="Sesli Çevirmen">
-  <meta name="theme-color" content="#060B18">
-  <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%23060B18' width='100' height='100' rx='20'/><text x='50' y='62' font-size='48' text-anchor='middle' fill='%2338BDF8'>🌍</text></svg>">
+  <meta name="theme-color" content="#F4F1EA" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#121311" media="(prefers-color-scheme: dark)">
+  <link rel="apple-touch-icon" href="icon-192.png">
   <link rel="manifest" href="manifest.json">
   <title>Çeviri — Sesli Çevirmen</title>
-  <link rel="stylesheet" href="styles.css?v=73">
+  <link rel="stylesheet" href="styles.css?v=100">
 </head>
 <body>
   <div class="app">
@@ -19,7 +20,7 @@
         <a href="/" class="back-btn" aria-label="Ana menü">←</a>
         <div>
           <h1>Çeviri</h1>
-          <p class="tagline">Otomatik çift yönlü çeviri</p>
+          <p class="tagline">Hangi dilde konuşursan o düğmeye bas</p>
         </div>
       </div>
       <button id="clearBtn" class="ghost-btn hidden" type="button">Temizle</button>
@@ -45,52 +46,48 @@
     <div id="errorBox" class="error-box hidden"></div>
 
     <div id="interimBox" class="interim hidden">
-      <div class="interim-label">Dinleniyor...</div>
+      <div class="interim-label">Dinleniyor</div>
       <div id="interimText"></div>
     </div>
 
     <main id="messages" class="messages">
       <div class="empty-state">
-        <div class="empty-icon">💬</div>
+        <div class="empty-icon"></div>
         <h2>Basılı tut ve konuş</h2>
-        <p>Butona basılı tut, konuş, bırak — çeviri otomatik gelir.</p>
+        <p>Düğmeye basılı tut, konuş, bırak — çeviri ve okunuşu hemen gelir.</p>
       </div>
     </main>
 
     <section class="controls">
       <div class="text-input-row">
         <input id="translateTextInput" type="text" enterkeyhint="send" autocomplete="off"
-               placeholder="Veya buraya yazın…" class="translate-text-input" />
-        <button id="translateSendBtn" class="translate-send-btn" type="button" aria-label="Gönder">➤</button>
+               placeholder="Ya da buraya yaz…" class="translate-text-input" />
+        <button id="translateSendBtn" class="translate-send-btn" type="button" aria-label="Çevir">➤</button>
       </div>
-      <p id="conversationSubtitle" class="dual-mic-hint">Hangi dilde konuşacaksan o butona bas</p>
-      <div class="dual-mic-row" role="group" aria-label="Bas Konuş dilleri">
+      <p id="conversationSubtitle" class="dual-mic-hint">Hangi dilde konuşacaksan o düğmeye bas</p>
+      <div class="dual-mic-row" role="group" aria-label="Konuşma dilleri">
         <button id="micBtnMy" class="mic-btn dual-mic" type="button" data-side="my">
-          <span class="mic-icon">🎤</span>
+          <span class="mic-icon"></span>
           <span class="mic-text">
-            <strong id="micTitleMy">🇹🇷 TÜRKÇE</strong>
-            <small id="micActionMy">BAS KONUŞ</small>
+            <strong id="micTitleMy">Türkçe</strong>
+            <small id="micActionMy">Basılı tut</small>
           </span>
         </button>
         <button id="micBtnOther" class="mic-btn dual-mic" type="button" data-side="other">
-          <span class="mic-icon">🎤</span>
+          <span class="mic-icon"></span>
           <span class="mic-text">
-            <strong id="micTitleOther">🇬🇧 ENGLISH</strong>
-            <small id="micActionOther">PRESS TO SPEAK</small>
+            <strong id="micTitleOther">English</strong>
+            <small id="micActionOther">Hold to speak</small>
           </span>
         </button>
       </div>
-      <button id="testBtn" class="test-btn" type="button">🔊 Sesi Test Et</button>
+      <button id="testBtn" class="test-btn" type="button">Hoparlörü test et</button>
     </section>
   </div>
 
-  <footer class="phone-footer phone-footer-compact">
-    <a href="mobil.html">📱 Adres &amp; yardım</a>
-  </footer>
-
-  <script src="mic-hold.js?v=4"></script>
-  <script src="api-client.js?v=6"></script>
+  <script src="mic-hold.js?v=5"></script>
+  <script src="api-client.js?v=7"></script>
   <script src="keepalive.js?v=2"></script>
-  <script src="app.js?v=73"></script>
+  <script src="app.js?v=74"></script>
 </body>
 </html>
