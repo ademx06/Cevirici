@@ -56,7 +56,7 @@
       body: { kind: 'translate', target: targetOf(dir) },
       onInput: (t) => { const b = bubbleFor(dir); b.orig = (b.orig + t).replace(/\s+/g, ' '); touch(dir); },
       onOutput: (t) => { const b = bubbleFor(dir); b.trans = (b.trans + t).replace(/\s+/g, ' '); b.visible = true; touch(dir); },
-      onAudio: (u8, rate) => { const b = bubbleFor(dir); b.visible = true; b.audio.push(u8); b.rate = rate; player.enqueue(u8, rate); touch(dir); },
+      onAudio: (u8, rate) => { const b = bubbleFor(dir); b.visible = true; b.audio.push(u8); b.rate = rate; hfOnAudioStart(); player.enqueue(u8, rate); touch(dir); },
       onTurnComplete: () => finalize(dir),
       onState: (st, info) => {
         if (st === 'error') showErr(String(info || 'Canlı bağlantı kurulamadı'));
@@ -191,6 +191,8 @@
     LiveAudio.unlock();
     showErr('');
     holdDir = dir; pending = [];
+    player.stop();
+    player.hold(true); // basılıyken çeviri yazısı akar, ses bırakınca temiz çalar
     btn.classList.add('arming');
     setStatus('Mikrofon açılıyor…', true);
     const s = session(dir);
@@ -204,7 +206,7 @@
     ready.catch((e) => holdAbort(btn, e.message || 'Canlı bağlantı kurulamadı'));
   }
   function holdAbort(btn, msg) {
-    holdDir = null; if (mic) { mic.stop(); mic = null; } btn.classList.remove('recording', 'arming'); showErr(msg); idle();
+    holdDir = null; if (mic) { mic.stop(); mic = null; } player.hold(false); btn.classList.remove('recording', 'arming'); showErr(msg); idle();
   }
   function holdEnd(btn) {
     if (!holdDir) return;
@@ -212,6 +214,7 @@
     btn.classList.remove('recording', 'arming');
     btn.style.removeProperty('--lv');
     if (mic) { mic.stop(); mic = null; }
+    setTimeout(() => player.hold(false), 160); // mikrofon kapandıktan hemen sonra çal
     const s = sessions[dir];
     // kısa sessizlik + akış sonu → son kelimeler de hemen çevrilsin
     setTimeout(() => {
@@ -244,15 +247,7 @@
     $('ltToggleText').textContent = 'Durdur';
     setStatus('Bağlanıyor…', true);
     const a = session('toOther'), b = session('toMine');
-    mic = new LiveAudio.Mic({
-      onChunk: (u8) => {
-        // Çeviri çalarken mikrofonu sustur → kendi sesini tekrar çevirmesin
-        const chunk = player.playing ? SILENCE : u8;
-        if (a.isOpen) a.sendAudio(chunk);
-        if (b.isOpen) b.sendAudio(chunk);
-      },
-      onLevel: (lv) => { const m = $('ltMeter'); if (m) m.style.transform = `scale(${1 + Math.min(0.6, lv * 2.5)})`; },
-    });
+    mic = makeHfMic(a, b);
     try {
       await Promise.all([mic.start(), a.connect(), b.connect()]);
       setStatus('Dinliyorum — konuşabilirsiniz', true);
@@ -261,7 +256,42 @@
       showErr(e && e.name === 'NotAllowedError' ? 'Mikrofon izni gerekli' : (e.message || 'Canlı bağlantı kurulamadı'));
     }
   }
+  function makeHfMic(a, b) {
+    return new LiveAudio.Mic({
+      onChunk: (u8) => {
+        const chunk = player.playing ? SILENCE : u8;
+        if (a.isOpen) a.sendAudio(chunk);
+        if (b.isOpen) b.sendAudio(chunk);
+      },
+      onLevel: (lv) => { const m = $('ltMeter'); if (m) m.style.transform = `scale(${1 + Math.min(0.6, lv * 2.5)})`; },
+    });
+  }
+  // Çeviri sesi gelince mikrofonu tamamen kapat (temiz, yüksek ses), çalma bitince yeniden aç
+  let hfPaused = false;
+  player.onHeld = () => {
+    if (!handsFree || hfPaused) return;
+    hfPaused = true;
+    if (mic) { mic.stop(); mic = null; }
+    setStatus('Çeviri seslendiriliyor…', true);
+    setTimeout(() => player.hold(false), 160);
+  };
+  function hfOnAudioStart() {
+    if (handsFree && mic && !hfPaused) player.hold(true);
+  }
+  const _prevIdle = player.onIdle;
+  player.onIdle = () => {
+    if (handsFree && hfPaused) {
+      hfPaused = false;
+      const a = session('toOther'), b = session('toMine');
+      mic = makeHfMic(a, b);
+      mic.start().then(() => setStatus('Dinliyorum — konuşabilirsiniz', true)).catch(() => stopHandsFree());
+      return;
+    }
+    if (_prevIdle) _prevIdle();
+  };
   function stopHandsFree() {
+    hfPaused = false;
+    player.hold(false);
     handsFree = false;
     if (mic) { mic.stop(); mic = null; }
     const t = $('ltToggle'); if (t) t.classList.remove('recording');

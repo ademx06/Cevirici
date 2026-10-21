@@ -131,8 +131,18 @@
       this.next = 0; this.sources = new Set(); this.playing = false; this.idleTimer = null;
       this.pend = []; this.pendLen = 0; this.flushTimer = null;
     }
+    /** Mikrofon açıkken çalmayı beklet (iPhone'da mikrofon açıkken ses bozuk/kısık çıkar) */
+    hold(on) {
+      this.held = !!on;
+      if (!on && this.heldQ && this.heldQ.length) {
+        const q = this.heldQ; this.heldQ = [];
+        q.forEach(([u8, r]) => this.enqueue(u8, r));
+        this._flush();
+      }
+    }
     /** Küçük parçaları birleştirip (~120 ms) planla → daha az düğüm, daha akıcı ses */
     enqueue(u8, rate = 24000) {
+      if (this.held) { (this.heldQ = this.heldQ || []).push([u8, rate]); if (this.onHeld) this.onHeld(); return; }
       this.rate = rate;
       this.pend.push(u8); this.pendLen += u8.byteLength;
       const minBytes = Math.round(rate * 2 * (this.playing ? 0.08 : 0.12));
@@ -177,7 +187,7 @@
     }
     stop() {
       clearTimeout(this.flushTimer);
-      this.pend = []; this.pendLen = 0;
+      this.pend = []; this.pendLen = 0; this.heldQ = []; this.held = false;
       this.sources.forEach((s) => { try { s.stop(); } catch { /* ignore */ } });
       this.sources.clear();
       this.next = 0;
