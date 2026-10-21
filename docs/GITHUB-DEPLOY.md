@@ -42,6 +42,7 @@ git push -u origin main
 | `GROQ_TRANSLATE_MODEL` | `llama-3.1-8b-instant` (hızlı çeviri) |
 | `WORD_LESSON_PROVIDER` | `groq` (varsayılan — hız için) |
 | `GEMINI_API_KEY` | [Google AI Studio](https://aistudio.google.com/apikey) — Groq limit dolunca yedek |
+| `GEMINI_API_KEY_2` | İkinci Gemini anahtarı (isteğe bağlı) — ilk anahtarın kotası dolunca (429/403) otomatik devreye girer. `GEMINI_API_KEY_3..5` veya virgüllü `GEMINI_API_KEYS` da desteklenir |
 | `GEMINI_MODEL` | `gemini-3.5-flash-lite` (isteğe bağlı) |
 | `TELEGRAM_BOT_TOKEN` | @BotFather token (isteğe bağlı) |
 | `TELEGRAM_CHAT_ID` | Telegram chat id (isteğe bağlı) |
