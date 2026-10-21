@@ -7710,17 +7710,33 @@ def _llm_chat_json_raw(
     messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
     if provider == "groq":
         word_lesson = max_tokens >= 2000
-        groq_model = (
-            os.environ.get("GROQ_WORD_LESSON_MODEL", "llama-3.1-8b-instant")
+        env_model = (
+            os.environ.get("GROQ_WORD_LESSON_MODEL", "")
             if word_lesson
-            else os.environ.get("GROQ_TRANSLATE_MODEL", "llama-3.1-8b-instant")
+            else os.environ.get("GROQ_TRANSLATE_MODEL", "")
             if max_tokens <= 600
-            else None
+            else os.environ.get("GROQ_MODEL", "")
         )
-        timeout = min(12, _llm_request_timeout(max_tokens)) if word_lesson else _llm_request_timeout(max_tokens)
-        return _groq_chat(
-            messages, max_tokens=max_tokens, json_mode=True, timeout_sec=timeout, model=groq_model,
-        )
+        # Önce hızlı ve güçlü model (gpt-oss-120b); kaldırılmış/izinsiz modeller yarım saat atlanır
+        try:
+            import edu_tutor as _et
+            models = _et._groq_models("") or []
+            if env_model and env_model not in models and _et._GROQ_DEAD.get(env_model, 0) < time.time():
+                models.append(env_model)
+            for m in models:
+                raw, status = _et._groq(messages, m, max_tokens, True, 25 if word_lesson else 14)
+                if raw:
+                    return raw
+                if status in (404, 403):
+                    _et._GROQ_DEAD[m] = time.time() + 1800
+                elif status == 429:
+                    _et._GROQ_DEAD[m] = time.time() + 60
+            return None
+        except Exception:
+            timeout = min(12, _llm_request_timeout(max_tokens)) if word_lesson else _llm_request_timeout(max_tokens)
+            return _groq_chat(
+                messages, max_tokens=max_tokens, json_mode=True, timeout_sec=timeout, model=env_model or None,
+            )
     if provider == "gemini":
         # Kelime dersi: yeterli süre — kesik JSON / sade şablon üretmesin
         word_lesson = max_tokens >= 2000
