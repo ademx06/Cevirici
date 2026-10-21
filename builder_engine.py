@@ -410,6 +410,9 @@ def generate_word_lesson(
     except Exception:
         pass
 
+    import time as _tm
+    _t0 = _tm.monotonic()
+    timing: dict[str, float] = {}
     lang_name = LANG_NAMES.get(target_lang, target_lang)
     target_word = ""
     if translate_fn:
@@ -426,6 +429,7 @@ def generate_word_lesson(
         tw_info = get_word("en", target_word)
         register_word("en", target_word, tw_info["pronunciation_tr"], tw_info.get("ipa", ""))
 
+    timing["translate"] = round(_tm.monotonic() - _t0, 2)
     profile = fast_analyze_word_profile(word_tr, target_word, target_lang)
     known_words = {target_word.lower()}
     examples: list[dict[str, Any]] = []
@@ -447,6 +451,7 @@ def generate_word_lesson(
             examples = sanitize_word_examples(examples, word_tr, target_word, profile)
             ai_example_count = len(examples)
 
+    timing["ai"] = round(_tm.monotonic() - _t0, 2)
     lesson_source = "ai" if ai_example_count >= 7 else ("hybrid" if ai_example_count >= 1 else "rules")
 
     # AI-only: yeterince zengin AI örneği varsa şablonla doldurma (sadeleşmesin)
@@ -507,6 +512,7 @@ def generate_word_lesson(
         "usage": usage,
         "examples": examples[:13],
         "lesson_source": lesson_source,
+        "timing": {**timing, "total": round(_tm.monotonic() - _t0, 2), "ai_issue": (ai_issues[0] if ai_issues else "")[:120]},
     }
 
 
