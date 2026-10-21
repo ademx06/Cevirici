@@ -616,11 +616,20 @@
         onInterrupted: () => { L.player.stop(); },
         onTurnComplete: () => finishLiveTurn(),
         onState: (st) => {
-          if (st === 'closed' || st === 'goaway') { if (L.session) L.session.ws = null; }
+          if (st === 'closed' || st === 'goaway') {
+            if (L.session) L.session.ws = null;
+            setTimeout(warmLive, 1500); // bağlantıyı hazır tut → basınca bekleme olmasın
+          }
         },
       });
     }
     return L.session.connect();
+  }
+
+  let warmFails = 0;
+  function warmLive() {
+    if (!LIVE_OK || document.visibilityState !== 'visible' || L.talking || warmFails > 3) return;
+    ensureLive().then(() => { warmFails = 0; }).catch(() => { warmFails += 1; });
   }
 
   function startTutorMsg() {
@@ -716,8 +725,8 @@
     stopAudio();
     if (L.tutorMsg) { L.tutorMsg.pending = false; L.tutorMsg = null; }
     L.talking = true; L.mode = mode; L.pendingChunks = [];
-    btn.classList.add('recording');
-    setStatus(mode === 'help' ? 'Dinliyorum — Türkçe söyle…' : `Dinliyorum — ${langOf(P.lang).tr} konuş…`, true, true);
+    btn.classList.add('arming');
+    setStatus('Mikrofon açılıyor…', true, true);
     L.userMsg = { role: 'user', text: '', mode, t: Date.now(), pending: true };
     S.msgs.push(L.userMsg);
     renderSoon();
@@ -731,6 +740,12 @@
         if (L.session && L.session.isOpen && !L.pendingChunks.length && L.session._activity) L.session.sendAudio(u8);
         else L.pendingChunks.push(u8);
       },
+      onLive: () => {
+        // mikrofon gerçekten açık → şimdi konuşabilirsin
+        btn.classList.remove('arming'); btn.classList.add('recording');
+        setStatus(mode === 'help' ? 'Konuş — Türkçe söyle' : `Konuş — ${langOf(P.lang).tr}`, true, true);
+      },
+      onLevel: (lv) => { btn.style.setProperty('--lv', Math.min(1, lv * 3).toFixed(2)); },
     });
     connecting.then(() => { if (L.session) L.session._activity = true; }).catch(() => {});
     try {
@@ -745,7 +760,7 @@
   function liveAbort(btn, msg) {
     L.talking = false;
     if (L.mic) { L.mic.stop(); L.mic = null; }
-    btn.classList.remove('recording');
+    btn.classList.remove('recording', 'arming');
     if (L.userMsg) { const i = S.msgs.indexOf(L.userMsg); if (i >= 0) S.msgs.splice(i, 1); L.userMsg = null; }
     render();
     setStatus(msg);
@@ -754,7 +769,8 @@
   async function liveHoldEnd(btn) {
     if (!L.talking) return;
     L.talking = false;
-    btn.classList.remove('recording');
+    btn.classList.remove('recording', 'arming');
+    btn.style.removeProperty('--lv');
     if (L.mic) { L.mic.stop(); L.mic = null; }
     S.busy = true;
     setStatus('Cevap geliyor…', true, true);
@@ -844,6 +860,7 @@
   }
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden' && L.session) { L.player && L.player.stop(); }
+    if (document.visibilityState === 'visible') { warmFails = 0; setTimeout(warmLive, 300); }
   });
 
   // ------------------------------------------------------------------ sheets
@@ -880,6 +897,7 @@
     syncHeader();
     render();
     if (!S.msgs.length && !LIVE_OK) void greet();
+    setTimeout(warmLive, 300);
   }
 
   $('langGrid').addEventListener('click', (e) => {

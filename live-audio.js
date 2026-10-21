@@ -19,6 +19,7 @@
   function unlock() {
     const c = audioCtx();
     if (c.state !== 'running') c.resume().catch(() => {});
+    try { const cc = captureCtx(); if (cc.state !== 'running') cc.resume().catch(() => {}); } catch { /* ignore */ }
     try {
       // iOS: sessiz bir tampon çal → hoparlör yolu açılır
       const b = c.createBuffer(1, 1, 22050);
@@ -26,9 +27,6 @@
       s.buffer = b; s.connect(c.destination); s.start(0);
     } catch { /* ignore */ }
     return c;
-  }
-  function setSession(type) {
-    try { if (navigator.audioSession) navigator.audioSession.type = type; } catch { /* ignore */ }
   }
 
   function b64FromBytes(u8) {
@@ -44,51 +42,58 @@
   }
 
   // ------------------------------------------------------------- Mic (16 kHz PCM16)
+  // Kayıt için AYRI bir ses bağlamı: iPhone'da mikrofon açılıp kapanırken çalma bağlamı etkilenmesin (kesik ses olmasın)
   const WORKLET = `
   class Pcm16Down extends AudioWorkletProcessor {
-    constructor(o) { super(); this.ratio = sampleRate / 16000; this.pos = 0; this.buf = new Int16Array(1600); this.n = 0; this.on = true;
+    constructor() { super(); this.ratio = sampleRate / 16000; this.pos = 0; this.buf = new Int16Array(1600); this.n = 0; this.peak = 0; this.frames = 0;
       this.port.onmessage = (e) => { if (e.data === 'flush') this.flush(); }; }
-    flush() { if (this.n > 0) { this.port.postMessage(this.buf.slice(0, this.n).buffer, []); this.n = 0; } }
+    flush() { if (this.n > 0) { this.port.postMessage(this.buf.slice(0, this.n).buffer); this.n = 0; } }
     process(inputs) {
       const ch = inputs[0] && inputs[0][0];
       if (!ch) return true;
-      let level = 0;
-      for (let i = 0; i < ch.length; i++) { const a = Math.abs(ch[i]); if (a > level) level = a; }
+      for (let i = 0; i < ch.length; i++) { const a = ch[i] < 0 ? -ch[i] : ch[i]; if (a > this.peak) this.peak = a; }
       while (this.pos < ch.length) {
-        const i = Math.floor(this.pos), f = this.pos - i;
+        const i = this.pos | 0, f = this.pos - i;
         const v = i + 1 < ch.length ? ch[i] * (1 - f) + ch[i + 1] * f : ch[i];
-        const s = Math.max(-1, Math.min(1, v));
+        const s = v > 1 ? 1 : v < -1 ? -1 : v;
         this.buf[this.n++] = s < 0 ? s * 0x8000 : s * 0x7fff;
-        if (this.n === this.buf.length) { this.port.postMessage(this.buf.slice(0).buffer, []); this.n = 0; }
+        if (this.n === this.buf.length) { this.port.postMessage(this.buf.slice(0).buffer); this.n = 0; }
         this.pos += this.ratio;
       }
       this.pos -= ch.length;
-      this.port.postMessage({ level });
+      if (++this.frames >= 12) { this.port.postMessage({ level: this.peak }); this.frames = 0; this.peak = 0; } // ~30/sn
       return true;
     }
   }
   registerProcessor('pcm16-down', Pcm16Down);`;
-  let workletReady = null;
+  let capCtx = null;
+  let capReady = null;
+  function captureCtx() {
+    if (!capCtx) {
+      const AC = global.AudioContext || global.webkitAudioContext;
+      capCtx = new AC({ latencyHint: 'interactive' });
+      const url = URL.createObjectURL(new Blob([WORKLET], { type: 'application/javascript' }));
+      capReady = capCtx.audioWorklet.addModule(url);
+    }
+    return capCtx;
+  }
 
   class Mic {
-    constructor({ onChunk, onLevel } = {}) {
-      this.onChunk = onChunk; this.onLevel = onLevel;
+    constructor({ onChunk, onLevel, onLive } = {}) {
+      this.onChunk = onChunk; this.onLevel = onLevel; this.onLive = onLive;
       this.stream = null; this.node = null; this.src = null; this.active = false;
     }
     async start() {
       if (this.active) return;
       this.active = true;
-      const c = audioCtx();
-      if (c.state !== 'running') await c.resume().catch(() => {});
-      if (!workletReady) {
-        const url = URL.createObjectURL(new Blob([WORKLET], { type: 'application/javascript' }));
-        workletReady = c.audioWorklet.addModule(url);
-      }
-      const [stream] = await Promise.all([
-        navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } }),
-        workletReady,
-      ]);
+      const c = captureCtx();
+      const streamP = navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
+      });
+      if (c.state !== 'running') c.resume().catch(() => {});
+      const [stream] = await Promise.all([streamP, capReady]);
       if (!this.active) { stream.getTracks().forEach((t) => t.stop()); return; }
+      if (c.state !== 'running') await c.resume().catch(() => {});
       this.stream = stream;
       this.src = c.createMediaStreamSource(stream);
       this.node = new AudioWorkletNode(c, 'pcm16-down');
@@ -96,21 +101,26 @@
         if (e.data instanceof ArrayBuffer) { if (this.onChunk) this.onChunk(new Uint8Array(e.data)); }
         else if (e.data && this.onLevel) this.onLevel(e.data.level || 0);
       };
-      // Çıkışa bağlamak (sessiz kazançla) Safari'de işlemenin durmamasını sağlar
       const mute = c.createGain(); mute.gain.value = 0;
       this.src.connect(this.node); this.node.connect(mute); mute.connect(c.destination);
+      this._mute = mute;
+      if (this.onLive) this.onLive(); // mikrofon gerçekten açıldı → kullanıcı konuşabilir
     }
     stop() {
       this.active = false;
       try { if (this.node) this.node.port.postMessage('flush'); } catch { /* ignore */ }
-      const node = this.node, src = this.src, stream = this.stream;
-      this.node = this.src = this.stream = null;
+      const node = this.node, src = this.src, stream = this.stream, mute = this._mute;
+      this.node = this.src = this.stream = this._mute = null;
       setTimeout(() => {
         try { if (src) src.disconnect(); } catch { /* ignore */ }
         try { if (node) node.disconnect(); } catch { /* ignore */ }
+        try { if (mute) mute.disconnect(); } catch { /* ignore */ }
         if (stream) stream.getTracks().forEach((t) => t.stop());
-        setSession('auto');
-      }, 60);
+        // kayıt bağlamını beklet; çalma bağlamını ayağa kaldır (iOS ses yolu değişiminden sonra)
+        if (capCtx && capCtx.state === 'running') capCtx.suspend().catch(() => {});
+        const p = audioCtx();
+        if (p.state !== 'running') p.resume().catch(() => {});
+      }, 80);
     }
   }
 
@@ -119,21 +129,39 @@
     constructor({ onStart, onIdle } = {}) {
       this.onStart = onStart; this.onIdle = onIdle;
       this.next = 0; this.sources = new Set(); this.playing = false; this.idleTimer = null;
+      this.pend = []; this.pendLen = 0; this.flushTimer = null;
     }
+    /** Küçük parçaları birleştirip (~120 ms) planla → daha az düğüm, daha akıcı ses */
     enqueue(u8, rate = 24000) {
+      this.rate = rate;
+      this.pend.push(u8); this.pendLen += u8.byteLength;
+      const minBytes = Math.round(rate * 2 * (this.playing ? 0.08 : 0.12));
+      clearTimeout(this.flushTimer);
+      if (this.pendLen >= minBytes) this._flush();
+      else this.flushTimer = setTimeout(() => this._flush(), 60);
+    }
+    _flush() {
+      clearTimeout(this.flushTimer);
+      if (!this.pendLen) return;
+      const all = new Uint8Array(this.pendLen);
+      let o = 0; for (const p of this.pend) { all.set(p, o); o += p.byteLength; }
+      this.pend = []; this.pendLen = 0;
+      this._schedule(all, this.rate || 24000);
+    }
+    _schedule(u8, rate) {
       const c = audioCtx();
       if (c.state !== 'running') c.resume().catch(() => {});
       const n = Math.floor(u8.byteLength / 2);
       if (!n) return;
-      const i16 = new Int16Array(u8.buffer, u8.byteOffset, n);
+      const dv = new DataView(u8.buffer, u8.byteOffset, n * 2);
       const buf = c.createBuffer(1, n, rate);
       const ch = buf.getChannelData(0);
-      for (let i = 0; i < n; i++) ch[i] = i16[i] / 32768;
+      for (let i = 0; i < n; i++) ch[i] = dv.getInt16(i * 2, true) / 32768;
       const s = c.createBufferSource();
       s.buffer = buf; s.connect(c.destination);
       const now = c.currentTime;
-      // Ağ dalgalanmasına karşı küçük tampon: yeni bir akışta ~120 ms önde başla, boşluk olursa yeniden tamponla
-      if (this.next < now + 0.03) this.next = now + (this.playing ? 0.08 : 0.12);
+      // Tampon: yeni akışta 200 ms önde başla; ağ boşluğu olursa 150 ms yeniden tamponla → kesik ses yok
+      if (this.next < now + 0.03) this.next = now + (this.playing ? 0.15 : 0.2);
       s.start(this.next);
       this.next += buf.duration;
       this.sources.add(s);
@@ -144,17 +172,19 @@
     _checkIdle() {
       clearTimeout(this.idleTimer);
       this.idleTimer = setTimeout(() => {
-        if (!this.sources.size && this.playing) { this.playing = false; if (this.onIdle) this.onIdle(); }
-      }, 120);
+        if (!this.sources.size && !this.pendLen && this.playing) { this.playing = false; if (this.onIdle) this.onIdle(); }
+      }, 150);
     }
     stop() {
+      clearTimeout(this.flushTimer);
+      this.pend = []; this.pendLen = 0;
       this.sources.forEach((s) => { try { s.stop(); } catch { /* ignore */ } });
       this.sources.clear();
       this.next = 0;
       if (this.playing) { this.playing = false; if (this.onIdle) this.onIdle(); }
     }
     /** Kaydedilmiş parçaları baştan çal (tekrar dinle) */
-    replay(chunks, rate = 24000) { this.stop(); (chunks || []).forEach((u8) => this.enqueue(u8, rate)); }
+    replay(chunks, rate = 24000) { this.stop(); (chunks || []).forEach((u8) => this.enqueue(u8, rate)); this._flush(); }
   }
 
   // ------------------------------------------------------------- Session

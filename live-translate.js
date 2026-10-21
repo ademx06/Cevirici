@@ -58,7 +58,10 @@
       onOutput: (t) => { const b = bubbleFor(dir); b.trans = (b.trans + t).replace(/\s+/g, ' '); b.visible = true; touch(dir); },
       onAudio: (u8, rate) => { const b = bubbleFor(dir); b.visible = true; b.audio.push(u8); b.rate = rate; player.enqueue(u8, rate); touch(dir); },
       onTurnComplete: () => finalize(dir),
-      onState: (st, info) => { if (st === 'error') showErr(String(info || 'Canlı bağlantı kurulamadı')); },
+      onState: (st, info) => {
+        if (st === 'error') showErr(String(info || 'Canlı bağlantı kurulamadı'));
+        if ((st === 'closed' || st === 'goaway') && document.visibilityState === 'visible') setTimeout(() => s.connect().catch(() => {}), 1500);
+      },
     });
     sessions[dir] = s;
     return s;
@@ -188,21 +191,26 @@
     LiveAudio.unlock();
     showErr('');
     holdDir = dir; pending = [];
-    btn.classList.add('recording');
-    setStatus(`Dinliyorum — ${lang(sourceOf(dir)).name}…`, true);
+    btn.classList.add('arming');
+    setStatus('Mikrofon açılıyor…', true);
     const s = session(dir);
     const ready = s.connect().then(() => { const q = pending; pending = []; q.forEach((c) => s.sendAudio(c)); });
-    mic = new LiveAudio.Mic({ onChunk: (u8) => { if (s.isOpen && !pending.length) s.sendAudio(u8); else pending.push(u8); } });
+    mic = new LiveAudio.Mic({
+      onChunk: (u8) => { if (s.isOpen && !pending.length) s.sendAudio(u8); else pending.push(u8); },
+      onLive: () => { btn.classList.remove('arming'); btn.classList.add('recording'); setStatus(`Konuş — ${lang(sourceOf(dir)).name}`, true); },
+      onLevel: (lv) => { btn.style.setProperty('--lv', Math.min(1, lv * 3).toFixed(2)); },
+    });
     try { await mic.start(); } catch (e) { holdAbort(btn, e && e.name === 'NotAllowedError' ? 'Mikrofon izni gerekli' : 'Mikrofon açılamadı'); return; }
     ready.catch((e) => holdAbort(btn, e.message || 'Canlı bağlantı kurulamadı'));
   }
   function holdAbort(btn, msg) {
-    holdDir = null; if (mic) { mic.stop(); mic = null; } btn.classList.remove('recording'); showErr(msg); idle();
+    holdDir = null; if (mic) { mic.stop(); mic = null; } btn.classList.remove('recording', 'arming'); showErr(msg); idle();
   }
   function holdEnd(btn) {
     if (!holdDir) return;
     const dir = holdDir; holdDir = null;
-    btn.classList.remove('recording');
+    btn.classList.remove('recording', 'arming');
+    btn.style.removeProperty('--lv');
     if (mic) { mic.stop(); mic = null; }
     const s = sessions[dir];
     // kısa sessizlik + akış sonu → son kelimeler de hemen çevrilsin
