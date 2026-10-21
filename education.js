@@ -563,7 +563,7 @@
 
   // ------------------------------------------------------------------ CANLI SES (Gemini Live)
   // Bas-konuş: konuşurken ses parça parça Google'a akar; bıraktığın anda cevap sesli akmaya başlar.
-  const TUTOR_VAD = true; // konuşurken yazı akar; bırakınca cevap
+  const TUTOR_VAD = false; // ölçüldü: elle başlat/bitir modu daha hızlı (bırakınca ~1 sn'de cevap)
   const LIVE_OK = !!(window.LiveAudio && window.WebSocket && window.AudioWorkletNode && navigator.mediaDevices);
   const L = { session: null, player: null, mic: null, pendingChunks: [], talking: false, userMsg: null, tutorMsg: null,
     started: false, failed: 0, turnTimer: null, mode: 'speak', sessionKey: '' };
