@@ -1,27 +1,33 @@
 /* Gemini Live — iki yönlü anlık ses (tarayıcı tarafı)
  *
- * LiveAudio.unlock()                 → iOS: ses/mikrofon bağlamını kullanıcı dokunuşunda aç
- * LiveAudio.Mic                      → mikrofon → 16 kHz PCM16 parçaları (100 ms)
- * LiveAudio.Player                   → 24 kHz PCM16 parçalarını gecikmesiz sırayla çal
- * LiveAudio.Session                  → /api/live/session jetonuyla Google'a doğrudan WebSocket
+ * Mimari (v5):
+ *  • Mikrofon bir kez açılır ve sayfa açıkken AÇIK kalır ("sıcak mikrofon"). Basınca yalnızca kapı açılır →
+ *    gecikme yok; iPhone'da ses donanımı yeniden ayarlanmaz → cevap sesi titremez / tonu kaymaz.
+ *  • Ses bağlamı mikrofon açıldıktan SONRA kurulur → örnekleme hızı donanımla birebir (bozuk/yanlış perdeli ses yok).
+ *  • Son ~250 ms her zaman tamponda tutulur → bastığın an konuşmaya başlasan da ilk hece kaybolmaz.
+ *
+ * LiveAudio.unlock()            → kullanıcı dokunuşunda ses bağlamını uyandır
+ * LiveAudio.micReady()          → mikrofon şu an açık mı (basınca anında kayıt)
+ * LiveAudio.micPermission()     → 'granted' | 'prompt' | 'denied' | 'unknown'
+ * LiveAudio.openMic()           → mikrofonu aç (gerekirse izin ister)
+ * LiveAudio.Mic                 → kayıt "musluğu": start() kapıyı açar, stop() kapatır (16 kHz PCM16, 100 ms)
+ * LiveAudio.Player              → 24 kHz PCM16 parçalarını boşluksuz çal
+ * LiveAudio.Session             → /api/live/session jetonuyla Google'a doğrudan WebSocket
  */
 (function (global) {
   'use strict';
 
-  let ctx = null;
-  function audioCtx() {
-    if (!ctx) {
-      const AC = global.AudioContext || global.webkitAudioContext;
-      ctx = new AC({ latencyHint: 'interactive' });
-    }
-    return ctx;
-  }
+  const AC = global.AudioContext || global.webkitAudioContext;
+  let ctx = null; // tek ses bağlamı (çalma + kayıt)
+  let ctxGen = 0;
+  function newCtx() { ctxGen += 1; return new AC({ latencyHint: 'interactive' }); }
+  function audioCtx() { if (!ctx) ctx = newCtx(); return ctx; }
+  function setSession(type) { try { if (navigator.audioSession) navigator.audioSession.type = type; } catch { /* ignore */ } }
+
   function unlock() {
     const c = audioCtx();
     if (c.state !== 'running') c.resume().catch(() => {});
-    try { const cc = captureCtx(); if (cc.state !== 'running') cc.resume().catch(() => {}); } catch { /* ignore */ }
     try {
-      // iOS: sessiz bir tampon çal → hoparlör yolu açılır
       const b = c.createBuffer(1, 1, 22050);
       const s = c.createBufferSource();
       s.buffer = b; s.connect(c.destination); s.start(0);
@@ -41,86 +47,171 @@
     return u8;
   }
 
-  // ------------------------------------------------------------- Mic (16 kHz PCM16)
-  // Kayıt için AYRI bir ses bağlamı: iPhone'da mikrofon açılıp kapanırken çalma bağlamı etkilenmesin (kesik ses olmasın)
+  // ------------------------------------------------------------- worklet: 16 kHz'e indir (ortalamalı), kapı + ön tampon
   const WORKLET = `
-  class Pcm16Down extends AudioWorkletProcessor {
-    constructor() { super(); this.ratio = sampleRate / 16000; this.pos = 0; this.buf = new Int16Array(1600); this.n = 0; this.peak = 0; this.frames = 0;
-      this.port.onmessage = (e) => { if (e.data === 'flush') this.flush(); }; }
-    flush() { if (this.n > 0) { this.port.postMessage(this.buf.slice(0, this.n).buffer); this.n = 0; } }
+  class Pcm16Gate extends AudioWorkletProcessor {
+    constructor() {
+      super();
+      this.ratio = sampleRate / 16000;
+      this.acc = 0; this.cnt = 0; this.pos = 0; this.prev = 0;
+      this.ring = new Int16Array(4000); this.rn = 0; this.rfull = false;   // ~250 ms ön tampon
+      this.buf = new Int16Array(1600); this.n = 0;                          // 100 ms parça
+      this.id = 0; this.peak = 0; this.frames = 0;
+      this.port.onmessage = (e) => {
+        const d = e.data || {};
+        if (d.cmd === 'on') {
+          this.id = d.id; this.n = 0;
+          if (d.preroll) {
+            let r;
+            if (this.rfull) { r = new Int16Array(this.ring.length); r.set(this.ring.subarray(this.rn)); r.set(this.ring.subarray(0, this.rn), this.ring.length - this.rn); }
+            else r = this.ring.slice(0, this.rn);
+            if (r.length) this.port.postMessage({ id: this.id, pcm: r.buffer }, [r.buffer]);
+          }
+        } else if (d.cmd === 'off') {
+          if (this.id && this.n) { const b = this.buf.slice(0, this.n); this.port.postMessage({ id: this.id, pcm: b.buffer }, [b.buffer]); }
+          this.port.postMessage({ id: this.id || d.id, done: true });
+          this.id = 0; this.n = 0;
+        }
+      };
+    }
+    out(v) {
+      const s = v > 1 ? 1 : v < -1 ? -1 : v;
+      const q = s < 0 ? s * 0x8000 : s * 0x7fff;
+      this.ring[this.rn++] = q; if (this.rn === this.ring.length) { this.rn = 0; this.rfull = true; }
+      if (!this.id) return;
+      this.buf[this.n++] = q;
+      if (this.n === this.buf.length) { const b = this.buf.slice(0); this.port.postMessage({ id: this.id, pcm: b.buffer }, [b.buffer]); this.n = 0; }
+    }
     process(inputs) {
       const ch = inputs[0] && inputs[0][0];
       if (!ch) return true;
-      for (let i = 0; i < ch.length; i++) { const a = ch[i] < 0 ? -ch[i] : ch[i]; if (a > this.peak) this.peak = a; }
-      while (this.pos < ch.length) {
-        const i = this.pos | 0, f = this.pos - i;
-        const v = i + 1 < ch.length ? ch[i] * (1 - f) + ch[i + 1] * f : ch[i];
-        const s = v > 1 ? 1 : v < -1 ? -1 : v;
-        this.buf[this.n++] = s < 0 ? s * 0x8000 : s * 0x7fff;
-        if (this.n === this.buf.length) { this.port.postMessage(this.buf.slice(0).buffer); this.n = 0; }
-        this.pos += this.ratio;
+      if (this.ratio >= 1) {
+        // kutu filtresi: her çıkış örneği = karşılık gelen giriş örneklerinin ortalaması (net, cızırtısız)
+        for (let i = 0; i < ch.length; i++) {
+          const x = ch[i];
+          if (this.id) { const a = x < 0 ? -x : x; if (a > this.peak) this.peak = a; }
+          this.acc += x; this.cnt++; this.pos += 1;
+          if (this.pos >= this.ratio) { this.out(this.acc / this.cnt); this.acc = 0; this.cnt = 0; this.pos -= this.ratio; }
+        }
+      } else {
+        for (let i = 0; i < ch.length; i++) {
+          const x = ch[i];
+          if (this.id) { const a = x < 0 ? -x : x; if (a > this.peak) this.peak = a; }
+          while (this.pos < 1) { this.out(this.prev + (x - this.prev) * this.pos); this.pos += this.ratio; }
+          this.pos -= 1; this.prev = x;
+        }
       }
-      this.pos -= ch.length;
-      if (++this.frames >= 12) { this.port.postMessage({ level: this.peak }); this.frames = 0; this.peak = 0; } // ~30/sn
+      if (this.id && ++this.frames >= 10) { this.port.postMessage({ id: this.id, level: this.peak }); this.frames = 0; this.peak = 0; }
       return true;
     }
   }
-  registerProcessor('pcm16-down', Pcm16Down);`;
-  let capCtx = null;
-  let capReady = null;
-  function captureCtx() {
-    if (!capCtx) {
-      const AC = global.AudioContext || global.webkitAudioContext;
-      capCtx = new AC({ latencyHint: 'interactive' });
-      const url = URL.createObjectURL(new Blob([WORKLET], { type: 'application/javascript' }));
-      capReady = capCtx.audioWorklet.addModule(url);
-    }
-    return capCtx;
+  registerProcessor('pcm16-gate', Pcm16Gate);`;
+  let workletUrl = null;
+
+  // ------------------------------------------------------------- sıcak mikrofon
+  const eng = { stream: null, ctx: null, src: null, node: null, mute: null, opening: null, taps: new Map(), seq: 0 };
+  function micReady() { return !!(eng.node && eng.stream && eng.stream.active); }
+
+  async function micPermission() {
+    if (micReady()) return 'granted';
+    try {
+      const p = await navigator.permissions.query({ name: 'microphone' });
+      if (p && p.state) return p.state;
+    } catch { /* desteklenmiyor */ }
+    try { if (localStorage.getItem('mic_ok') === '1') return 'granted'; } catch { /* ignore */ }
+    return 'unknown';
+  }
+
+  function openMic() {
+    if (micReady()) return Promise.resolve(eng);
+    if (eng.opening) return eng.opening;
+    eng.opening = (async () => {
+      setSession('play-and-record');
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
+      });
+      try { localStorage.setItem('mic_ok', '1'); } catch { /* ignore */ }
+      // Mikrofon açıldı → ses donanımı artık kayıt+çalma modunda; bağlamı ŞİMDİ kur (hız birebir)
+      const old = ctx;
+      const c = newCtx();
+      ctx = c;
+      if (old) setTimeout(() => { try { old.close(); } catch { /* ignore */ } }, 4000);
+      if (!workletUrl) workletUrl = URL.createObjectURL(new Blob([WORKLET], { type: 'application/javascript' }));
+      await c.audioWorklet.addModule(workletUrl);
+      if (c.state !== 'running') await c.resume().catch(() => {});
+      const src = c.createMediaStreamSource(stream);
+      const node = new AudioWorkletNode(c, 'pcm16-gate');
+      const mute = c.createGain(); mute.gain.value = 0;
+      src.connect(node); node.connect(mute); mute.connect(c.destination);
+      node.port.onmessage = (e) => {
+        const d = e.data || {};
+        const tap = eng.taps.get(d.id);
+        if (!tap) return;
+        if (d.pcm) { if (tap.onChunk) tap.onChunk(new Uint8Array(d.pcm)); }
+        else if (d.level !== undefined) { if (tap.onLevel) tap.onLevel(d.level); }
+        else if (d.done) { eng.taps.delete(d.id); if (tap._done) tap._done(); }
+      };
+      Object.assign(eng, { stream, ctx: c, src, node, mute });
+      stream.getAudioTracks().forEach((t) => { t.onended = () => closeMic(); });
+      return eng;
+    })().finally(() => { eng.opening = null; });
+    return eng.opening;
+  }
+
+  function closeMic() {
+    const { stream, src, node, mute } = eng;
+    eng.stream = eng.src = eng.node = eng.mute = eng.ctx = null;
+    eng.taps.forEach((t) => { if (t._done) t._done(); });
+    eng.taps.clear();
+    try { if (src) src.disconnect(); } catch { /* ignore */ }
+    try { if (node) node.disconnect(); } catch { /* ignore */ }
+    try { if (mute) mute.disconnect(); } catch { /* ignore */ }
+    if (stream) { stream.getTracks().forEach((t) => t.stop()); setSession('auto'); }
+  }
+
+  async function warmIfGranted() {
+    if (micReady() || !navigator.mediaDevices) return;
+    try {
+      const p = await navigator.permissions.query({ name: 'microphone' });
+      if (p.state === 'granted') await openMic();
+    } catch { /* izin sorgulanamıyor → ilk basışta açılır */ }
+  }
+  // Sayfa arka plana geçince mikrofonu bırak (gizlilik + pil); öne gelince izin varsa sessizce yeniden aç
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') closeMic();
+      else warmIfGranted();
+    });
+    global.addEventListener('pagehide', closeMic);
   }
 
   class Mic {
-    constructor({ onChunk, onLevel, onLive } = {}) {
-      this.onChunk = onChunk; this.onLevel = onLevel; this.onLive = onLive;
-      this.stream = null; this.node = null; this.src = null; this.active = false;
+    /** opts: { onChunk(u8), onLevel(peak), onLive(), preroll: true } */
+    constructor({ onChunk, onLevel, onLive, preroll = true } = {}) {
+      this.onChunk = onChunk; this.onLevel = onLevel; this.onLive = onLive; this.preroll = preroll;
+      this.active = false; this.id = 0;
     }
     async start() {
       if (this.active) return;
       this.active = true;
-      const c = captureCtx();
-      const streamP = navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
-      });
-      if (c.state !== 'running') c.resume().catch(() => {});
-      const [stream] = await Promise.all([streamP, capReady]);
-      if (!this.active) { stream.getTracks().forEach((t) => t.stop()); return; }
-      if (c.state !== 'running') await c.resume().catch(() => {});
-      this.stream = stream;
-      this.src = c.createMediaStreamSource(stream);
-      this.node = new AudioWorkletNode(c, 'pcm16-down');
-      this.node.port.onmessage = (e) => {
-        if (e.data instanceof ArrayBuffer) { if (this.onChunk) this.onChunk(new Uint8Array(e.data)); }
-        else if (e.data && this.onLevel) this.onLevel(e.data.level || 0);
-      };
-      const mute = c.createGain(); mute.gain.value = 0;
-      this.src.connect(this.node); this.node.connect(mute); mute.connect(c.destination);
-      this._mute = mute;
-      if (this.onLive) this.onLive(); // mikrofon gerçekten açıldı → kullanıcı konuşabilir
+      await openMic();
+      if (!this.active) return;
+      if (eng.ctx && eng.ctx.state !== 'running') eng.ctx.resume().catch(() => {});
+      this.id = ++eng.seq;
+      eng.taps.set(this.id, this);
+      eng.node.port.postMessage({ cmd: 'on', id: this.id, preroll: this.preroll });
+      if (this.onLive) this.onLive();
     }
+    /** Kapıyı kapat; son parça teslim edilince çözülür */
     stop() {
       this.active = false;
-      try { if (this.node) this.node.port.postMessage('flush'); } catch { /* ignore */ }
-      const node = this.node, src = this.src, stream = this.stream, mute = this._mute;
-      this.node = this.src = this.stream = this._mute = null;
-      setTimeout(() => {
-        try { if (src) src.disconnect(); } catch { /* ignore */ }
-        try { if (node) node.disconnect(); } catch { /* ignore */ }
-        try { if (mute) mute.disconnect(); } catch { /* ignore */ }
-        if (stream) stream.getTracks().forEach((t) => t.stop());
-        // kayıt bağlamını beklet; çalma bağlamını ayağa kaldır (iOS ses yolu değişiminden sonra)
-        if (capCtx && capCtx.state === 'running') capCtx.suspend().catch(() => {});
-        const p = audioCtx();
-        if (p.state !== 'running') p.resume().catch(() => {});
-      }, 80);
+      if (!this.id || !eng.node || !eng.taps.has(this.id)) return Promise.resolve();
+      const id = this.id; this.id = 0;
+      return new Promise((resolve) => {
+        this._done = resolve;
+        eng.node.port.postMessage({ cmd: 'off', id });
+        setTimeout(resolve, 250);
+      });
     }
   }
 
@@ -129,20 +220,19 @@
     constructor({ onStart, onIdle } = {}) {
       this.onStart = onStart; this.onIdle = onIdle;
       this.next = 0; this.sources = new Set(); this.playing = false; this.idleTimer = null;
-      this.pend = []; this.pendLen = 0; this.flushTimer = null;
+      this.pend = []; this.pendLen = 0; this.flushTimer = null; this.gen = 0; this.held = false; this.heldQ = [];
     }
-    /** Mikrofon açıkken çalmayı beklet (iPhone'da mikrofon açıkken ses bozuk/kısık çıkar) */
+    /** Çalmayı beklet (basılıyken) / bırak */
     hold(on) {
       this.held = !!on;
-      if (!on && this.heldQ && this.heldQ.length) {
+      if (!on && this.heldQ.length) {
         const q = this.heldQ; this.heldQ = [];
         q.forEach(([u8, r]) => this.enqueue(u8, r));
         this._flush();
       }
     }
-    /** Küçük parçaları birleştirip (~120 ms) planla → daha az düğüm, daha akıcı ses */
     enqueue(u8, rate = 24000) {
-      if (this.held) { (this.heldQ = this.heldQ || []).push([u8, rate]); if (this.onHeld) this.onHeld(); return; }
+      if (this.held) { this.heldQ.push([u8, rate]); return; }
       this.rate = rate;
       this.pend.push(u8); this.pendLen += u8.byteLength;
       const minBytes = Math.round(rate * 2 * (this.playing ? 0.08 : 0.12));
@@ -160,6 +250,7 @@
     }
     _schedule(u8, rate) {
       const c = audioCtx();
+      if (this.gen !== ctxGen) { this.gen = ctxGen; this.next = 0; }
       if (c.state !== 'running') c.resume().catch(() => {});
       const n = Math.floor(u8.byteLength / 2);
       if (!n) return;
@@ -170,8 +261,8 @@
       const s = c.createBufferSource();
       s.buffer = buf; s.connect(c.destination);
       const now = c.currentTime;
-      // Tampon: yeni akışta 200 ms önde başla; ağ boşluğu olursa 150 ms yeniden tamponla → kesik ses yok
-      if (this.next < now + 0.03) this.next = now + (this.playing ? 0.15 : 0.2);
+      // Tampon: yeni akışta 180 ms önde başla; ağ boşluğu olursa 140 ms yeniden tamponla → kesik ses yok
+      if (this.next < now + 0.03) this.next = now + (this.playing ? 0.14 : 0.18);
       s.start(this.next);
       this.next += buf.duration;
       this.sources.add(s);
@@ -193,19 +284,14 @@
       this.next = 0;
       if (this.playing) { this.playing = false; if (this.onIdle) this.onIdle(); }
     }
-    /** Kaydedilmiş parçaları baştan çal (tekrar dinle) */
     replay(chunks, rate = 24000) { this.stop(); (chunks || []).forEach((u8) => this.enqueue(u8, rate)); this._flush(); }
   }
 
   // ------------------------------------------------------------- Session
   class Session {
-    /**
-     * opts: { body: {...} (sent to /api/live/session), manualActivity: bool,
-     *         onAudio(u8), onInput(text), onOutput(text), onTurnComplete(), onInterrupted(), onState(state, info) }
-     */
     constructor(opts) {
       this.o = opts; this.ws = null; this.state = 'idle'; this.ready = null; this.handle = null;
-      this.variant = 0; this.lastUse = 0;
+      this.variant = 0; this.lastUse = 0; this.vad = false;
     }
     get isOpen() { return this.ws && this.ws.readyState === 1 && this.state === 'ready'; }
     _set(state, info) { this.state = state; if (this.o.onState) this.o.onState(state, info); }
@@ -228,6 +314,8 @@
         throw e;
       }
       const setup = d.setup;
+      const aad = setup.realtimeInputConfig && setup.realtimeInputConfig.automaticActivityDetection;
+      this.vad = !aad || aad.disabled === false;
       if (this.handle && setup.sessionResumption) setup.sessionResumption = { handle: this.handle };
       await new Promise((resolve, reject) => {
         const ws = new WebSocket(d.ws);
@@ -249,7 +337,6 @@
           if (this.ws === ws) this.ws = null;
           if (!done) {
             done = true;
-            // Kurulum reddedildi → diğer biçimi dene (yalnızca bir kez)
             if (e.code === 1007 && attempt === 0) { this.variant = this.variant ? 0 : 1; this.handle = null; this._open(1).then(resolve, reject); return; }
             reject(new Error(e.reason ? `Bağlantı kapandı: ${String(e.reason).slice(0, 80)}` : 'Bağlantı kapandı'));
             return;
@@ -267,7 +354,6 @@
       const sc = m.serverContent;
       if (!sc) return;
       if (sc.interrupted && this.o.onInterrupted) this.o.onInterrupted();
-      if (sc.interimInputTranscription && sc.interimInputTranscription.text && this.o.onInterim) this.o.onInterim(sc.interimInputTranscription.text);
       if (sc.inputTranscription && sc.inputTranscription.text && this.o.onInput) this.o.onInput(sc.inputTranscription.text);
       if (sc.modelTurn && sc.modelTurn.parts) {
         for (const p of sc.modelTurn.parts) {
@@ -289,6 +375,7 @@
     sendAudio(u8) { return this.send({ realtimeInput: { audio: { data: b64FromBytes(u8), mimeType: 'audio/pcm;rate=16000' } } }); }
     activityStart() { return this.send({ realtimeInput: { activityStart: {} } }); }
     activityEnd() { return this.send({ realtimeInput: { activityEnd: {} } }); }
+    streamEnd() { return this.send({ realtimeInput: { audioStreamEnd: true } }); }
     sendText(text) { return this.send({ realtimeInput: { text } }); }
     seed(turns) {
       if (!turns || !turns.length) return false;
@@ -301,5 +388,9 @@
     }
   }
 
-  global.LiveAudio = { unlock, audioCtx, Mic, Player, Session, b64FromBytes, bytesFromB64 };
+  global.LiveAudio = { unlock, audioCtx, micReady, micPermission, openMic, closeMic, warmIfGranted, Mic, Player, Session, b64FromBytes, bytesFromB64 };
+  if (typeof document !== 'undefined' && navigator.mediaDevices) {
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', warmIfGranted);
+    else warmIfGranted();
+  }
 })(typeof window !== 'undefined' ? window : globalThis);

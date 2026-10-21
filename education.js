@@ -254,7 +254,7 @@
 
   function renderUser(m, i) {
     const help = m.mode === 'help';
-    const txt = m.text || (m.pending ? 'Dinliyorum…' : '');
+    const txt = m.text || (m.pending ? '🎙️ Dinliyorum…' : '');
     return `<div class="msg msg-user ${help ? 'help' : ''} ${m.pending ? 'is-live' : ''}" data-i="${i}">${help ? '<span class="msg-tag">Yardım · Türkçe</span>' : ''}<div class="msg-body">${esc(txt)}</div></div>`;
   }
 
@@ -563,12 +563,13 @@
 
   // ------------------------------------------------------------------ CANLI SES (Gemini Live)
   // Bas-konuş: konuşurken ses parça parça Google'a akar; bıraktığın anda cevap sesli akmaya başlar.
+  const TUTOR_VAD = true; // konuşurken yazı akar; bırakınca cevap
   const LIVE_OK = !!(window.LiveAudio && window.WebSocket && window.AudioWorkletNode && navigator.mediaDevices);
   const L = { session: null, player: null, mic: null, pendingChunks: [], talking: false, userMsg: null, tutorMsg: null,
     started: false, failed: 0, turnTimer: null, mode: 'speak', sessionKey: '' };
 
   function liveBody() {
-    return { kind: 'tutor', lang: P.lang, level: level(), scenario: P.scenario || null, weak: weakForApi() };
+    return { kind: 'tutor', vad: TUTOR_VAD, lang: P.lang, level: level(), scenario: P.scenario || null, weak: weakForApi() };
   }
   function liveKey() { return `${P.lang}|${level()}|${P.scenario || ''}`; }
 
@@ -603,6 +604,7 @@
           if (P.autoSpeak) L.player.enqueue(u8, rate);
         },
         onInput: (t) => {
+          if (!L.userMsg && L.talking) { L.userMsg = { role: 'user', text: '', mode: L.mode, t: Date.now(), pending: true }; S.msgs.push(L.userMsg); renderSoon(); }
           if (L.userMsg) { L.userMsg.text = (L.userMsg._final = (L.userMsg._final || '') + t).replace(/\s+/g, ' '); patchSoon(); }
         },
         onInterim: (t) => {
@@ -657,7 +659,7 @@
         if (!el) { structural = true; return; }
         if (m.role === 'user') {
           const b = el.querySelector('.msg-body');
-          const t = m.text || 'Dinliyorum…';
+          const t = m.text || (L.talking ? (L.heard ? '🎙️ Seni duyuyorum…' : '🎙️ Dinliyorum…') : '…');
           if (b && b.textContent !== t) b.textContent = t;
         } else {
           const tgt = el.querySelector('.t-target');
@@ -718,43 +720,75 @@
     saveChat(); render(); syncHeader();
   }
 
+  const SILENCE = new Uint8Array(3200); // 100 ms sessizlik @16 kHz
+  let micBusy = false;
+
+  /** Bas: mikrofon zaten açık → anında kayıt. İlk kez → yalnızca izin iste, dinlemeye geçme. */
   async function liveHoldStart(btn, mode) {
-    if (L.talking) return;
+    if (L.talking || micBusy) return;
     LiveAudio.unlock();
+    if (!LiveAudio.micReady()) {
+      micBusy = true;
+      btn.classList.add('arming');
+      let perm = 'unknown';
+      try { perm = await LiveAudio.micPermission(); } catch { /* ignore */ }
+      if (perm !== 'granted') setStatus('Mikrofon izni isteniyor… “İzin ver”e dokun', true, true);
+      const t0 = performance.now();
+      try {
+        await LiveAudio.openMic();
+      } catch (e) {
+        micBusy = false; btn.classList.remove('arming');
+        setStatus(e && e.name === 'NotAllowedError' ? 'Mikrofon izni gerekli (Ayarlar → Safari → Mikrofon)' : 'Mikrofon açılamadı');
+        return;
+      }
+      micBusy = false;
+      btn.classList.remove('arming');
+      // izin penceresi çıktıysa (ya da parmağını kaldırdıysan) bu basış yalnızca izin içindi
+      if (perm !== 'granted' || performance.now() - t0 > 900 || !btn._held) {
+        setStatus('Mikrofon hazır ✓ — şimdi basılı tutup konuş', true);
+        setTimeout(() => { if (!L.talking && !S.busy) idleStatus(); }, 2500);
+        return;
+      }
+    }
+    if (!btn._held) return;
+    beginTalk(btn, mode);
+  }
+
+  function beginTalk(btn, mode) {
     L.player && L.player.stop();
     stopAudio();
     if (L.tutorMsg) { L.tutorMsg.pending = false; L.tutorMsg = null; }
-    L.talking = true; L.mode = mode; L.pendingChunks = [];
-    btn.classList.add('arming');
-    setStatus('Mikrofon açılıyor…', true, true);
+    clearTimeout(L.turnTimer);
+    L.talking = true; L.mode = mode; L.pendingChunks = []; L.heard = false;
+    btn.classList.add('recording');
+    setStatus(mode === 'help' ? 'Dinliyorum — Türkçe söyle' : `Dinliyorum — ${langOf(P.lang).tr} konuş`, true, true);
     L.userMsg = { role: 'user', text: '', mode, t: Date.now(), pending: true };
     S.msgs.push(L.userMsg);
     renderSoon();
-    const connecting = ensureLive().then(() => {
-      L.session.activityStart();
+    const s = L.session;
+    const flushPending = () => {
+      if (!L.session || !L.session.isOpen) return;
       const q = L.pendingChunks; L.pendingChunks = [];
       q.forEach((c) => L.session.sendAudio(c));
+    };
+    L.turnReady = ensureLive().then(() => {
+      if (!L.session.vad) L.session.activityStart();
+      L.session._activity = true;
+      flushPending();
     });
+    L.turnReady.catch((e) => { L.failed += 1; liveAbort(btn, e.message || 'Canlı bağlantı kurulamadı'); });
     L.mic = new LiveAudio.Mic({
       onChunk: (u8) => {
-        if (L.session && L.session.isOpen && !L.pendingChunks.length && L.session._activity) L.session.sendAudio(u8);
+        if (L.session && L.session.isOpen && L.session._activity && !L.pendingChunks.length) L.session.sendAudio(u8);
         else L.pendingChunks.push(u8);
       },
-      onLive: () => {
-        // mikrofon gerçekten açık → şimdi konuşabilirsin
-        btn.classList.remove('arming'); btn.classList.add('recording');
-        setStatus(mode === 'help' ? 'Konuş — Türkçe söyle' : `Konuş — ${langOf(P.lang).tr}`, true, true);
+      onLevel: (lv) => {
+        btn.style.setProperty('--lv', Math.min(1, lv * 3).toFixed(2));
+        if (lv > 0.06 && L.userMsg && !L.userMsg.text && !L.heard) { L.heard = true; patchSoon(); }
       },
-      onLevel: (lv) => { btn.style.setProperty('--lv', Math.min(1, lv * 3).toFixed(2)); },
     });
-    connecting.then(() => { if (L.session) L.session._activity = true; }).catch(() => {});
-    try {
-      await L.mic.start();
-    } catch (e) {
-      liveAbort(btn, (e && e.name === 'NotAllowedError') ? 'Mikrofon izni gerekli (Ayarlar → Safari → Mikrofon)' : 'Mikrofon açılamadı');
-      return;
-    }
-    connecting.catch((e) => { L.failed += 1; liveAbort(btn, e.message || 'Canlı bağlantı kurulamadı'); });
+    void s; // (oturum ensureLive içinde hazırlanır)
+    L.mic.start().catch((e) => liveAbort(btn, (e && e.name === 'NotAllowedError') ? 'Mikrofon izni gerekli' : 'Mikrofon açılamadı'));
   }
 
   function liveAbort(btn, msg) {
@@ -766,27 +800,34 @@
     setStatus(msg);
   }
 
+  /** Bırak: son parça gider gitmez konuşma bitti bilgisi → cevap hemen akar */
   async function liveHoldEnd(btn) {
     if (!L.talking) return;
     L.talking = false;
     btn.classList.remove('recording', 'arming');
     btn.style.removeProperty('--lv');
-    if (L.mic) { L.mic.stop(); L.mic = null; }
+    const m = L.mic; L.mic = null;
     S.busy = true;
     setStatus('Cevap geliyor…', true, true);
-    render();
-    // son parça (flush) gelsin, sonra konuşmanın bittiğini bildir → cevap hemen başlar
-    setTimeout(async () => {
-      try {
-        if (L.session && !L.session.isOpen) await ensureLive();
-        if (L.pendingChunks.length && L.session && L.session.isOpen) {
-          const q = L.pendingChunks; L.pendingChunks = []; q.forEach((c) => L.session.sendAudio(c));
-        }
-        if (L.session) { L.session.activityEnd(); L.session._activity = false; }
-      } catch (e) { S.busy = false; setStatus(e.message || 'Bağlantı sorunu'); render(); return; }
-      clearTimeout(L.turnTimer);
-      L.turnTimer = setTimeout(() => { if (S.busy || L.userMsg) { finishLiveTurn(); setStatus('Cevap gelmedi — tekrar dene'); } }, 20000);
-    }, 120);
+    patchSoon();
+    if (m) await m.stop();
+    try {
+      await L.turnReady;
+      if (L.pendingChunks.length && L.session && L.session.isOpen) {
+        const q = L.pendingChunks; L.pendingChunks = []; q.forEach((c) => L.session.sendAudio(c));
+      }
+      if (L.session) {
+        if (L.session.vad) { for (let i = 0; i < 3; i++) L.session.sendAudio(SILENCE); L.session.streamEnd(); }
+        else L.session.activityEnd();
+        L.session._activity = false;
+      }
+    } catch (e) { S.busy = false; setStatus((e && e.message) || 'Bağlantı sorunu'); render(); return; }
+    clearTimeout(L.turnTimer);
+    // hiç ses algılanmadıysa kullanıcıyı bekletme
+    L.turnTimer = setTimeout(() => {
+      if (L.userMsg && !L.userMsg.text && !L.tutorMsg) { finishLiveTurn(); setStatus('Seni duyamadım — basılı tutup tekrar konuş'); }
+    }, 6000);
+    setTimeout(() => { if (S.busy || L.userMsg) { finishLiveTurn(); } }, 25000);
   }
 
   async function liveSendText(text, mode) {
@@ -835,12 +876,14 @@
     const useLive = () => LIVE_OK && L.failed < 2;
     const down = (e) => {
       e.preventDefault();
+      btn._held = true;
       if (useLive()) { void liveHoldStart(btn, mode); return; }
       S.mode = mode; activeMicBtn = btn;
       if (mic) void mic.beginHold();
     };
     const up = (e) => {
       e.preventDefault();
+      btn._held = false;
       if (L.talking) { void liveHoldEnd(btn); return; }
       if (mic) mic.endHold();
     };

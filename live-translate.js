@@ -57,7 +57,7 @@
       onInput: (t) => { const b = bubbleFor(dir); b.orig = (b.orig + t).replace(/\s+/g, ' '); touch(dir); },
       onOutput: (t) => { const b = bubbleFor(dir); b.trans = (b.trans + t).replace(/\s+/g, ' '); b.visible = true; touch(dir); },
       onAudio: (u8, rate) => { const b = bubbleFor(dir); b.visible = true; b.audio.push(u8); b.rate = rate; hfOnAudioStart(); player.enqueue(u8, rate); touch(dir); },
-      onTurnComplete: () => finalize(dir),
+      onTurnComplete: () => { if (holdDir === dir) return; finalize(dir); },
       onState: (st, info) => {
         if (st === 'error') showErr(String(info || 'Canlı bağlantı kurulamadı'));
         if ((st === 'closed' || st === 'goaway') && document.visibilityState === 'visible') setTimeout(() => s.connect().catch(() => {}), 1500);
@@ -80,18 +80,19 @@
   const finTimers = {};
   function touch(dir) {
     clearTimeout(finTimers[dir]);
-    finTimers[dir] = setTimeout(() => finalize(dir), 1800);
+    finTimers[dir] = setTimeout(() => { if (cur[dir] && cur[dir].listening) return; finalize(dir); }, 1800);
     renderSoon();
   }
-  async function finalize(dir) {
+  async function finalize(dir, keepOrig = false) {
     clearTimeout(finTimers[dir]);
     const b = cur[dir];
     if (!b) return;
     cur[dir] = null;
-    if (!b.visible || !b.trans.trim()) { const i = bubbles.indexOf(b); if (i >= 0) bubbles.splice(i, 1); renderSoon(); return; }
+    b.listening = false;
+    if (!b.visible || (!b.trans.trim() && !(keepOrig && b.orig.trim()))) { const i = bubbles.indexOf(b); if (i >= 0) bubbles.splice(i, 1); renderSoon(); return; }
     b.done = true;
     renderSoon();
-    if (b.to !== 'tr') {
+    if (b.to !== 'tr' && b.trans.trim()) {
       try {
         const r = await fetch('/api/pronounce?' + new URLSearchParams({ q: b.trans.trim().slice(0, 400), lang: b.to }));
         const d = await r.json();
@@ -103,7 +104,7 @@
 
   let rp = false;
   let lastSig = '';
-  function sig() { return bubbles.filter((b) => b.visible).map((b) => `${bubbles.indexOf(b)}:${b.done ? 1 : 0}:${b.okunus ? 1 : 0}`).join('|'); }
+  function sig() { return bubbles.filter((b) => b.visible).map((b) => `${bubbles.indexOf(b)}:${b.done ? 1 : 0}:${b.okunus ? 1 : 0}:${b.trans ? 1 : 0}`).join('|'); }
   function renderSoon() {
     if (rp) return; rp = true;
     requestAnimationFrame(() => {
@@ -116,7 +117,7 @@
         const a = el.querySelector(`[data-b="${i}"]`);
         if (!a) return;
         const o = a.querySelector('.bubble-original'); const t = a.querySelector('.bubble-translated');
-        if (o && o.textContent !== (b.orig || '…')) o.textContent = b.orig || '…';
+        const ot = b.orig || (b.listening ? '🎙️ Dinliyorum…' : '…'); if (o && o.textContent !== ot) o.textContent = ot;
         if (t && t.textContent !== b.trans) t.textContent = b.trans;
       });
     });
@@ -137,7 +138,7 @@
       const i = bubbles.indexOf(b);
       return `<article class="bubble ${b.dir === 'toOther' ? 'me' : 'other'} ${b.done ? '' : 'is-live'}" data-b="${i}">
         <div class="bubble-label">${f.flag} ${esc(f.name)}</div>
-        <div class="bubble-original">${esc(b.orig || '…')}</div>
+        <div class="bubble-original">${esc(b.orig || (b.listening ? '🎙️ Dinliyorum…' : '…'))}</div>
         <div class="bubble-divider"></div>
         <div class="bubble-label">${t.flag} ${esc(t.name)}</div>
         <div class="bubble-translated"${b.to === 'ar' ? ' dir="rtl"' : ''}>${esc(b.trans)}</div>
@@ -186,49 +187,77 @@
   }
 
   // ---------------------------------------------------------------- hold-to-talk (Çeviri)
+  let micBusy = false;
+  let turnReady = null;
   async function holdStart(btn, dir) {
-    if (holdDir) return;
+    if (holdDir || micBusy) return;
     LiveAudio.unlock();
     showErr('');
+    if (!LiveAudio.micReady()) {
+      // İlk basış: yalnızca mikrofon izni — dinlemeye zorlama
+      micBusy = true;
+      btn.classList.add('arming');
+      let perm = 'unknown';
+      try { perm = await LiveAudio.micPermission(); } catch { /* ignore */ }
+      if (perm !== 'granted') setStatus('Mikrofon izni isteniyor… “İzin ver”e dokun', true);
+      const t0 = performance.now();
+      try { await LiveAudio.openMic(); } catch (e) {
+        micBusy = false; btn.classList.remove('arming');
+        showErr(e && e.name === 'NotAllowedError' ? 'Mikrofon izni gerekli (Ayarlar → Safari → Mikrofon)' : 'Mikrofon açılamadı');
+        idle(); return;
+      }
+      micBusy = false; btn.classList.remove('arming');
+      if (perm !== 'granted' || performance.now() - t0 > 900 || !btn._held) {
+        setStatus('Mikrofon hazır ✓ — şimdi basılı tutup konuş', true);
+        setTimeout(() => { if (!holdDir) idle(); }, 2500);
+        return;
+      }
+    }
+    if (!btn._held) return;
+    // Her basış = yeni çeviri (önceki kutucuğa eklenmez)
+    finalize('toOther', true); finalize('toMine', true);
     holdDir = dir; pending = [];
     player.stop();
-    player.hold(true); // basılıyken çeviri yazısı akar, ses bırakınca temiz çalar
-    btn.classList.add('arming');
-    setStatus('Mikrofon açılıyor…', true);
+    player.hold(true); // basılıyken yazı akar; ses bırakınca temiz çalar
+    btn.classList.add('recording');
+    setStatus(`Dinliyorum — ${lang(sourceOf(dir)).name} konuş`, true);
+    const bb = bubbleFor(dir); bb.visible = true; bb.listening = true; render();
     const s = session(dir);
-    const ready = s.connect().then(() => { const q = pending; pending = []; q.forEach((c) => s.sendAudio(c)); });
+    turnReady = s.connect().then(() => { const q = pending; pending = []; q.forEach((c) => s.sendAudio(c)); });
+    turnReady.catch((e) => holdAbort(btn, e.message || 'Canlı bağlantı kurulamadı'));
     mic = new LiveAudio.Mic({
       onChunk: (u8) => { if (s.isOpen && !pending.length) s.sendAudio(u8); else pending.push(u8); },
-      onLive: () => { btn.classList.remove('arming'); btn.classList.add('recording'); setStatus(`Konuş — ${lang(sourceOf(dir)).name}`, true); },
       onLevel: (lv) => { btn.style.setProperty('--lv', Math.min(1, lv * 3).toFixed(2)); },
     });
-    try { await mic.start(); } catch (e) { holdAbort(btn, e && e.name === 'NotAllowedError' ? 'Mikrofon izni gerekli' : 'Mikrofon açılamadı'); return; }
-    ready.catch((e) => holdAbort(btn, e.message || 'Canlı bağlantı kurulamadı'));
+    mic.start().catch((e) => holdAbort(btn, e && e.name === 'NotAllowedError' ? 'Mikrofon izni gerekli' : 'Mikrofon açılamadı'));
   }
   function holdAbort(btn, msg) {
     holdDir = null; if (mic) { mic.stop(); mic = null; } player.hold(false); btn.classList.remove('recording', 'arming'); showErr(msg); idle();
   }
-  function holdEnd(btn) {
+  async function holdEnd(btn) {
     if (!holdDir) return;
     const dir = holdDir; holdDir = null;
     btn.classList.remove('recording', 'arming');
     btn.style.removeProperty('--lv');
-    if (mic) { mic.stop(); mic = null; }
-    setTimeout(() => player.hold(false), 160); // mikrofon kapandıktan hemen sonra çal
-    const s = sessions[dir];
-    // kısa sessizlik + akış sonu → son kelimeler de hemen çevrilsin
-    setTimeout(() => {
-      if (!s || !s.isOpen) return;
-      for (let i = 0; i < 8; i++) s.sendAudio(SILENCE);
-      s.send({ realtimeInput: { audioStreamEnd: true } });
-    }, 120);
+    const b = cur[dir]; if (b) { b.listening = false; renderSoon(); }
+    player.hold(false); // çeviri sesi hemen çalmaya başlar
     if (!player.playing) setStatus('Çeviriliyor…', true);
+    const m = mic; mic = null;
+    if (m) await m.stop();
+    const s = sessions[dir];
+    try { await turnReady; } catch { return; }
+    if (!s || !s.isOpen) return;
+    if (pending.length) { const q = pending; pending = []; q.forEach((c) => s.sendAudio(c)); }
+    // kısa sessizlik + akış sonu → son kelimeler de hemen çevrilsin
+    for (let i = 0; i < 5; i++) s.sendAudio(SILENCE);
+    s.streamEnd();
+    touch(dir);
   }
   function bindHold(btn, dirFn) {
     if (!btn) return;
     let touchUsed = false;
-    const down = (e) => { e.preventDefault(); void holdStart(btn, dirFn()); };
-    const up = (e) => { e.preventDefault(); holdEnd(btn); };
+    const down = (e) => { e.preventDefault(); btn._held = true; void holdStart(btn, dirFn()); };
+    const up = (e) => { e.preventDefault(); btn._held = false; void holdEnd(btn); };
     btn.addEventListener('contextmenu', (e) => e.preventDefault());
     btn.addEventListener('touchstart', (e) => { touchUsed = true; down(e); }, { passive: false });
     btn.addEventListener('touchend', up, { passive: false });
@@ -245,10 +274,12 @@
     handsFree = true;
     $('ltToggle').classList.add('recording');
     $('ltToggleText').textContent = 'Durdur';
-    setStatus('Bağlanıyor…', true);
+    setStatus(LiveAudio.micReady() ? 'Bağlanıyor…' : 'Mikrofon izni isteniyor…', true);
     const a = session('toOther'), b = session('toMine');
-    mic = makeHfMic(a, b);
     try {
+      await LiveAudio.openMic();
+      if (!handsFree) return;
+      mic = makeHfMic(a, b);
       await Promise.all([mic.start(), a.connect(), b.connect()]);
       setStatus('Dinliyorum — konuşabilirsiniz', true);
     } catch (e) {
@@ -257,46 +288,24 @@
     }
   }
   function makeHfMic(a, b) {
+    // Çeviri sesi çalarken mikrofona sessizlik gönder → kendi çevirimizi tekrar çevirmesin (mikrofon açık kalır, ses temiz)
     return new LiveAudio.Mic({
+      preroll: false,
       onChunk: (u8) => {
         const chunk = player.playing ? SILENCE : u8;
         if (a.isOpen) a.sendAudio(chunk);
         if (b.isOpen) b.sendAudio(chunk);
       },
-      onLevel: (lv) => { const m = $('ltMeter'); if (m) m.style.transform = `scale(${1 + Math.min(0.6, lv * 2.5)})`; },
+      onLevel: (lv) => { const m = $('ltMeter'); if (m) m.style.transform = `scale(${1 + Math.min(0.6, player.playing ? 0 : lv * 2.5)})`; },
     });
   }
-  // Çeviri sesi gelince mikrofonu tamamen kapat (temiz, yüksek ses), çalma bitince yeniden aç
-  let hfPaused = false;
-  player.onHeld = () => {
-    if (!handsFree || hfPaused) return;
-    hfPaused = true;
-    if (mic) { mic.stop(); mic = null; }
-    setStatus('Çeviri seslendiriliyor…', true);
-    setTimeout(() => player.hold(false), 160);
-  };
-  function hfOnAudioStart() {
-    if (handsFree && mic && !hfPaused) player.hold(true);
-  }
-  const _prevIdle = player.onIdle;
-  player.onIdle = () => {
-    if (handsFree && hfPaused) {
-      hfPaused = false;
-      const a = session('toOther'), b = session('toMine');
-      mic = makeHfMic(a, b);
-      mic.start().then(() => setStatus('Dinliyorum — konuşabilirsiniz', true)).catch(() => stopHandsFree());
-      return;
-    }
-    if (_prevIdle) _prevIdle();
-  };
+  function hfOnAudioStart() { /* (eski sürüm uyumluluğu) */ }
   function stopHandsFree() {
-    hfPaused = false;
-    player.hold(false);
     handsFree = false;
     if (mic) { mic.stop(); mic = null; }
     const t = $('ltToggle'); if (t) t.classList.remove('recording');
     const tt = $('ltToggleText'); if (tt) tt.textContent = 'Başlat';
-    Object.values(sessions).forEach((s) => { if (s.isOpen) s.send({ realtimeInput: { audioStreamEnd: true } }); });
+    Object.values(sessions).forEach((s) => { if (s.isOpen) s.streamEnd(); });
     idle();
   }
   function stopAll() { if (handsFree) stopHandsFree(); if (mic) { mic.stop(); mic = null; } holdDir = null; player.stop(); }

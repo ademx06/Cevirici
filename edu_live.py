@@ -74,7 +74,8 @@ def tutor_instructions(lang: str, level: str, scenario: str | None = None, weak:
     return "\n".join(parts)
 
 
-def tutor_setup(model: str, lang: str, level: str, scenario: str | None, weak: list[str] | None, voice: str = "") -> dict:
+def tutor_setup(model: str, lang: str, level: str, scenario: str | None, weak: list[str] | None, voice: str = "",
+                vad: bool = False) -> dict:
     gen: dict = {"responseModalities": ["AUDIO"], "temperature": 0.7}
     if voice:
         gen["speechConfig"] = {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice}}}
@@ -82,8 +83,12 @@ def tutor_setup(model: str, lang: str, level: str, scenario: str | None, weak: l
         "model": f"models/{model}",
         "generationConfig": gen,
         "systemInstruction": {"parts": [{"text": tutor_instructions(lang, level, scenario, weak)}]},
-        # Bas-konuş: sesi biz başlatıp bitiriyoruz → bıraktığın anda cevap başlar
-        "realtimeInputConfig": {"automaticActivityDetection": {"disabled": True}},
+        # vad=True: ses yalnızca basılıyken gönderilir, Google konuşmayı kendisi algılar → yazı konuşurken akar;
+        #           bırakınca audioStreamEnd ile cevap hemen başlar. vad=False: activityStart/End elle.
+        "realtimeInputConfig": ({"automaticActivityDetection": {
+            "disabled": False, "startOfSpeechSensitivity": "START_SENSITIVITY_HIGH",
+            "endOfSpeechSensitivity": "END_SENSITIVITY_LOW", "prefixPaddingMs": 120, "silenceDurationMs": 1600}}
+            if vad else {"automaticActivityDetection": {"disabled": True}}),
         "inputAudioTranscription": {},
         "outputAudioTranscription": {},
         "sessionResumption": {},
@@ -151,14 +156,14 @@ def create_token(setup: dict, minutes: int = 30) -> dict:
 
 def live_session(kind: str, *, lang: str = "en", level: str = "A1", scenario: str | None = None,
                  weak: list[str] | None = None, target: str = "en", voice: str = "", model: str = "",
-                 variant: int = 0) -> dict:
+                 variant: int = 0, vad: bool = False) -> dict:
     """Jeton + kurulum mesajı + WebSocket adresi (istemci doğrudan Google'a bağlanır)."""
     if kind == "translate":
         models = [model] if model else TRANSLATE_MODELS
         build = lambda m: translate_setup(m, target, variant)  # noqa: E731
     else:
         models = [model] if model else TUTOR_MODELS
-        build = lambda m: tutor_setup(m, lang, level, scenario, weak, voice)  # noqa: E731
+        build = lambda m: tutor_setup(m, lang, level, scenario, weak, voice, vad)  # noqa: E731
     models = [m for m in models if _DEAD_MODELS.get(m, 0) < time.time()] or models
     m = models[0]
     setup = build(m)

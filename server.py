@@ -32,7 +32,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.10.21-v74.6"
+APP_VERSION = "2026.10.21-v74.7"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -3649,6 +3649,7 @@ class Handler(SimpleHTTPRequestHandler):
             voice=re.sub(r"[^A-Za-z-]", "", safe_str(p.get("voice")))[:20],
             model=re.sub(r"[^\w./:-]", "", safe_str(p.get("model")))[:60],
             variant=int(p.get("variant") or 0) if str(p.get("variant") or "0").isdigit() else 0,
+            vad=bool(p.get("vad")),
         )
         if not res.get("ok") and p.get("model"):
             edu_live.mark_model_dead(safe_str(p.get("model")))
