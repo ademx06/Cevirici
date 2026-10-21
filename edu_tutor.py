@@ -115,7 +115,7 @@ def _system_prompt(lang: str, level: str, mode: str, scenario: str, weak: list[s
             f"The learner spoke {name} (may contain mistakes or speech-recognition noise). "
             f"1) Understand what they MEANT. 2) Check the sentence like a strict native teacher: verb forms and "
             f"tense, auxiliary verbs, articles, gender, case, agreement, prepositions, word order. If there is ANY real "
-            f"grammar or word error, put the corrected sentence in "
+            f"grammar or word error (write your analysis in 'check' FIRST), put the corrected sentence in "
             f"'fix.fixed' with status 'fix' and explain the rule in 1-2 simple Turkish sentences in 'fix.explain_tr'. "
             f"If it is correct but unnatural, use status 'better' with a more natural version. If it is fine, "
             f"'fix' = null. Never 'fix' punctuation or capitalization only. "
@@ -124,7 +124,8 @@ def _system_prompt(lang: str, level: str, mode: str, scenario: str, weak: list[s
             f"level (word in {name} + Turkish meaning)."
         )
         schema = (
-            '{"reply": "<target-language reply>", "reply_tr": "<Turkish meaning>"' + ok_field + ', '
+            '{"check": "<one short English line: quote each wrong word/form in the learner sentence and the rule, or OK>", '
+            '"reply": "<target-language reply>", "reply_tr": "<Turkish meaning>"' + ok_field + ', '
             '"fix": {"status": "fix|better", "fixed": "<corrected learner sentence>", "fixed_tr": "<Turkish>"'
             + ok_fix + ', "explain_tr": "<why, in Turkish>"} or null, '
             '"words": [{"word": "<target word>", "tr": "<Turkish>"}], "user_level": "A1|A2|B1|B2|C1|C2"}'

@@ -446,4 +446,5 @@ def pinyin_okunus(pinyin: str) -> str:
         out = "".join(parts)
         return out[:1].upper() + out[1:] if raw[:1].isupper() else out
 
-    return _tidy(re.sub(r"[A-Za-zÜü'’]+", repl, text))
+    out = _tidy(re.sub(r"[A-Za-zÜü'’]+", repl, text))
+    return re.sub(r"(^|[.!?]\s+)([a-zçğışöü])", lambda m: m.group(1) + m.group(2).upper(), out)
