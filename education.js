@@ -109,7 +109,10 @@
   }
   const loadChat = () => { const c = safeGet(chatKey(P.lang), []); return Array.isArray(c) ? c.map(cleanMsg).filter(Boolean).slice(-60) : []; };
   try { ['edu_chat_v3', 'edu_history_v2'].forEach((k) => localStorage.removeItem(k)); } catch { /* ignore */ }
-  const saveChat = () => safeSet(chatKey(P.lang), S.msgs.slice(-60));
+  const saveChat = () => safeSet(chatKey(P.lang), S.msgs.slice(-60).map((m) => {
+    const { _audio, _rate, pending, live, ...rest } = m; // eslint-disable-line no-unused-vars
+    return rest;
+  }));
 
   // ------------------------------------------------------------------ status
   let statusTimer = null;
@@ -222,7 +225,7 @@
         ${m.fix.explain_tr ? `<p class="fix-why">${esc(m.fix.explain_tr)}</p>` : ''}
         <div class="t-actions">${playBtns(idx, 'fix')}</div>
       </div>`;
-    } else if (m.mode === 'speak' && m.you && m.provider && m.provider !== 'rules') {
+    } else if (m.mode === 'speak' && m.you && !m.pending && m.provider && m.provider !== 'rules') {
       html += '<span class="ok-badge">✓ Doğru söyledin</span>';
     }
     if (m.examples && m.examples.length) {
@@ -239,6 +242,7 @@
     }
     if (m.reply) {
       html += `<p class="t-target"${dir} lang="${esc(m.lang || P.lang)}">${esc(m.reply)}</p>${okunusLine(m.okunus)}${trLine(m.reply_tr)}`;
+      if (m.pending && !m.okunus && P.showOkunus) html += '<p class="t-pending">okunuş hazırlanıyor…</p>';
       html += `<div class="t-actions">${playBtns(idx, 'reply')}</div>`;
     }
     if (m.words && m.words.length) {
@@ -249,21 +253,26 @@
 
   function renderUser(m) {
     const help = m.mode === 'help';
-    return `<div class="msg msg-user ${help ? 'help' : ''}">${help ? '<span class="msg-tag">Yardım · Türkçe</span>' : ''}<div class="msg-body">${esc(m.text)}</div></div>`;
+    const txt = m.text || (m.pending ? '…' : '');
+    return `<div class="msg msg-user ${help ? 'help' : ''} ${m.pending ? 'is-live' : ''}">${help ? '<span class="msg-tag">Yardım · Türkçe</span>' : ''}<div class="msg-body">${esc(txt)}</div></div>`;
   }
 
   function render() {
     const feed = $('feed');
     if (!S.msgs.length) {
       const lg = langOf(P.lang);
-      feed.innerHTML = `<div class="edu-intro"><b>${lg.flag} ${lg.tr} · ${level()}</b><br>
-        <b>Konuş</b>'a basılı tut ve ${lg.tr} konuş — öğretmen cevap verir, hatanı düzeltir.<br>
-        Takılırsan <b>Yardım</b>'a basılı tut, ne demek istediğini <b>Türkçe</b> söyle.</div>`;
+      feed.innerHTML = `<div class="edu-start">
+        <div class="edu-start-flag">${lg.flag}</div>
+        <h2>${lg.tr} dersi · ${level()}</h2>
+        <p>Öğretmen seninle <b>sesli</b> konuşur. <b>Konuş</b>'a basılı tut, ${lg.tr} söyle — bıraktığın an cevap verir.
+        Takılırsan <b>Yardım</b>'a basıp <b>Türkçe</b> sor.</p>
+        <button type="button" id="startLesson" class="btn btn-accent btn-block">Derse başla</button>
+      </div>`;
       return;
     }
     feed.innerHTML = S.msgs.map((m, i) => (m.role === 'user' ? renderUser(m) : renderTutor(m, i))).join('')
-      + (S.busy ? '<div class="msg msg-tutor"><div class="typing"><i></i><i></i><i></i></div></div>' : '');
-    requestAnimationFrame(() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }));
+      + (S.busy && !L.tutorMsg ? '<div class="msg msg-tutor"><div class="typing"><i></i><i></i><i></i></div></div>' : '');
+    requestAnimationFrame(() => { feed.scrollTop = feed.scrollHeight; });
   }
 
   function partItems(m, part) {
@@ -280,9 +289,16 @@
     if (b) {
       unlockAudio();
       const m = S.msgs[Number(b.dataset.play)];
-      void speak(partItems(m, b.dataset.part), { slow: b.dataset.slow === '1' || P.slow, btn: b });
+      const slow = b.dataset.slow === '1';
+      if (m && m._audio && m._audio.length && b.dataset.part === 'reply' && !slow && L.player) {
+        stopAudio(); LiveAudio.unlock(); L.player.replay(m._audio, m._rate || 24000);
+        return;
+      }
+      void speak(partItems(m, b.dataset.part), { slow: slow || P.slow, btn: b });
       return;
     }
+    const st = e.target.closest('#startLesson');
+    if (st) { void liveGreet(); return; }
     const w = e.target.closest('[data-word]');
     if (w) { unlockAudio(); void speak([{ text: w.dataset.word, lang: P.lang }], { btn: w }); }
   });
@@ -486,7 +502,9 @@
     input.value = '';
     unlockAudio();
     const mode = /^\s*(yardım|yardim)\b/i.test(text) ? 'help' : 'speak';
-    await runTurn({ text: mode === 'help' ? text.replace(/^\s*(yardım|yardim)[\s,:-]*/i, '') || text : text, mode });
+    const clean = mode === 'help' ? text.replace(/^\s*(yardım|yardim)[\s,:-]*/i, '') || text : text;
+    if (LIVE_OK && L.failed < 2) { await liveSendText(clean, mode); return; }
+    await runTurn({ text: clean, mode });
   }
 
   function blobToBase64(blob) {
@@ -541,18 +559,254 @@
     },
   });
 
+  // ------------------------------------------------------------------ CANLI SES (Gemini Live)
+  // Bas-konuş: konuşurken ses parça parça Google'a akar; bıraktığın anda cevap sesli akmaya başlar.
+  const LIVE_OK = !!(window.LiveAudio && window.WebSocket && window.AudioWorkletNode && navigator.mediaDevices);
+  const L = { session: null, player: null, mic: null, pendingChunks: [], talking: false, userMsg: null, tutorMsg: null,
+    started: false, failed: 0, turnTimer: null, mode: 'speak', sessionKey: '' };
+
+  function liveBody() {
+    return { kind: 'tutor', lang: P.lang, level: level(), scenario: P.scenario || null, weak: weakForApi() };
+  }
+  function liveKey() { return `${P.lang}|${level()}|${P.scenario || ''}`; }
+
+  function seedTurns() {
+    return S.msgs.slice(-8).map((m) => (m.role === 'user'
+      ? { role: 'user', parts: [{ text: m.text }] }
+      : { role: 'model', parts: [{ text: m.reply || (m.examples && m.examples[0] && m.examples[0].text) || '' }] }))
+      .filter((t) => t.parts[0].text);
+  }
+
+  function ensureLive() {
+    if (!LIVE_OK) return Promise.reject(new Error('Bu tarayıcı canlı sesi desteklemiyor'));
+    if (L.session && L.sessionKey !== liveKey()) { L.session.close(); L.session = null; }
+    if (!L.player) {
+      L.player = new LiveAudio.Player({
+        onStart: () => { setStatus('Öğretmen konuşuyor…', true, true); },
+        onIdle: () => { if (!L.talking && !S.busy) idleStatus(); },
+      });
+    }
+    if (!L.session) {
+      L.sessionKey = liveKey();
+      L.session = new LiveAudio.Session({
+        body: liveBody(),
+        onReady: () => {
+          // Yeni oturum (devam tutamacı yoksa): önceki sohbeti bağlam olarak ver
+          if (!L.session.handle && S.msgs.length) L.session.seed(seedTurns());
+        },
+        onAudio: (u8, rate) => {
+          if (!L.tutorMsg) startTutorMsg();
+          L.tutorMsg._audio.push(u8);
+          L.tutorMsg._rate = rate;
+          if (P.autoSpeak) L.player.enqueue(u8, rate);
+        },
+        onInput: (t) => {
+          if (L.userMsg) { L.userMsg.text = (L.userMsg.text + t).replace(/\s+/g, ' '); renderSoon(); }
+        },
+        onOutput: (t) => {
+          if (!L.tutorMsg) startTutorMsg();
+          L.tutorMsg.reply = (L.tutorMsg.reply + t).replace(/\s+/g, ' ');
+          renderSoon();
+        },
+        onInterrupted: () => { L.player.stop(); },
+        onTurnComplete: () => finishLiveTurn(),
+        onState: (st) => {
+          if (st === 'closed' || st === 'goaway') { if (L.session) L.session.ws = null; }
+        },
+      });
+    }
+    return L.session.connect();
+  }
+
+  function startTutorMsg() {
+    S.busy = false;
+    L.tutorMsg = { role: 'tutor', lang: P.lang, mode: L.mode, you: L.mode === 'speak' && L.userMsg ? L.userMsg.text : '',
+      reply: '', reply_tr: '', okunus: '', fix: null, examples: [], explain_tr: '', words: [], provider: 'live', live: true,
+      pending: true, t: Date.now(), _audio: [], _rate: 24000 };
+    S.msgs.push(L.tutorMsg);
+    renderSoon();
+  }
+
+  let renderPending = false;
+  function renderSoon() {
+    if (renderPending) return;
+    renderPending = true;
+    requestAnimationFrame(() => { renderPending = false; render(); });
+  }
+
+  async function finishLiveTurn() {
+    clearTimeout(L.turnTimer);
+    const user = L.userMsg; const tutor = L.tutorMsg;
+    L.userMsg = null; L.tutorMsg = null; S.busy = false;
+    if (user && !user.text.trim()) {
+      const i = S.msgs.indexOf(user);
+      if (i >= 0) S.msgs.splice(i, 1);
+    }
+    if (user) user.pending = false;
+    if (!tutor) { render(); idleStatus(); return; }
+    tutor.reply = tutor.reply.trim();
+    tutor.you = tutor.mode === 'speak' && user ? user.text.trim() : '';
+    render(); saveChat();
+    if (!L.player.playing) idleStatus();
+    // Ekrana: okunuş + Türkçe + (varsa) düzeltme — ses zaten çaldı, kullanıcıyı bekletmez
+    try {
+      const r = await fetch('/api/edu/annotate', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lang: tutor.lang, tutor_text: tutor.reply, user_text: user && user.mode !== 'help' ? user.text : '', mode: tutor.mode, level: level() }) });
+      const a = await r.json();
+      if (r.ok) {
+        tutor.okunus = a.okunus || ''; tutor.reply_tr = a.tr || ''; tutor.fix = a.fix || null; tutor.words = a.words || [];
+        if (tutor.mode === 'speak' && user && user.text.trim()) {
+          P.turns = (P.turns || 0) + 1;
+          if (!tutor.fix) P.correct = (P.correct || 0) + 1;
+          adaptLevel({ fix: tutor.fix, user_level: a.user_level });
+          bumpDay(!tutor.fix);
+        } else {
+          bumpDay(false);
+        }
+        recordLearning({ words: tutor.words, fix: tutor.fix }, tutor.you);
+        saveProfile();
+      }
+    } catch { /* ekran bilgisi gelmezse ses yine de çaldı */ }
+    tutor.pending = false;
+    saveChat(); render(); syncHeader();
+  }
+
+  async function liveHoldStart(btn, mode) {
+    if (L.talking) return;
+    LiveAudio.unlock();
+    L.player && L.player.stop();
+    stopAudio();
+    if (L.tutorMsg) { L.tutorMsg.pending = false; L.tutorMsg = null; }
+    L.talking = true; L.mode = mode; L.pendingChunks = [];
+    btn.classList.add('recording');
+    setStatus(mode === 'help' ? 'Dinliyorum — Türkçe söyle…' : `Dinliyorum — ${langOf(P.lang).tr} konuş…`, true, true);
+    L.userMsg = { role: 'user', text: '', mode, t: Date.now(), pending: true };
+    S.msgs.push(L.userMsg);
+    renderSoon();
+    const connecting = ensureLive().then(() => {
+      L.session.activityStart();
+      const q = L.pendingChunks; L.pendingChunks = [];
+      q.forEach((c) => L.session.sendAudio(c));
+    });
+    L.mic = new LiveAudio.Mic({
+      onChunk: (u8) => {
+        if (L.session && L.session.isOpen && !L.pendingChunks.length && L.session._activity) L.session.sendAudio(u8);
+        else L.pendingChunks.push(u8);
+      },
+    });
+    connecting.then(() => { if (L.session) L.session._activity = true; }).catch(() => {});
+    try {
+      await L.mic.start();
+    } catch (e) {
+      liveAbort(btn, (e && e.name === 'NotAllowedError') ? 'Mikrofon izni gerekli (Ayarlar → Safari → Mikrofon)' : 'Mikrofon açılamadı');
+      return;
+    }
+    connecting.catch((e) => { L.failed += 1; liveAbort(btn, e.message || 'Canlı bağlantı kurulamadı'); });
+  }
+
+  function liveAbort(btn, msg) {
+    L.talking = false;
+    if (L.mic) { L.mic.stop(); L.mic = null; }
+    btn.classList.remove('recording');
+    if (L.userMsg) { const i = S.msgs.indexOf(L.userMsg); if (i >= 0) S.msgs.splice(i, 1); L.userMsg = null; }
+    render();
+    setStatus(msg);
+  }
+
+  async function liveHoldEnd(btn) {
+    if (!L.talking) return;
+    L.talking = false;
+    btn.classList.remove('recording');
+    if (L.mic) { L.mic.stop(); L.mic = null; }
+    S.busy = true;
+    setStatus('Cevap geliyor…', true, true);
+    render();
+    // son parça (flush) gelsin, sonra konuşmanın bittiğini bildir → cevap hemen başlar
+    setTimeout(async () => {
+      try {
+        if (L.session && !L.session.isOpen) await ensureLive();
+        if (L.pendingChunks.length && L.session && L.session.isOpen) {
+          const q = L.pendingChunks; L.pendingChunks = []; q.forEach((c) => L.session.sendAudio(c));
+        }
+        if (L.session) { L.session.activityEnd(); L.session._activity = false; }
+      } catch (e) { S.busy = false; setStatus(e.message || 'Bağlantı sorunu'); render(); return; }
+      clearTimeout(L.turnTimer);
+      L.turnTimer = setTimeout(() => { if (S.busy || L.userMsg) { finishLiveTurn(); setStatus('Cevap gelmedi — tekrar dene'); } }, 20000);
+    }, 120);
+  }
+
+  async function liveSendText(text, mode) {
+    LiveAudio.unlock();
+    stopAudio();
+    L.player && L.player.stop();
+    L.mode = mode;
+    L.userMsg = { role: 'user', text, mode, t: Date.now() };
+    S.msgs.push(L.userMsg);
+    S.busy = true;
+    render();
+    setStatus('Cevap geliyor…', true, true);
+    try {
+      await ensureLive();
+      L.session.sendText(mode === 'help' ? `(Türkçe yardım istiyor) ${text}` : text);
+      clearTimeout(L.turnTimer);
+      L.turnTimer = setTimeout(() => { if (S.busy || L.userMsg) finishLiveTurn(); }, 20000);
+    } catch (e) {
+      // canlı olmazsa klasik yol
+      const i = S.msgs.indexOf(L.userMsg); if (i >= 0) S.msgs.splice(i, 1);
+      L.userMsg = null; S.busy = false;
+      await runTurn({ text, mode });
+    }
+  }
+
+  async function liveGreet() {
+    if (L.started) return;
+    L.started = true;
+    LiveAudio.unlock();
+    S.busy = true; render();
+    setStatus('Bağlanıyor…', true, true);
+    try {
+      await ensureLive();
+      L.mode = 'greeting';
+      L.session.sendText('[BAŞLA]');
+      L.turnTimer = setTimeout(() => { if (S.busy) finishLiveTurn(); }, 15000);
+    } catch (e) {
+      S.busy = false; render();
+      setStatus('Canlı ses açılamadı — klasik moda geçildi');
+      void greet();
+    }
+  }
+
   function bindMic(btn, mode) {
-    if (!btn || !mic) return;
-    const arm = () => { S.mode = mode; activeMicBtn = btn; };
-    btn.addEventListener('touchstart', arm, { passive: true, capture: true });
-    btn.addEventListener('mousedown', arm, { capture: true });
-    mic.bindHold(btn);
+    if (!btn) return;
+    const useLive = () => LIVE_OK && L.failed < 2;
+    const down = (e) => {
+      e.preventDefault();
+      if (useLive()) { void liveHoldStart(btn, mode); return; }
+      S.mode = mode; activeMicBtn = btn;
+      if (mic) void mic.beginHold();
+    };
+    const up = (e) => {
+      e.preventDefault();
+      if (L.talking) { void liveHoldEnd(btn); return; }
+      if (mic) mic.endHold();
+    };
+    let usedTouch = false;
+    btn.addEventListener('contextmenu', (e) => e.preventDefault());
+    btn.addEventListener('touchstart', (e) => { usedTouch = true; down(e); }, { passive: false });
+    btn.addEventListener('touchend', up, { passive: false });
+    btn.addEventListener('touchcancel', up, { passive: false });
+    btn.addEventListener('mousedown', (e) => { if (!usedTouch) down(e); });
+    btn.addEventListener('mouseup', (e) => { if (!usedTouch) up(e); });
+    btn.addEventListener('mouseleave', (e) => { if (!usedTouch && L.talking) up(e); });
   }
   bindMic($('micBtn'), 'speak');
   bindMic($('helpBtn'), 'help');
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     ['micBtn', 'helpBtn'].forEach((id) => { $(id).disabled = true; });
   }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden' && L.session) { L.player && L.player.stop(); }
+  });
 
   // ------------------------------------------------------------------ sheets
   function openSheet(id) { $(id).classList.remove('hidden'); }
@@ -581,10 +835,13 @@
 
   function switchConversation() {
     stopAudio();
+    if (L.player) L.player.stop();
+    if (L.session) { L.session.close(); L.session = null; }
+    L.started = false; L.userMsg = null; L.tutorMsg = null; S.busy = false;
     S.msgs = loadChat();
     syncHeader();
     render();
-    if (!S.msgs.length) void greet();
+    if (!S.msgs.length && !LIVE_OK) void greet();
   }
 
   $('langGrid').addEventListener('click', (e) => {

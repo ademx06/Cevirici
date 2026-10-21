@@ -11,9 +11,9 @@
   <link rel="apple-touch-icon" href="icon-192.png">
   <link rel="manifest" href="manifest.json">
   <title>Eğitim — Sesli Çevirmen</title>
-  <link rel="stylesheet" href="styles.css?v=101">
+  <link rel="stylesheet" href="styles.css?v=110">
 </head>
-<body class="edu">
+<body class="edu shell">
   <div class="app">
     <header class="header">
       <div class="header-left">
@@ -45,7 +45,7 @@
 
     <div id="aiNotice" class="notice notice-warn hidden"></div>
 
-    <main id="feed" class="edu-feed" aria-live="polite"></main>
+    <main id="feed" class="edu-feed scroll" aria-live="polite"></main>
 
     <section class="dock edu-dock">
       <div id="eduStatus" class="edu-status"><span id="statusDot" class="status-dot"></span><span id="statusText">Hazır</span></div>
@@ -124,6 +124,7 @@
   <script src="api-client.js?v=7"></script>
   <script src="keepalive.js?v=2"></script>
   <script src="mic-hold.js?v=5"></script>
-  <script src="education.js?v=101"></script>
+  <script src="live-audio.js?v=1"></script>
+  <script src="education.js?v=110"></script>
 </body>
 </html>

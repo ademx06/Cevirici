@@ -11,16 +11,16 @@
   <link rel="apple-touch-icon" href="icon-192.png">
   <link rel="manifest" href="manifest.json">
   <title>Çeviri — Sesli Çevirmen</title>
-  <link rel="stylesheet" href="styles.css?v=100">
+  <link rel="stylesheet" href="styles.css?v=110">
 </head>
-<body>
+<body class="shell">
   <div class="app">
     <header class="header">
       <div class="header-left">
         <a href="/" class="back-btn" aria-label="Ana menü">←</a>
         <div>
           <h1>Çeviri</h1>
-          <p class="tagline">Hangi dilde konuşursan o düğmeye bas</p>
+          <p class="tagline"><span class="live-dot"></span> Canlı · konuşurken çevirir</p>
         </div>
       </div>
       <button id="clearBtn" class="ghost-btn hidden" type="button">Temizle</button>
@@ -50,7 +50,7 @@
       <div id="interimText"></div>
     </div>
 
-    <main id="messages" class="messages">
+    <main id="messages" class="messages scroll">
       <div class="empty-state">
         <div class="empty-icon"></div>
         <h2>Basılı tut ve konuş</h2>
@@ -81,13 +81,11 @@
           </span>
         </button>
       </div>
-      <button id="testBtn" class="test-btn" type="button">Hoparlörü test et</button>
     </section>
   </div>
 
-  <script src="mic-hold.js?v=5"></script>
-  <script src="api-client.js?v=7"></script>
   <script src="keepalive.js?v=2"></script>
-  <script src="app.js?v=74"></script>
+  <script src="live-audio.js?v=1"></script>
+  <script src="live-translate.js?v=1"></script>
 </body>
 </html>

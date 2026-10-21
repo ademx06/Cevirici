@@ -92,7 +92,7 @@ def tutor_setup(model: str, lang: str, level: str, scenario: str | None, weak: l
 
 def translate_setup(model: str, target: str, variant: int = 0) -> dict:
     tc = {"targetLanguageCode": BCP47.get(target, target), "echoTargetLanguage": False}
-    if variant == 0:  # dokümandaki biçim
+    if variant == 1:  # dokümandaki biçim (canlıda reddedildi — yedek)
         return {"model": f"models/{model}", "generationConfig": {
             "responseModalities": ["AUDIO"], "inputAudioTranscription": {}, "outputAudioTranscription": {},
             "translationConfig": tc}}
