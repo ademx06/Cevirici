@@ -2,7 +2,7 @@
   "name": "Sesli Çevirmen",
   "short_name": "Çevirmen",
   "description": "Sesli çeviri ve dil eğitimi",
-  "start_url": "/",
+  "start_url": "/index.html?v=742",
   "display": "standalone",
   "background_color": "#F4F1EA",
   "theme_color": "#F4F1EA",
