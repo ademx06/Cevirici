@@ -396,6 +396,20 @@ def _fast_complete_word_lesson(
     return profile, examples, category
 
 
+def _light_filter_examples(examples: list[dict[str, Any]], target_word: str) -> list[dict[str, Any]]:
+    """İngilizce dışı diller: çekimli fiiller (scrivo/escribo) mastar kontrolüne takılmasın — temel kalite yeterli."""
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for ex in examples:
+        t = safe_str(ex.get("target")).strip()
+        tr = safe_str(ex.get("tr")).strip()
+        if len(t.split()) < 2 or not tr or t.lower() in seen:
+            continue
+        seen.add(t.lower())
+        out.append(ex)
+    return out
+
+
 def _wl_dbg() -> dict:
     try:
         from education_engine import WL_DEBUG
@@ -458,7 +472,10 @@ def generate_word_lesson(
                 enriched = _enrich_example(ex, target_lang, [target_word], known_words)
                 if _validate_example(enriched):
                     examples.append(enriched)
-            examples = sanitize_word_examples(examples, word_tr, target_word, profile)
+            if target_lang.split("-")[0] == "en":
+                examples = sanitize_word_examples(examples, word_tr, target_word, profile)
+            else:
+                examples = _light_filter_examples(examples, target_word)
             ai_example_count = len(examples)
 
     timing["ai"] = round(_tm.monotonic() - _t0, 2)
