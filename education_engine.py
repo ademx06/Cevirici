@@ -7821,12 +7821,25 @@ def _llm_json_word_lesson(system: str, user: str, max_tokens: int = 2400) -> dic
         providers = ["groq"]
     for provider in providers:
         raw = _llm_chat_json_raw(provider, system, user, max_tokens)
-        if raw:
-            parsed = _parse_json_object(raw)
+        parsed = _parse_json_object(raw) if raw else None
+        WL_DEBUG.clear()
+        WL_DEBUG.update({"provider": provider, "raw_len": len(raw or ""), "head": safe_str(raw)[:160],
+                         "keys": list(parsed.keys())[:12] if isinstance(parsed, dict) else None,
+                         "n": len(parsed.get("examples")) if isinstance(parsed, dict) and isinstance(parsed.get("examples"), list) else None})
+        if parsed:
+            # Bazı modeller örnekleri iç içe döndürür ({"lesson": {"examples": [...]}}) → düzleştir
+            if not isinstance(parsed.get("examples"), list):
+                for v in parsed.values():
+                    if isinstance(v, dict) and isinstance(v.get("examples"), list):
+                        parsed = {**parsed, **v}
+                        break
             # İnce/şablon yanıtları reddet — en az 8 örnek
-            if parsed and isinstance(parsed.get("examples"), list) and len(parsed["examples"]) >= 8:
+            if isinstance(parsed.get("examples"), list) and len(parsed["examples"]) >= 8:
                 return parsed
     return None
+
+
+WL_DEBUG: dict = {}
 
 
 _FAIRY_OPENERS = {

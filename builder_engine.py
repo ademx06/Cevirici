@@ -396,6 +396,14 @@ def _fast_complete_word_lesson(
     return profile, examples, category
 
 
+def _wl_dbg() -> dict:
+    try:
+        from education_engine import WL_DEBUG
+        return dict(WL_DEBUG)
+    except Exception:
+        return {}
+
+
 def generate_word_lesson(
     word_tr: str,
     target_lang: str,
@@ -514,7 +522,7 @@ def generate_word_lesson(
         "usage": usage,
         "examples": examples[:13],
         "lesson_source": lesson_source,
-        "timing": {**timing, "total": round(_tm.monotonic() - _t0, 2), "ai_issue": (ai_issues[0] if ai_issues else "")[:120]},
+        "timing": {**timing, "total": round(_tm.monotonic() - _t0, 2), "ai_issue": (ai_issues[0] if ai_issues else "")[:120], "dbg": _wl_dbg()},
     }
 
 
