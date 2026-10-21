@@ -12,6 +12,44 @@ const LANGUAGES = [
 ];
 
 const LEARN_LANGS = LANGUAGES.filter((l) => l.code !== 'tr');
+
+// Accent options per target language (locale must match server ACCENT_VOICES)
+const ACCENTS = {
+  en: [['en-US', 'Amerikan (ABD)'], ['en-GB', 'İngiliz (Londra)'], ['en-AU', 'Avustralya'], ['en-IE', 'İrlanda']],
+  es: [['es-ES', 'İspanya'], ['es-MX', 'Meksika']],
+  fr: [['fr-FR', 'Fransa'], ['fr-CA', 'Kanada (Québec)']],
+  de: [['de-DE', 'Almanya'], ['de-AT', 'Avusturya'], ['de-CH', 'İsviçre']],
+  ar: [['ar-SA', 'Suudi Arabistan'], ['ar-EG', 'Mısır']],
+  zh: [['zh-CN', 'Mandarin (Çin)'], ['zh-TW', 'Tayvan']],
+};
+const ACCENT_KEY = 'edu_accent_v1';
+
+function loadAccents() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(ACCENT_KEY) || '{}');
+    return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  } catch {
+    return {};
+  }
+}
+
+function accentFor(lang) {
+  const opts = ACCENTS[lang];
+  if (!opts) return '';
+  const chosen = safeStr(loadAccents()[lang]);
+  return opts.some(([loc]) => loc === chosen) ? chosen : '';
+}
+
+function syncAccentSelect() {
+  const sel = document.getElementById('accentSelect');
+  const field = document.getElementById('accentField');
+  if (!sel) return;
+  const opts = ACCENTS[S.learnLang] || [];
+  if (field) field.classList.toggle('hidden', !opts.length);
+  sel.innerHTML = opts.map(([loc, label]) => `<option value="${loc}">${label}</option>`).join('');
+  if (opts.length) sel.value = accentFor(S.learnLang) || opts[0][0];
+}
+
 const PROFILE_KEY = 'edu_profile_v2';
 const HISTORY_KEY = 'edu_history_v2';
 const CHAT_KEY = 'edu_chat_v3';
@@ -27,7 +65,7 @@ const STATES = {
 function idleStatusText() {
   const lg = getLang(S.learnLang);
   const name = lg?.name || 'hedef dil';
-  return `${name} konuş · 🇹🇷 Yardım`;
+  return `Hazır · ${name} konuş`;
 }
 
 function syncMicLabels() {
@@ -270,8 +308,20 @@ function sanitizeChatMsg(m) {
     helpExamples,
     helpTtsPairs,
     helpStructure,
+    orch: sanitizeOrchestrator(m.orch || m.orchestrator),
     time: safeStr(m.time),
   };
+}
+
+function sanitizeOrchestrator(o) {
+  if (!o || typeof o !== 'object' || Array.isArray(o)) return null;
+  const level = /^(A1|A2|B1|B2|C1|C2)$/.test(safeStr(o.level)) ? safeStr(o.level) : '';
+  const emotion = safeStr(o.emotion).slice(0, 24);
+  const intent = safeStr(o.intent).slice(0, 16);
+  const tone = safeStr(o.tone).slice(0, 80);
+  const alternatives = ensureArray(o.alternatives).map((a) => safeStr(a).slice(0, 160)).filter(Boolean).slice(0, 2);
+  if (!level && !emotion && !alternatives.length) return null;
+  return { level, emotion, intent, tone, alternatives };
 }
 
 function sanitizeMsgs(raw) {
@@ -352,6 +402,7 @@ function saveHistory() {
 function setUiState(name) {
   S.uiState = name;
   const st = STATES[name] || STATES.IDLE;
+  if (document.body) document.body.dataset.state = STATES[name] ? name : 'IDLE';
   const text = name === 'IDLE' ? idleStatusText() : st.text;
   safeText('statusText', text);
   safeClass('statusDot', 'toggle', 'active', st.live);
@@ -382,22 +433,27 @@ async function fetchAiStatus() {
     const { data: d } = await ApiClient.fetchJson('/api/status', {}, { wakeFirst: false, retries: 1, timeoutMs: 8000 });
     const banner = $('aiBanner');
     if (!banner) return;
-    if (d.groq_key_configured && d.groq_key_valid === false && d.groq_key_hint_tr) {
-      banner.textContent = '⚠️ ' + d.groq_key_hint_tr;
+    const showBanner = (title, detail) => {
+      banner.innerHTML = `<details><summary>⚠️ ${esc(title)} · detay</summary><p>${esc(detail)}</p></details>`;
       banner.classList.remove('hidden');
+    };
+    if (d.groq_key_configured && d.groq_key_valid === false && d.groq_key_hint_tr) {
+      showBanner('Groq anahtarı hatalı', safeStr(d.groq_key_hint_tr));
       safeText('statusText', 'Groq anahtarı hatalı');
       return;
     }
     if (d.ai_enabled) {
       banner.classList.add('hidden');
-      safeText('statusText', d.ai_provider_label ? `AI: ${d.ai_provider_label}` : 'AI öğretmen aktif');
+      const st = $('statusText');
+      if (st) st.title = safeStr(d.ai_provider_label || '');
+      if (S.uiState === 'IDLE') safeText('statusText', idleStatusText());
       return;
     }
-    banner.textContent =
-      '⚠️ AI öğretmen kapalı. ÜCRETSİZ Groq anahtarı: iPhone Safari → console.groq.com → '
-      + 'Sign up → API Keys → Create → gsk_... anahtarını Render\'da GROQ_API_KEY olarak kaydet '
-      + '(xAI Grok değil — gsk_ ile başlamalı, kredi kartı gerekmez).';
-    banner.classList.remove('hidden');
+    showBanner(
+      'AI mentor kapalı — kural modu',
+      'Ücretsiz Groq anahtarı: console.groq.com → API Keys → Create → gsk_... anahtarını Render\'da '
+      + 'GROQ_API_KEY olarak kaydet. Yedek olarak GEMINI_API_KEY / GEMINI_API_KEY_2 de eklenebilir.',
+    );
     safeText('statusText', 'Kural modu (AI kapalı)');
   } catch {
     /* ignore */
@@ -526,6 +582,13 @@ function esc(s) {
   const d = document.createElement('div');
   d.textContent = s ?? '';
   return d.innerHTML;
+}
+
+/** Escaped text with **bold** and line breaks (teacher messages use light markdown). */
+function richText(s) {
+  return esc(s)
+    .replace(/\*\*([^*\n]+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\n/g, '<br>');
 }
 
 function formatDate(dateStr) {
@@ -664,7 +727,7 @@ function renderCorrectionCard(detail) {
     }
   }
   if (explain && !words && !grammar) {
-    parts.push(`<div class="corr-row corr-tip"><span>💡 Açıklama</span><p>${esc(explain).replace(/\n/g, '<br>')}</p></div>`);
+    parts.push(`<div class="corr-row corr-tip"><span>💡 Açıklama</span><p>${richText(explain)}</p></div>`);
   }
   if (!parts.length) return '';
   return `<div class="correction-card">${parts.join('')}</div>`;
@@ -679,15 +742,13 @@ function render() {
   try {
   S.msgs = sanitizeMsgs(S.msgs);
   if (!S.msgs.length) {
-    el.innerHTML = `<div class="chat-welcome">
-      <div class="chat-welcome-avatar">🤖</div>
-      <p>Merhaba! Ben senin öğretmeninim.<br>
-      <strong>İngilizce konuş</strong> — hatalarını Türkçe açıklarım.<br>
-      Takılırsan: <strong>yardım ben bugün işe gideceğim…</strong> de.</p></div>`;
-    safeClass('clearBtn', 'add', 'hidden');
+    const wl = getLang(S.learnLang);
+    el.innerHTML = `<div class="jv-boot">
+      <span class="jv-boot-title">MENTOR ÇEVRİMİÇİ</span>
+      <p><strong>${esc(wl.flag)} ${esc(wl.name)}</strong> konuş — seni anlar, doğal şekilde cevap veririm.<br>
+      Takıldığında <strong>Yardım</strong>'a bas ve Türkçe söyle.</p></div>`;
     return;
   }
-  safeClass('clearBtn', 'remove', 'hidden');
   el.innerHTML = S.msgs.map((m, i) => {
     try {
     const lg = getLang(S.learnLang);
@@ -754,7 +815,7 @@ function render() {
       ${hs.commands ? `<pre class="chat-help-cmds">${esc(safeStr(hs.commands))}</pre>` : ''}
     </div>` : '';
     const enBlock = teacherEn && !hideEnBlock
-      ? `<div class="chat-lang-block chat-en ${isTeaching ? 'chat-en-compact' : ''}"><span>${lg.flag} ${isTeaching ? 'Devam' : lg.name}</span><p>${esc(teacherEn).replace(/\n/g, '<br>')}</p>${(!helpBlocks && m.phoneticEn) ? `<p class="chat-phonetic">🔤 ${esc(m.phoneticEn)}</p>` : ''}</div>`
+      ? `<div class="chat-lang-block chat-en ${isTeaching ? 'chat-en-compact' : ''}"><span${isTeaching ? '' : ` lang="${esc(S.learnLang)}"`}>${lg.flag} ${isTeaching ? 'Devam' : lg.name}</span><p>${richText(teacherEn)}</p>${(!helpBlocks && m.phoneticEn) ? `<p class="chat-phonetic">🔤 ${esc(m.phoneticEn)}</p>` : ''}</div>`
       : '';
     // When structured help cards exist, keep a short TR cue (examples live in cards)
     let trShow = teacherTr;
@@ -771,18 +832,25 @@ function render() {
       teacherEn.includes(trShow.slice(0, 30)) || trShow.includes((m.correction || '').toString().slice(0, 20))
     );
     const trBlock = trShow && !isTeaching && !trLooksDuplicate
-      ? `<div class="chat-lang-block chat-tr"><span>🇹🇷 Türkçe</span><p>${esc(trShow).replace(/\n/g, '<br>')}</p></div>`
+      ? `<div class="chat-lang-block chat-tr"><span>🇹🇷 Türkçe</span><p>${richText(trShow)}</p></div>`
       : (trShow && !isTeaching && trShow.length <= 220
-        ? `<div class="chat-lang-block chat-tr"><span>🇹🇷 Türkçe</span><p>${esc(trShow).replace(/\n/g, '<br>')}</p></div>`
+        ? `<div class="chat-lang-block chat-tr"><span>🇹🇷 Türkçe</span><p>${richText(trShow)}</p></div>`
         : '');
     const replayBtn = shouldShowReplay({ correction_level: m.correctionLevel, speak_tr: m.speakTr, type: m.type, teacher_en: m.teacherEn, teacher_tr: m.teacherTr, help_tts_pairs: m.helpTtsPairs })
       ? `<button type="button" class="replay-btn chat-replay" data-idx="${i}">🔊 Dinle</button>`
       : '';
+    const orch = m.orch || null;
+    const orchTags = orch
+      ? `${orch.level ? `<span class="jv-tag" title="Tahmini seviye">${esc(orch.level)}</span>` : ''}${orch.emotion ? `<span class="jv-tag jv-tag-mood" title="Algılanan ruh hali">${esc(orch.emotion)}</span>` : ''}`
+      : '';
+    const alts = orch && orch.alternatives && orch.alternatives.length && !helpExamples.length
+      ? `<div class="jv-alts"><p class="jv-alts-title">ŞÖYLE DE DİYEBİLİRSİN</p>${orch.alternatives.map((a) => `<button type="button" class="jv-alt" data-text="${esc(a)}" data-lang="${esc(m.ttsLanguage || S.learnLang)}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5L6 9H3v6h3l5 4V5zM16 9a4 4 0 0 1 0 6"/></svg><span>${esc(a)}</span></button>`).join('')}</div>`
+      : '';
     return `<div class="chat-row chat-row-teacher">
-        <div class="chat-avatar">🤖</div>
+        <div class="chat-avatar" aria-hidden="true"></div>
         <div class="chat-bubble chat-bubble-teacher ${isTeaching ? 'chat-bubble-teaching' : ''}">
-          <div class="chat-meta">Öğretmen · ${time}</div>
-          ${corr}${enBlock}${helpBlocks}${helpTeach}${trBlock}${vocab}${replayBtn}
+          <div class="chat-meta">Mentor · ${time}${orchTags}</div>
+          ${corr}${enBlock}${helpBlocks}${helpTeach}${trBlock}${alts}${vocab}${replayBtn}
         </div></div>`;
     } catch {
       return '';
@@ -809,7 +877,7 @@ function render() {
       });
     };
   });
-  el.querySelectorAll('.chat-help-listen').forEach((btn) => {
+  el.querySelectorAll('.chat-help-listen, .jv-alt').forEach((btn) => {
     btn.onclick = (e) => {
       e.preventDefault();
       unlockAudioSync();
@@ -853,6 +921,8 @@ async function fetchAndPlayTts(phrase, lang, slow = false) {
   if (!text) return;
   const params = new URLSearchParams({ q: text.slice(0, 600), tl: lang });
   if (slow) params.set('slow', '1');
+  const voice = accentFor(lang);
+  if (voice) params.set('voice', voice);
   const r = await fetch(`/api/tts?${params}`);
   if (!r.ok) return;
   const blob = await r.blob();
@@ -1158,6 +1228,7 @@ function appendTeacherMsg(d) {
     helpTtsPairs,
     helpExamples: examplesForUi,
     helpStructure: sanitizeHelpStructure(d.help_structure || d.helpStructure),
+    orch: sanitizeOrchestrator(d.orchestrator),
     type: safeStr(d.type),
     newWord: d.new_word && typeof d.new_word === 'object' && !Array.isArray(d.new_word) && d.new_word.word
       ? { word: safeStr(d.new_word.word), meaningTr: safeStr(d.new_word.meaningTr) }
@@ -1463,45 +1534,9 @@ function updateActiveScenarioBadge(d) {
     const opt = Array.from(sel.options).find((o) => o.value === sid);
     label = opt ? opt.textContent : sid;
   }
-  if (sid && label) {
-    el.textContent = `🎭 ${label}`;
-    el.classList.remove('hidden');
-  } else if (sid) {
-    el.textContent = `🎭 ${sid}`;
-    el.classList.remove('hidden');
-  } else {
-    el.textContent = '';
-    el.classList.add('hidden');
-  }
-}
-
-async function loadLesson(id) {
-  if (isRecording() || S.busyCount > 0) return;
-  S.busyCount += 1;
-  showThinking();
-  try {
-    const r = await fetch(`/api/tutor/lesson?${new URLSearchParams({ id, lang: S.learnLang })}`);
-    const d = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(d.error || 'Ders yüklenemedi');
-    S.msgs.push({
-      role: 'teacher',
-      teacher: d.robot_target,
-      teacherEn: d.robot_target,
-      teacherTr: d.robot_tr,
-      explain: d.robot_tr,
-      targetLang: d.target_lang,
-      audio: d.audio,
-      type: 'lesson',
-      time: chatTime(),
-    });
-    saveChat();
-    render();
-  } catch (e) {
-    showErr(safeErrMsg(e) || 'Ders yüklenemedi');
-  } finally {
-    S.busyCount -= 1;
-    resetIdle();
-  }
+  el.textContent = sid ? `🎭 ${label || sid}` : '🗨️ Serbest konuşma';
+  el.title = sid ? 'Senaryoyu değiştir' : 'Senaryo seç';
+  el.classList.remove('hidden');
 }
 
 function getSessionMinutes() {
@@ -1553,13 +1588,13 @@ async function showReport() {
   const vocab = Math.min(100, 50 + ensureArray(S.profile?.newWords).length * 5);
   const fluency = Math.min(100, Math.round(40 + mins * 3));
   const weak = ensureArray(S.profile?.weakAreas).slice(0, 3).map((w) => safeStr(w).replace(/_/g, ' ')).join(', ') || '—';
-  const strong = ensureArray(S.profile?.strongAreas, ['Konuşma isteği']).slice(0, 2).map(safeStr).join(', ');
+  const strong = ensureArray(S.profile?.strongAreas).slice(0, 2).map((w) => safeStr(w).replace(/_/g, ' ')).filter(Boolean).join(', ') || 'Konuşma isteği';
 
   const reportEl = $('reportContent');
   if (reportEl) {
     reportEl.innerHTML = `
     <div class="report-row"><span>Konuşma süresi</span><strong>${mins.toFixed(1)} dk</strong></div>
-    <div class="report-row"><span>Cümleler</span><strong>${total}</strong></div>
+    <div class="report-row"><span>Cümleler</span><strong>${S.profile?.totalSentences || 0}</strong></div>
     <div class="report-row"><span>Doğru cümleler</span><strong>${correct}</strong></div>
     <div class="report-row"><span>Düzeltmeler</span><strong>${corrections}</strong></div>
     <div class="report-row"><span>Yeni kelimeler</span><strong>${ensureArray(S.profile?.newWords).length}</strong></div>
@@ -1584,10 +1619,13 @@ async function showReport() {
   if (histEl) histEl.innerHTML = renderSessionLog();
 }
 
-function showHistoryModal() {
-  const el = $('historyModalContent');
-  if (el) el.innerHTML = renderSessionLog();
-  safeClass('historyModal', 'remove', 'hidden');
+function openSettings() {
+  syncAccentSelect();
+  safeClass('settingsSheet', 'remove', 'hidden');
+}
+
+function closeSettings() {
+  safeClass('settingsSheet', 'add', 'hidden');
 }
 
 
@@ -1595,8 +1633,10 @@ function syncLearnLang() {
   const lg = getLang(S.learnLang);
   const sel = $('learnLang');
   if (sel) sel.value = S.learnLang;
-  safeText('robotName', `${lg.flag} ${lg.name} Öğretmeni`);
+  safeText('robotName', `${lg.flag} ${lg.name}`);
   syncMicLabels();
+  syncAccentSelect();
+  if (S.uiState === 'IDLE') safeText('statusText', idleStatusText());
   if (S.profile) {
     S.profile.targetLang = S.learnLang;
     saveProfile();
@@ -1614,8 +1654,14 @@ if (learnLangSelect) {
   learnLangSelect.addEventListener('change', (e) => {
     if (!isRecording()) {
       S.learnLang = e.target.value;
-      S.greetingLoaded = false;
+      // New target language → fresh conversation so history never mixes languages
+      stopTts();
+      endSession();
+      resetConversationContext();
       syncLearnLang();
+      saveChat();
+      render();
+      closeSettings();
       fetchGreeting();
       fetchLessonPlan();
     } else {
@@ -1634,28 +1680,40 @@ on('roleplaySelect', 'change', async (e) => {
   }
   // Scenario change → controlled context reset (keep long-term profile learning)
   stopTts();
+  resetConversationContext();
+  updateActiveScenarioBadge();
+  saveChat();
+  render();
+  closeSettings();
+  await fetchGreeting();
+});
+
+function resetConversationContext() {
   S.msgs = [];
   S.history = [];
+  saveHistory();
   S.greetingLoaded = false;
   S.spokenMessageIds = {};
   S.sessionSaved = false;
+  S.lastAudio = null;
   if (S.profile && typeof S.profile === 'object') {
-    S.profile.activeScenarioId = next;
-    S.profile.activeScenario = next;
+    S.profile.activeScenarioId = S.roleplay || '';
+    S.profile.activeScenario = S.roleplay || '';
     S.profile.activeTeacherQuestion = null;
     S.profile.lastTeacherText = '';
-    S.profile.currentTopic = next || '';
+    S.profile.currentTopic = S.roleplay || '';
+    S.profile.currentProblem = '';
+    S.profile.currentSubtopic = '';
     S.profile.pendingPracticePhrase = null;
     S.profile.pendingPracticeTr = null;
     S.profile.awaitingTargetPhrase = null;
     S.profile.lastHelpExamples = [];
     S.profile.failedAnswerStreak = 0;
+    // Scene-local facts (room numbers etc.) must not leak into the next scene
+    S.profile.userFacts = ensureArray(S.profile.userFacts).filter((f) => !/^room:/i.test(safeStr(f)));
+    saveProfile();
   }
-  updateActiveScenarioBadge();
-  saveChat();
-  render();
-  await fetchGreeting();
-});
+}
 
 on('speedNormal', 'click', () => {
   S.speakSlow = false;
@@ -1680,7 +1738,10 @@ on('repeatBtn', 'click', async () => {
   const phrase = (last.teacherEn || last.teacher || '').slice(0, 400);
   if (!phrase) return;
   try {
-    const r = await fetch(`/api/tts?${new URLSearchParams({ q: phrase, tl: S.learnLang })}`);
+    const rp = new URLSearchParams({ q: phrase, tl: S.learnLang });
+    const voice = accentFor(S.learnLang);
+    if (voice) rp.set('voice', voice);
+    const r = await fetch(`/api/tts?${rp}`);
     if (!r.ok) return;
     const buf = await r.arrayBuffer();
     const bytes = new Uint8Array(buf);
@@ -1693,12 +1754,24 @@ on('repeatBtn', 'click', async () => {
   } catch { /* ignore */ }
 });
 
-const lessonChips = $('lessonChips');
-if (lessonChips) {
-  lessonChips.querySelectorAll('.chip').forEach((chip) => {
-    chip.addEventListener('click', () => loadLesson(chip.dataset.lesson));
-  });
-}
+on('accentSelect', 'change', (e) => {
+  const all = loadAccents();
+  all[S.learnLang] = safeStr(e.target.value);
+  try {
+    localStorage.setItem(ACCENT_KEY, JSON.stringify(all));
+  } catch { /* ignore */ }
+  const sample = [...S.msgs].reverse().find((m) => m.role === 'teacher' && m.teacherEn);
+  if (sample) {
+    unlockAudioSync();
+    void fetchAndPlayTts(sample.teacherEn.split('\n')[0].slice(0, 160), S.learnLang, S.speakSlow);
+  }
+});
+
+on('settingsBtn', 'click', () => openSettings());
+on('activeScenarioBadge', 'click', () => openSettings());
+on('closeSettings', 'click', () => closeSettings());
+const settingsBackdrop = $('settingsSheet')?.querySelector('.edu-modal-backdrop');
+if (settingsBackdrop) settingsBackdrop.addEventListener('click', () => closeSettings());
 
 function resetStoredData() {
   try {
@@ -1725,11 +1798,15 @@ function resetStoredData() {
 
 on('resetDataBtn', 'click', () => {
   if (isRecording() || S.busyCount > 0) return;
-  if (window.confirm('Kayıtlı sohbet ve profil silinsin mi?')) resetStoredData();
+  if (window.confirm('Kayıtlı sohbet ve profil silinsin mi?')) {
+    closeSettings();
+    resetStoredData();
+  }
 });
 
 on('clearBtn', 'click', () => {
   if (!isRecording() && S.busyCount === 0) {
+    closeSettings();
     endSession();
     S.msgs = [];
     saveChat();
@@ -1755,13 +1832,14 @@ document.querySelectorAll('.modal-tab').forEach((tab) => {
 });
 
 on('reportBtn', 'click', () => showReport());
-on('historyBtn', 'click', () => showHistoryModal());
 on('closeReport', 'click', () => safeClass('reportModal', 'add', 'hidden'));
-on('closeHistory', 'click', () => safeClass('historyModal', 'add', 'hidden'));
 const reportBackdrop = $('reportModal')?.querySelector('.edu-modal-backdrop');
-const historyBackdrop = $('historyModal')?.querySelector('.edu-modal-backdrop');
 if (reportBackdrop) reportBackdrop.addEventListener('click', () => safeClass('reportModal', 'add', 'hidden'));
-if (historyBackdrop) historyBackdrop.addEventListener('click', () => safeClass('historyModal', 'add', 'hidden'));
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  closeSettings();
+  safeClass('reportModal', 'add', 'hidden');
+});
 
 const micBtn = $('micBtn');
 const helpMicBtn = $('helpMicBtn');

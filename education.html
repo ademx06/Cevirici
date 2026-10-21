@@ -6,223 +6,235 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Sesli Çevirmen">
-  <meta name="theme-color" content="#060B18">
+  <meta name="theme-color" content="#03060F">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-  <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%23060B18' width='100' height='100' rx='20'/><text x='50' y='62' font-size='48' text-anchor='middle' fill='%2338BDF8'>🌍</text></svg>">
+  <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%2303060F' width='100' height='100' rx='20'/><circle cx='50' cy='50' r='26' fill='none' stroke='%2322D3EE' stroke-width='6'/><circle cx='50' cy='50' r='10' fill='%2322D3EE'/></svg>">
   <link rel="manifest" href="manifest.json">
-  <title>Eğitim — Sesli Çevirmen</title>
+  <title>Eğitim — AI Mentor</title>
   <link rel="stylesheet" href="styles.css?v=58">
+  <link rel="stylesheet" href="education.css?v=3">
 </head>
-<body>
-  <div class="app edu-app edu-chat-layout">
-    <header class="header edu-header-compact">
-      <div class="header-left">
-        <a href="/" class="back-btn" aria-label="Ana menü">←</a>
-        <div>
-          <h1>Eğitim</h1>
-          <p class="tagline" id="robotName">🇬🇧 English Öğretmeni</p>
-        </div>
+<body class="edu-jarvis" data-state="IDLE">
+  <div class="jv-bg" aria-hidden="true"></div>
+
+  <div class="app edu-app edu-chat-layout jv-app">
+    <header class="jv-header">
+      <a href="/" class="jv-icon-btn" aria-label="Ana menü">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+      </a>
+      <div class="jv-title">
+        <span class="jv-kicker">AI MENTOR</span>
+        <h1>Eğitim</h1>
       </div>
-      <div class="edu-header-actions">
-        <span id="levelBadge" class="level-badge">A1</span>
-        <button id="historyBtn" class="ghost-btn" type="button">Geçmiş</button>
-        <button id="reportBtn" class="ghost-btn" type="button">Rapor</button>
+      <div class="jv-header-actions">
+        <span id="levelBadge" class="jv-level" title="Tahmini seviye">A1</span>
+        <button id="reportBtn" class="jv-icon-btn" type="button" aria-label="İlerleme raporu">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19V11M12 19V5M19 19v-6"/></svg>
+        </button>
+        <button id="settingsBtn" class="jv-icon-btn" type="button" aria-label="Ayarlar">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
+        </button>
       </div>
     </header>
 
-    <div id="motivationBanner" class="motivation-banner hidden"></div>
-
-    <details class="edu-settings-panel">
-      <summary>⚙️ Ayarlar & günlük ders</summary>
-      <section class="personal-lesson" id="personalLesson">
-        <div class="personal-lesson-grid">
-          <div class="lesson-stat"><span>Zayıf alan</span><strong id="lessonWeak">—</strong></div>
-          <div class="lesson-stat"><span>Kelime</span><strong id="lessonVocab">—</strong></div>
-          <div class="lesson-stat"><span>Konu</span><strong id="lessonTopic">—</strong></div>
-          <div class="lesson-stat"><span>Hedef</span><strong id="lessonPractice">10 dk</strong></div>
-        </div>
-        <div class="lesson-srs-meta" id="lessonSrsMeta"></div>
-      </section>
-      <section class="daily-goal" id="dailyGoal">
-        <div class="daily-goal-label">Bugün: <span id="goalText">10 dk</span> · <span id="goalMeta">0/10</span></div>
-        <div class="daily-goal-bar"><div id="goalProgress" class="daily-goal-fill"></div></div>
-      </section>
-      <section class="lang-card edu-lang">
-        <div class="lang-field lang-field-full">
-          <label for="learnLang">Öğrenmek istediğim dil</label>
-          <select id="learnLang"></select>
-        </div>
-        <div class="lang-field lang-field-full">
-          <label for="roleplaySelect">Senaryo</label>
-          <select id="roleplaySelect">
-            <option value="">Serbest konuşma</option>
-            <optgroup label="Günlük hayat">
-              <option value="friend">Arkadaşla sohbet</option>
-              <option value="daily_chat">Günlük sohbet</option>
-              <option value="meet_new">Yeni biriyle tanışma</option>
-              <option value="neighbor">Komşuyla konuşma</option>
-              <option value="phone_call">Telefonda konuşma</option>
-              <option value="weekend_plans">Hafta sonu planı</option>
-              <option value="hobbies">Hobiler</option>
-              <option value="sports">Spor</option>
-              <option value="movies">Film ve dizi</option>
-              <option value="music">Müzik</option>
-              <option value="food_talk">Yemek sohbeti</option>
-              <option value="shopping_chat">Alışveriş sohbeti</option>
-              <option value="teacher">Sınıf öğretmeni</option>
-            </optgroup>
-            <optgroup label="Seyahat">
-              <option value="airport">Havalimanı</option>
-              <option value="flight">Uçakta</option>
-              <option value="passport_control">Pasaport kontrolü</option>
-              <option value="taxi">Taksi</option>
-              <option value="hotel">Otel check-in</option>
-              <option value="hotel_checkout">Otel check-out</option>
-              <option value="hotel_problem">Otel problemi</option>
-              <option value="restaurant">Restoran</option>
-              <option value="cafe">Kafe</option>
-              <option value="market">Market</option>
-              <option value="directions">Yol tarifi</option>
-              <option value="car_rental">Araba kiralama</option>
-              <option value="tour">Tur rezervasyonu</option>
-              <option value="shop">Mağaza</option>
-            </optgroup>
-            <optgroup label="İş">
-              <option value="interview">İş görüşmesi</option>
-              <option value="colleagues">İş arkadaşlarıyla sohbet</option>
-              <option value="meeting">Toplantı</option>
-              <option value="work_phone">İş telefonu</option>
-              <option value="customer">Müşteri görüşmesi</option>
-              <option value="boss">Patronla görüşme</option>
-              <option value="salary">Maaş görüşmesi</option>
-            </optgroup>
-            <optgroup label="Sosyal">
-              <option value="make_friends">Yeni arkadaş edinme</option>
-              <option value="invite">Birini davet etme</option>
-              <option value="ask_advice">Tavsiye isteme</option>
-              <option value="apology">Özür dileme</option>
-              <option value="thanks">Teşekkür etme</option>
-            </optgroup>
-            <optgroup label="Gerçek hayat">
-              <option value="doctor">Doktor</option>
-              <option value="pharmacy">Eczane</option>
-              <option value="bank">Banka</option>
-              <option value="post_office">Postane</option>
-              <option value="rent_apartment">Ev kiralama</option>
-              <option value="tech_support">Teknik destek</option>
-            </optgroup>
-          </select>
-          <p class="edu-scenario-hint" id="scenarioHint">Senaryo seçince öğretmen o role girer; sabit soru listesi yoktur.</p>
-        </div>
-      </section>
-      <div class="lesson-chips" id="lessonChips">
-        <button type="button" class="chip" data-lesson="how_are_you">Nasılsın?</button>
-        <button type="button" class="chip" data-lesson="how_was_vacation">Tatil</button>
-        <button type="button" class="chip" data-lesson="thank_you">Teşekkürler</button>
+    <section class="jv-hud" aria-live="polite">
+      <div class="jv-orb" aria-hidden="true">
+        <span class="jv-orb-ring jv-orb-ring-1"></span>
+        <span class="jv-orb-ring jv-orb-ring-2"></span>
+        <span class="jv-orb-ring jv-orb-ring-3"></span>
+        <span class="jv-orb-core"></span>
       </div>
-    </details>
-
-    <div class="edu-chat-toolbar">
-      <span class="edu-chat-title">💬 Sohbet</span>
-      <span id="activeScenarioBadge" class="edu-scenario-badge hidden"></span>
-      <span id="statusDot" class="status-dot"></span>
-      <span id="statusText" class="edu-chat-status">Hazır</span>
-      <button id="clearBtn" class="ghost-btn ghost-btn-sm hidden" type="button">Temizle</button>
-      <button id="resetDataBtn" class="ghost-btn ghost-btn-sm" type="button" title="Hata alırsan dene">Veriyi sıfırla</button>
-    </div>
-
-    <div id="errorBox" class="error-box hidden"></div>
-    <div id="aiBanner" class="error-box hidden" style="background:#1e293b;border-color:#f59e0b;color:#fcd34d"></div>
-
-    <main id="messages" class="edu-chat-messages">
-      <div class="chat-welcome">
-        <div class="chat-welcome-avatar">🤖</div>
-        <p>Merhaba! Ben senin <strong>AI öğretmenin</strong>im.<br>
-        Ne dediğini bağlamdan anlarım, cümle kurmana yardım ederim;<br>
-        Türkçe veya İngilizce konuş — sohbet akıcı devam eder.</p>
+      <div class="jv-hud-info">
+        <div class="jv-hud-top">
+          <span id="robotName" class="jv-lang">🇬🇧 English</span>
+          <span class="jv-hud-sep" aria-hidden="true"></span>
+          <span id="statusDot" class="status-dot"></span>
+          <span id="statusText" class="jv-status">Hazır</span>
+        </div>
+        <button id="activeScenarioBadge" class="jv-scenario" type="button">🗨️ Serbest konuşma</button>
+        <div class="jv-goal" title="Günlük hedef">
+          <div class="jv-goal-bar"><div id="goalProgress" class="jv-goal-fill"></div></div>
+          <span id="goalMeta" class="jv-goal-meta">0 / 10 dk</span>
+        </div>
       </div>
-    </main>
+    </section>
 
-    <div id="typingIndicator" class="chat-typing hidden">
+    <div id="motivationBanner" class="jv-notice hidden"></div>
+    <div id="errorBox" class="jv-notice jv-notice-error hidden"></div>
+    <div id="aiBanner" class="jv-notice jv-notice-warn hidden"></div>
+
+    <main id="messages" class="edu-chat-messages jv-messages"></main>
+
+    <div id="typingIndicator" class="chat-typing jv-typing hidden">
       <span></span><span></span><span></span>
-      Öğretmen yazıyor...
+      Mentor düşünüyor…
     </div>
 
-    <div class="edu-bottom-dock">
-      <section class="edu-composer">
+    <div class="edu-bottom-dock jv-dock">
+      <section class="edu-composer jv-composer">
         <input id="textInput" type="text" enterkeyhint="send" autocomplete="off"
-          placeholder="Mesaj yaz veya mikrofonu kullan..." maxlength="500">
-        <button id="sendBtn" class="send-btn" type="button" aria-label="Gönder">➤</button>
+          placeholder="Yaz veya basılı tutup konuş…" maxlength="500">
+        <button id="sendBtn" class="jv-send" type="button" aria-label="Gönder">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6"/></svg>
+        </button>
       </section>
 
-      <section class="edu-voice-controls">
-        <button type="button" id="speedNormal" class="voice-ctrl active">🔊 Normal</button>
-        <button type="button" id="speedSlow" class="voice-ctrl">🐢 Yavaş</button>
-        <button type="button" id="repeatBtn" class="voice-ctrl">🔁 Tekrar</button>
-      </section>
-
-      <section class="controls edu-mic-section">
-        <p class="dual-mic-hint edu-mic-hint">Hedef dilde konuş · Türkçe yardım iste</p>
-        <div class="dual-mic-row edu-dual-mic-row" role="group" aria-label="Eğitim mikrofonları">
-          <button id="micBtn" class="mic-btn mic-btn-edu dual-mic" type="button" data-role="speak">
-            <span class="mic-icon">🎤</span>
-            <span class="mic-text">
-              <strong id="micTitle">Konuş</strong>
-              <small id="conversationSubtitle">Hedef dil</small>
-            </span>
-          </button>
-          <button id="helpMicBtn" class="mic-btn mic-btn-edu dual-mic mic-btn-help" type="button" data-role="help">
-            <span class="mic-icon">💡</span>
-            <span class="mic-text">
-              <strong id="helpMicTitle">Yardım</strong>
-              <small id="helpMicSubtitle">🇹🇷 Türkçe</small>
-            </span>
-          </button>
+      <section class="jv-voice-row" aria-label="Ses ayarları">
+        <div class="jv-seg" role="group" aria-label="Konuşma hızı">
+          <button type="button" id="speedNormal" class="jv-seg-btn active">Normal</button>
+          <button type="button" id="speedSlow" class="jv-seg-btn">Yavaş</button>
         </div>
+        <button type="button" id="repeatBtn" class="jv-chip-btn">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 0 1 14-5.3M20 4v4h-4M20 12a8 8 0 0 1-14 5.3M4 20v-4h4"/></svg>
+          Tekrar
+        </button>
+      </section>
+
+      <section class="jv-mics" role="group" aria-label="Eğitim mikrofonları">
+        <button id="micBtn" class="mic-btn mic-btn-edu dual-mic jv-mic jv-mic-main" type="button" data-role="speak">
+          <span class="mic-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+          </span>
+          <span class="mic-text">
+            <strong id="micTitle">Basılı Tut ve Konuş</strong>
+            <small id="conversationSubtitle">🇬🇧 English</small>
+          </span>
+        </button>
+        <button id="helpMicBtn" class="mic-btn mic-btn-edu dual-mic mic-btn-help jv-mic jv-mic-help" type="button" data-role="help">
+          <span class="mic-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"/></svg>
+          </span>
+          <span class="mic-text">
+            <strong id="helpMicTitle">Yardım</strong>
+            <small id="helpMicSubtitle">🇹🇷 Türkçe</small>
+          </span>
+        </button>
       </section>
     </div>
   </div>
 
-  <div id="reportModal" class="edu-modal hidden">
+  <div id="settingsSheet" class="edu-modal jv-sheet hidden" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
     <div class="edu-modal-backdrop"></div>
-    <div class="edu-modal-card edu-modal-wide">
-      <div class="modal-tabs">
+    <div class="jv-sheet-card">
+      <div class="jv-sheet-handle" aria-hidden="true"></div>
+      <h2 id="settingsTitle">Ayarlar</h2>
+
+      <div class="jv-field">
+        <label for="learnLang">Öğrenmek istediğim dil</label>
+        <select id="learnLang"></select>
+      </div>
+      <div class="jv-field" id="accentField">
+        <label for="accentSelect">Aksan / ses</label>
+        <select id="accentSelect"></select>
+      </div>
+      <div class="jv-field">
+        <label for="roleplaySelect">Senaryo</label>
+        <select id="roleplaySelect">
+          <option value="">Serbest konuşma</option>
+          <optgroup label="Günlük hayat">
+            <option value="friend">Arkadaşla sohbet</option>
+            <option value="daily_chat">Günlük sohbet</option>
+            <option value="meet_new">Yeni biriyle tanışma</option>
+            <option value="neighbor">Komşuyla konuşma</option>
+            <option value="phone_call">Telefonda konuşma</option>
+            <option value="weekend_plans">Hafta sonu planı</option>
+            <option value="hobbies">Hobiler</option>
+            <option value="sports">Spor</option>
+            <option value="movies">Film ve dizi</option>
+            <option value="music">Müzik</option>
+            <option value="food_talk">Yemek sohbeti</option>
+            <option value="shopping_chat">Alışveriş sohbeti</option>
+            <option value="teacher">Sınıf öğretmeni</option>
+          </optgroup>
+          <optgroup label="Seyahat">
+            <option value="airport">Havalimanı</option>
+            <option value="flight">Uçakta</option>
+            <option value="passport_control">Pasaport kontrolü</option>
+            <option value="taxi">Taksi</option>
+            <option value="hotel">Otel check-in</option>
+            <option value="hotel_checkout">Otel check-out</option>
+            <option value="hotel_problem">Otel problemi</option>
+            <option value="restaurant">Restoran</option>
+            <option value="cafe">Kafe</option>
+            <option value="market">Market</option>
+            <option value="directions">Yol tarifi</option>
+            <option value="car_rental">Araba kiralama</option>
+            <option value="tour">Tur rezervasyonu</option>
+            <option value="shop">Mağaza</option>
+          </optgroup>
+          <optgroup label="İş">
+            <option value="interview">İş görüşmesi</option>
+            <option value="colleagues">İş arkadaşlarıyla sohbet</option>
+            <option value="meeting">Toplantı</option>
+            <option value="work_phone">İş telefonu</option>
+            <option value="customer">Müşteri görüşmesi</option>
+            <option value="boss">Patronla görüşme</option>
+            <option value="salary">Maaş görüşmesi</option>
+          </optgroup>
+          <optgroup label="Sosyal">
+            <option value="make_friends">Yeni arkadaş edinme</option>
+            <option value="invite">Birini davet etme</option>
+            <option value="ask_advice">Tavsiye isteme</option>
+            <option value="apology">Özür dileme</option>
+            <option value="thanks">Teşekkür etme</option>
+          </optgroup>
+          <optgroup label="Gerçek hayat">
+            <option value="doctor">Doktor</option>
+            <option value="pharmacy">Eczane</option>
+            <option value="bank">Banka</option>
+            <option value="post_office">Postane</option>
+            <option value="rent_apartment">Ev kiralama</option>
+            <option value="tech_support">Teknik destek</option>
+          </optgroup>
+        </select>
+        <p class="jv-hint" id="scenarioHint">Senaryo seçince mentor o role girer ve sen ne söylersen ona göre doğaçlama konuşur.</p>
+      </div>
+
+      <div class="jv-stats" id="personalLesson">
+        <div class="jv-stat"><span>Zayıf alan</span><strong id="lessonWeak">—</strong></div>
+        <div class="jv-stat"><span>Kelime</span><strong id="lessonVocab">—</strong></div>
+        <div class="jv-stat"><span>Konu</span><strong id="lessonTopic">—</strong></div>
+        <div class="jv-stat"><span>Günlük hedef</span><strong id="lessonPractice">10 dk</strong></div>
+      </div>
+      <p class="jv-hint" id="lessonSrsMeta"></p>
+      <p class="jv-hint">Bugün: <span id="goalText">10 dk konuşma</span></p>
+
+      <div class="jv-sheet-actions">
+        <button id="clearBtn" class="jv-btn jv-btn-ghost" type="button">Yeni sohbet</button>
+        <button id="resetDataBtn" class="jv-btn jv-btn-danger" type="button">Veriyi sıfırla</button>
+      </div>
+      <button id="closeSettings" class="jv-btn jv-btn-primary" type="button">Tamam</button>
+    </div>
+  </div>
+
+  <div id="reportModal" class="edu-modal jv-sheet hidden" role="dialog" aria-modal="true">
+    <div class="edu-modal-backdrop"></div>
+    <div class="jv-sheet-card">
+      <div class="jv-sheet-handle" aria-hidden="true"></div>
+      <div class="modal-tabs jv-tabs">
         <button type="button" class="modal-tab active" data-tab="today">Bugün</button>
         <button type="button" class="modal-tab" data-tab="week">7 Gün</button>
         <button type="button" class="modal-tab" data-tab="history">Geçmiş</button>
       </div>
       <div id="tabToday" class="modal-tab-panel">
-        <h2>Bugünkü İngilizce</h2>
+        <h2>Bugünkü oturum</h2>
         <div id="reportContent" class="report-content"></div>
       </div>
       <div id="tabWeek" class="modal-tab-panel hidden">
-        <h2>7 Günlük Gelişim</h2>
+        <h2>7 günlük gelişim</h2>
         <div id="weekProgress" class="week-progress"></div>
       </div>
       <div id="tabHistory" class="modal-tab-panel hidden">
-        <h2>Konuşma Geçmişi</h2>
+        <h2>Konuşma geçmişi</h2>
         <div id="historyContent" class="history-list"></div>
       </div>
-      <button type="button" id="closeReport" class="primary-btn">Tamam</button>
+      <button type="button" id="closeReport" class="jv-btn jv-btn-primary">Tamam</button>
     </div>
   </div>
-
-  <div id="historyModal" class="edu-modal hidden">
-    <div class="edu-modal-backdrop"></div>
-    <div class="edu-modal-card">
-      <h2>Son Konuşmalar</h2>
-      <div id="historyModalContent" class="history-list"></div>
-      <button type="button" id="closeHistory" class="primary-btn">Kapat</button>
-    </div>
-  </div>
-
-  <footer class="phone-footer phone-footer-compact edu-page-footer">
-    <a href="mobil.html">📱 Adres &amp; yardım</a>
-  </footer>
 
   <script src="api-client.js?v=3"></script>
   <script src="keepalive.js?v=2"></script>
   <script src="mic-hold.js?v=3"></script>
-  <script src="education.js?v=58"></script>
+  <script src="education.js?v=61"></script>
 </body>
 </html>

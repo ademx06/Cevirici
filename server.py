@@ -29,7 +29,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.09.06-v72.31"
+APP_VERSION = "2026.10.21-v72.32"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -83,6 +83,37 @@ EDGE_VOICES = {
     "zh": "zh-CN-XiaoxiaoNeural",
 }
 
+# Accent variants selectable in Eğitim (locale → Edge neural voice)
+ACCENT_VOICES = {
+    "en-US": "en-US-JennyNeural",
+    "en-GB": "en-GB-SoniaNeural",
+    "en-AU": "en-AU-NatashaNeural",
+    "en-IE": "en-IE-EmilyNeural",
+    "es-ES": "es-ES-ElviraNeural",
+    "es-MX": "es-MX-DaliaNeural",
+    "fr-FR": "fr-FR-DeniseNeural",
+    "fr-CA": "fr-CA-SylvieNeural",
+    "de-DE": "de-DE-KatjaNeural",
+    "de-AT": "de-AT-IngridNeural",
+    "de-CH": "de-CH-LeniNeural",
+    "ar-SA": "ar-SA-ZariyahNeural",
+    "ar-EG": "ar-EG-SalmaNeural",
+    "zh-CN": "zh-CN-XiaoxiaoNeural",
+    "zh-TW": "zh-TW-HsiaoChenNeural",
+}
+
+
+def accent_voice(lang: str, locale: str | None) -> str | None:
+    """Edge voice for an explicit accent, only if the locale matches the language."""
+    loc = (locale or "").strip()
+    if not loc or "-" not in loc:
+        return None
+    base = loc.split("-")[0].lower()
+    norm = f"{base}-{loc.split('-', 1)[1].upper()}"
+    if base != (lang or "").split("-")[0].lower():
+        return None
+    return ACCENT_VOICES.get(norm)
+
 
 def is_mp3(data: bytes) -> bool:
     if len(data) < 100:
@@ -106,10 +137,10 @@ def google_tts(text: str, lang: str) -> bytes | None:
         return None
 
 
-def edge_tts(text: str, lang: str, rate: str = "+0%") -> bytes:
+def edge_tts(text: str, lang: str, rate: str = "+0%", voice: str | None = None) -> bytes:
     import edge_tts
 
-    voice = EDGE_VOICES.get(lang, EDGE_VOICES["en"])
+    voice = voice or EDGE_VOICES.get(lang, EDGE_VOICES["en"])
 
     async def _run() -> bytes:
         communicate = edge_tts.Communicate(text, voice, rate=rate)
@@ -125,7 +156,11 @@ def edge_tts(text: str, lang: str, rate: str = "+0%") -> bytes:
     return asyncio.run(_run())
 
 
-def synthesize(text: str, lang: str, slow: bool = False) -> bytes:
+def synthesize(text: str, lang: str, slow: bool = False, locale: str | None = None) -> bytes:
+    voice = accent_voice(lang, locale)
+    if voice:
+        # Explicit accent → always the matching neural voice (Google TTS has no accent control)
+        return edge_tts(text, lang, rate="-15%" if slow else "+8%", voice=voice)
     if slow:
         return edge_tts(text, lang, rate="-15%")
     data = google_tts(text, lang)
@@ -3586,11 +3621,12 @@ class Handler(SimpleHTTPRequestHandler):
         text = (params.get("q") or [""])[0].strip()
         lang = (params.get("tl") or ["tr"])[0].strip()
         slow = (params.get("slow") or ["0"])[0].lower() in ("1", "true", "yes")
+        locale = (params.get("voice") or [""])[0].strip()[:12]
         if not text:
             self.send_json_error(400, "Metin gerekli")
             return
         try:
-            data = synthesize(text[:2500], lang, slow=slow)
+            data = synthesize(text[:2500], lang, slow=slow, locale=locale)
             if not data:
                 raise ValueError("Ses oluşturulamadı")
             self.send_response(200)

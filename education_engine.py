@@ -4,6 +4,9 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor
+from concurrent.futures import wait as futures_wait
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -49,6 +52,22 @@ LANG_NAMES = {
     "en": "English", "de": "German", "fr": "French", "es": "Spanish",
     "ru": "Russian", "ka": "Georgian", "it": "Italian", "ar": "Arabic", "zh": "Chinese",
 }
+
+LANG_NAMES_TR = {
+    "tr": "Türkçe", "en": "İngilizce", "de": "Almanca", "fr": "Fransızca", "es": "İspanyolca",
+    "ru": "Rusça", "ka": "Gürcüce", "it": "İtalyanca", "ar": "Arapça", "zh": "Çince",
+}
+
+
+def _tr_lang_name(code_or_name: str) -> str:
+    """Turkish display name for a language code or its English name (for Turkish UI sentences)."""
+    key = (code_or_name or "").strip()
+    if key in LANG_NAMES_TR:
+        return LANG_NAMES_TR[key]
+    for code, en_name in LANG_NAMES.items():
+        if en_name.lower() == key.lower():
+            return LANG_NAMES_TR.get(code, key)
+    return key
 
 LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"]
 SRS_INTERVALS_DAYS = [1, 3, 7, 14, 30]
@@ -225,8 +244,24 @@ Return ONLY valid JSON:
   "stt_uncertain": false,
   "build_on_phrase": "next longer sentence or null",
   "lesson_advance": false,
-  "awaiting_practice": false
+  "awaiting_practice": false,
+  "analysis": {{
+    "learner_level": "A1|A2|B1|B2|C1|C2 — estimate from THIS message + history",
+    "emotion": "short Turkish word for the learner's mood (Meraklı / Kararsız / Heyecanlı / Yorgun / Gergin / Rahat …)",
+    "intent": "education|translation|roleplay|help"
+  }},
+  "voice": {{
+    "tone": "short Turkish note for the voice engine (e.g. Nazik, yavaş, tane tane öğretmen sesi)"
+  }},
+  "alternatives": ["0–2 other natural {lang_name} ways the LEARNER could have said their message; [] if not useful"]
 }}
+
+ORCHESTRATOR LAYER (silent reasoning — never print it inside teacher_en/teacher_tr):
+- Before replying, decide: learner level + cultural context, whether this is a learning or a pure translation request, and which tone fits.
+- Bridge cultures: render idioms and metaphors by meaning, never word-for-word.
+- When the learner errs, correct like a kind mentor: the right form + one short reason, then keep talking.
+- Speak as a wise, warm, clear mentor — never robotic, never "I am an AI".
+- alternatives MUST be in {lang_name} and MUST express the learner's own meaning (not teacher lines, not off-topic seeds).
 
 correction_level: 1=ok/continue, 2=small fix inside chat, 3=important structure error.
 If correction_level is 1, correct_phrase must be null.
@@ -1587,7 +1622,8 @@ def _sanitize_ai_correction(user_text: str, parsed: dict, target_lang: str = "en
         return out
 
     correct = safe_str(parsed.get("correct_phrase")).strip()
-    if correct and _phrase_similar(user_text, correct):
+    # Only identical text is "no correction" — similar text is exactly what a one-word fix (go → went) looks like
+    if correct and _norm(user_text) == _norm(correct):
         out = dict(parsed)
         out["correction_level"] = 1
         out["correct_phrase"] = None
@@ -1641,6 +1677,14 @@ def _sanitize_ai_correction(user_text: str, parsed: dict, target_lang: str = "en
 
     # Deterministic grammar says ERROR — do not silently soft-rewrite as level 1
     lvl, phrase, cat, ex_en, ex_tr = check_english(user_text)
+    if lvl >= 2 and phrase and correct:
+        # AI caught the error too — keep its fuller correction and mentor wording
+        out = dict(parsed)
+        out["correction_level"] = max(2, int(out.get("correction_level") or 1))
+        out["category"] = out.get("category") or cat
+        if not safe_str(out.get("grammar_tr")).strip() and ex_tr:
+            out["grammar_tr"] = ex_tr
+        return out
     if lvl >= 2 and phrase:
         out = dict(parsed)
         out["correction_level"] = max(int(out.get("correction_level") or 1), lvl)
@@ -1655,13 +1699,10 @@ def _sanitize_ai_correction(user_text: str, parsed: dict, target_lang: str = "en
         raw = user_text.strip()
         if phrase and raw and _norm(raw) != _norm(phrase):
             if "i understood" not in te.lower() and raw.lower() not in te.lower():
+                tip = (ex_en or "").strip()
+                fix = f"Small fix: **{phrase}**" + (f" — {tip}" if tip else "")
                 out["teacher_en"] = (
-                    f'I understood you as: "{raw}"\n\n'
-                    f'There is a mistake:\n'
-                    f'❌ {raw}\n'
-                    f'✅ {phrase}\n\n'
-                    f'{(ex_en or "").strip()}\n\n'
-                    f'What else can you tell me?'
+                    f"{fix}\n\n{te}" if te.strip() else f"{fix}\n\nWhat else can you tell me?"
                 ).strip()
         return out
 
@@ -3992,7 +4033,7 @@ def _help_examples_response(
                         if len(examples) >= 3:
                             break
                 pattern_tip = (
-                    f"Bunu {lang_name} dilinde şöyle söyleyebilirsin. "
+                    f"Bunu {_tr_lang_name(lang_name)} şöyle söyleyebilirsin. "
                     "Aktif soruya cevap değilse, önce öğretmenin sorusunu cevapla."
                 )
         else:
@@ -5031,7 +5072,7 @@ def _turkish_help_coach_mode(
     lang_name = LANG_NAMES.get(target_lang, target_lang)
     teacher_tr = (
         f"Tabii 😊\n\n"
-        f"{lang_name} konuşurken aklına Türkçe bir şey gelirse bana Türkçe söyleyebilirsin.\n\n"
+        f"{_tr_lang_name(lang_name)} konuşurken aklına Türkçe bir şey gelirse bana Türkçe söyleyebilirsin.\n\n"
         f"Ben sana:\n"
         f"1. {lang_name} karşılığını söyleyeceğim\n"
         f"2. Doğal kullanımını öğreteceğim\n"
@@ -5067,7 +5108,7 @@ def _format_compact_help(
         parts.append(note_tr)
     else:
         parts.append(f"Sanırım «{phrase_tr.strip()}» demek istiyorsun.")
-    parts.append(f"\n{lang_name} dilinde bunu şöyle söyleyebiliriz:\n**{natural}**")
+    parts.append(f"\n{_tr_lang_name(lang_name)} bunu şöyle söyleyebiliriz:\n**{natural}**")
 
     en_l = natural.lower()
     structure = ""
@@ -7235,7 +7276,7 @@ def _active_llm_provider() -> str | None:
     """Öncelik: Groq/Gemini ücretsiz, sonra OpenAI."""
     if groq_api_key_valid():
         return "groq"
-    if os.environ.get("GEMINI_API_KEY", "").strip():
+    if _gemini_keys():
         return "gemini"
     if os.environ.get("OPENAI_API_KEY", "").strip():
         return "openai"
@@ -7374,37 +7415,145 @@ def _gemini_api_request(
     timeout_sec: int | None = None,
 ) -> str | None:
     """Gemini generateContent — AIza ve yeni AQ. anahtar formatlarını destekler."""
-    key = os.environ.get("GEMINI_API_KEY", "").strip()
-    if not key:
+    keys = _gemini_keys()
+    if not keys:
         return None
     configured = os.environ.get("GEMINI_MODEL", DEFAULT_GEMINI_MODEL).strip()
+    fallback = os.environ.get("GEMINI_FALLBACK_MODEL", "gemini-3.5-flash").strip()
     models: list[str] = []
-    for candidate in (configured, "gemini-3.5-flash-lite"):
+    for candidate in (configured, DEFAULT_GEMINI_MODEL, fallback):
         if candidate and candidate not in models:
             models.append(candidate)
-    headers = _api_headers({
-        "Content-Type": "application/json",
-        "x-goog-api-key": key,
-    })
-    payload = json.dumps(body).encode()
     gemini_timeout = timeout_sec if timeout_sec is not None else _llm_request_timeout(max_tokens)
-    if timeout_sec is not None and timeout_sec >= 50:
-        models = models[:1]
-    for model in models:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-        try:
-            req = Request(url, data=payload, headers=headers, method="POST")
-            with urlopen(req, timeout=gemini_timeout) as resp:
-                data = json.loads(resp.read().decode())
-            parts = data["candidates"][0]["content"]["parts"]
-            return "".join(p.get("text", "") for p in parts).strip()
-        except HTTPError as exc:
-            if exc.code in (404, 400, 429) and model != models[-1]:
-                continue
+    deadline = time.time() + gemini_timeout + 8
+    now = time.time()
+    ready = [m for m in models if _GEMINI_MODEL_COOLDOWN.get(m, 0) <= now]
+    models = ready + [m for m in models if m not in ready]
+    ordered = [k for k in keys if _GEMINI_KEY_COOLDOWN.get(k, 0) <= now] or keys
+    for key in ordered:
+        if deadline - time.time() < 3:
             return None
-        except Exception:
+        text, key_failed = _gemini_race_models(key, models, fallback, body, gemini_timeout, deadline)
+        if text:
+            _GEMINI_KEY_COOLDOWN.pop(key, None)
+            return text
+        if not key_failed:
             return None
     return None
+
+
+_GEMINI_MODEL_COOLDOWN: dict[str, float] = {}
+_GEMINI_KEY_COOLDOWN: dict[str, float] = {}
+_GEMINI_HEDGE_SEC = 6.0
+_GEMINI_POOL = ThreadPoolExecutor(max_workers=8, thread_name_prefix="gemini")
+
+
+def _gemini_call_once(key: str, model: str, body: dict[str, Any], timeout: float) -> tuple[str | None, str]:
+    """Returns (text, status) where status is ok | empty | key | overload | error."""
+    headers = _api_headers({"Content-Type": "application/json", "x-goog-api-key": key})
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+    try:
+        req = Request(url, data=json.dumps(body).encode(), headers=headers, method="POST")
+        with urlopen(req, timeout=max(3.0, timeout)) as resp:
+            data = json.loads(resp.read().decode())
+        parts = (data.get("candidates") or [{}])[0].get("content", {}).get("parts") or []
+        text = "".join(p.get("text", "") for p in parts if not p.get("thought")).strip()
+        return (text, "ok") if text else (None, "empty")
+    except HTTPError as exc:
+        detail = ""
+        try:
+            detail = exc.read().decode(errors="ignore")[:400]
+        except Exception:
+            pass
+        if exc.code in (401, 403, 429) or "API_KEY_INVALID" in detail or "API key not valid" in detail:
+            if exc.code == 429:
+                _GEMINI_KEY_COOLDOWN[key] = time.time() + 60
+            else:
+                _GEMINI_KEY_COOLDOWN[key] = time.time() + 600
+            return None, "key"
+        if exc.code in (500, 502, 503, 504):
+            _GEMINI_MODEL_COOLDOWN[model] = time.time() + 120
+            return None, "overload"
+        return None, "error"
+    except Exception:
+        _GEMINI_MODEL_COOLDOWN[model] = time.time() + 120
+        return None, "overload"
+
+
+def _gemini_race_models(
+    key: str,
+    models: list[str],
+    fallback: str,
+    body: dict[str, Any],
+    gemini_timeout: float,
+    deadline: float,
+) -> tuple[str | None, bool]:
+    """Hedged request: start the next model if the current one is slow or fails; first answer wins.
+
+    Returns (text, key_failed). key_failed means the caller should rotate to the next API key.
+    """
+    pending: dict[Future, str] = {}
+    next_idx = 0
+    next_start = time.time()
+    key_failed = False
+
+    def launch(model: str) -> None:
+        req_body = body
+        if model == fallback and "lite" not in model:
+            gen = dict(body.get("generationConfig") or {})
+            gen.setdefault("thinkingConfig", {"thinkingLevel": "minimal"})
+            req_body = {**body, "generationConfig": gen}
+        remaining = deadline - time.time()
+        pending[_GEMINI_POOL.submit(_gemini_call_once, key, model, req_body, min(gemini_timeout, remaining))] = model
+
+    while True:
+        now = time.time()
+        if next_idx < len(models) and (now >= next_start or not pending):
+            launch(models[next_idx])
+            next_idx += 1
+            next_start = time.time() + _GEMINI_HEDGE_SEC
+        if not pending:
+            return None, key_failed
+        remaining = deadline - time.time()
+        if remaining <= 0:
+            return None, False
+        wait_for = remaining
+        if next_idx < len(models):
+            wait_for = max(0.05, min(wait_for, next_start - time.time()))
+        done, _ = futures_wait(list(pending), timeout=wait_for, return_when=FIRST_COMPLETED)
+        for fut in done:
+            model = pending.pop(fut)
+            try:
+                text, status = fut.result()
+            except Exception:
+                text, status = None, "error"
+            if text:
+                # A later model beat a slower earlier one → prefer the winner for a while
+                for slow_model in pending.values():
+                    if models.index(slow_model) < models.index(model):
+                        _GEMINI_MODEL_COOLDOWN[slow_model] = time.time() + 60
+                return text, False
+            if status == "key":
+                key_failed = True
+            else:
+                next_start = time.time()
+        if key_failed and not pending:
+            return None, True
+        if key_failed:
+            next_idx = len(models)
+
+
+def _gemini_keys() -> list[str]:
+    """GEMINI_API_KEY, GEMINI_API_KEY_2.._5 and comma-separated GEMINI_API_KEYS, in order."""
+    raw: list[str] = [os.environ.get("GEMINI_API_KEY", "")]
+    raw += [os.environ.get(f"GEMINI_API_KEY_{i}", "") for i in range(2, 6)]
+    raw += os.environ.get("GEMINI_API_KEYS", "").split(",")
+    out: list[str] = []
+    for k in raw:
+        k = k.strip()
+        if k and k not in out:
+            out.append(k)
+    return out
 
 
 def ai_provider_info() -> dict[str, str | None]:
@@ -7521,7 +7670,7 @@ def _groq_chat(
 
 
 def _gemini_chat(system: str, user: str, max_tokens: int = 520) -> str | None:
-    if not os.environ.get("GEMINI_API_KEY", "").strip():
+    if not _gemini_keys():
         return None
     return _gemini_api_request({
         "systemInstruction": {"parts": [{"text": system}]},
@@ -7535,7 +7684,7 @@ def _llm_providers_in_order() -> list[str]:
     providers: list[str] = []
     if groq_api_key_valid():
         providers.append("groq")
-    if os.environ.get("GEMINI_API_KEY", "").strip():
+    if _gemini_keys():
         providers.append("gemini")
     if os.environ.get("OPENAI_API_KEY", "").strip():
         providers.append("openai")
@@ -7634,10 +7783,10 @@ def _llm_json_word_lesson(system: str, user: str, max_tokens: int = 2400) -> dic
     if prefer == "groq":
         if groq_api_key_valid():
             providers.append("groq")
-        if os.environ.get("GEMINI_API_KEY", "").strip():
+        if _gemini_keys():
             providers.append("gemini")
     else:
-        if os.environ.get("GEMINI_API_KEY", "").strip():
+        if _gemini_keys():
             providers.append("gemini")
         if groq_api_key_valid():
             providers.append("groq")
@@ -8228,7 +8377,7 @@ def _try_ai_tutor_turn(
         user_text=user_text[:500],
         stt_note=stt_note,
     ) + pending_note
-    parsed = _llm_json(system, "Respond with the JSON object only.", max_tokens=600)
+    parsed = _llm_json(system, "Respond with the JSON object only.", max_tokens=760)
     if not parsed:
         return None
 
@@ -8273,7 +8422,7 @@ def _try_ai_tutor_turn(
                 fixed = native_continue.get(target_lang) or fixed
         teacher_en = fixed
         if not teacher_tr:
-            teacher_tr = f"Yanıt {lang_name} dilinde devam ediyor."
+            teacher_tr = f"Yanıt {_tr_lang_name(lang_name)} devam ediyor."
 
     corr_level = int(parsed.get("correction_level") or 1)
     corr_level = max(1, min(3, corr_level))
@@ -8416,7 +8565,48 @@ def _try_ai_tutor_turn(
     result["has_question"] = bool(question_text)
     result["question_text"] = question_text or None
     result["tts_language"] = target_lang
+    result["orchestrator"] = _orchestrator_meta(parsed, user_text, teacher_en, target_lang, level)
     return result
+
+
+_LEVEL_RE = re.compile(r"\b(A1|A2|B1|B2|C1|C2)\b", re.I)
+_INTENTS = {"education", "translation", "roleplay", "help"}
+
+
+def _orchestrator_meta(
+    parsed: dict, user_text: str, teacher_en: str, target_lang: str, fallback_level: str,
+) -> dict[str, Any]:
+    """Display-only analysis (level / mood / intent / tone / alternatives) from the AI JSON."""
+    analysis = parsed.get("analysis") if isinstance(parsed.get("analysis"), dict) else {}
+    voice = parsed.get("voice") if isinstance(parsed.get("voice"), dict) else {}
+    m = _LEVEL_RE.search(safe_str(analysis.get("learner_level")))
+    level = m.group(1).upper() if m else safe_str(fallback_level or "A1")
+    emotion = re.sub(r"[{}\[\]\"<>]", "", safe_str(analysis.get("emotion"))).strip()[:24]
+    intent = safe_str(analysis.get("intent")).strip().lower()
+    if intent not in _INTENTS:
+        intent = "education"
+    tone = re.sub(r"[{}\[\]\"<>]", "", safe_str(voice.get("tone"))).strip()[:80]
+    alts: list[str] = []
+    raw_alts = parsed.get("alternatives")
+    if isinstance(raw_alts, list):
+        seen = {safe_str(user_text).strip().lower(), safe_str(teacher_en).strip().lower()}
+        for a in raw_alts:
+            a = safe_str(a).strip().strip('"')
+            if not a or len(a) > 160 or a.lower() in seen:
+                continue
+            if target_lang != "en" and _is_strong_english(a) and not looks_like_lang(a, target_lang):
+                continue
+            seen.add(a.lower())
+            alts.append(a)
+            if len(alts) >= 2:
+                break
+    return {
+        "level": level,
+        "emotion": emotion,
+        "intent": intent,
+        "tone": tone,
+        "alternatives": alts,
+    }
 
 
 def safe_str(val: Any) -> str:
@@ -9366,7 +9556,7 @@ def greeting(
             text_en = _localize_teacher_text(GREETING_OPENERS["en"], lang, translate_fn)
 
     intro_tr = (
-        f"Hata yapmaktan çekinme. {lang_name} konuşmaya çalış — "
+        f"Hata yapmaktan çekinme. {_tr_lang_name(lang)} konuşmaya çalış — "
         "ben gerektiğinde yardımcı olurum."
     )
     if meta:
@@ -9770,6 +9960,19 @@ def process_turn(
             fallback["weekly_progress"] = weekly_progress(fallback["profile"])
             return fallback
 
+    # Mentor-first: with an LLM configured the AI mentor answers free conversation
+    # (it corrects kindly in context); the deterministic rules below are the offline fallback.
+    ai_tried = False
+    if _llm_providers_in_order():
+        ai_tried = True
+        ai_result = _try_ai_tutor_turn(
+            original_text, user_lang, target_lang, history, profile,
+            session_delta, roleplay, speak_slow, translate_fn,
+        )
+        if ai_result:
+            ai_result["weekly_progress"] = weekly_progress(ai_result["profile"])
+            return ai_result
+
     # Tekrarlayan hata pekiştirme — intent'ten önce (spaced repetition)
     if target_lang == "en" and user_lang == "en":
         review = _try_repeated_weakness_turn(
@@ -9850,7 +10053,7 @@ def process_turn(
             return keep
 
     # AI öğretmen — ana beyin (free conversation)
-    ai_result = _try_ai_tutor_turn(
+    ai_result = None if ai_tried else _try_ai_tutor_turn(
         original_text, user_lang, target_lang, history, profile,
         session_delta, roleplay, speak_slow, translate_fn,
     )
