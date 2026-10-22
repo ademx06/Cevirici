@@ -22,6 +22,8 @@
   const PAGE = $('ltToggle') ? 'talk' : 'translate';
   const KEY = PAGE === 'talk' ? 'lt_langs_v2' : 'tr_langs_v2';
   const SILENCE = new Uint8Array(3200); // 100 ms @16 kHz
+  // Sessiz / kısa basışta Live'ın uydurduğu dolgular (eğitimdeki gibi atılır)
+  const FILLER_RE = /^(¿\s*)?(qué|que|what|huh|hmm+|m+h?m+|uh+|um+|ah+|oh+|eh+|hä|ähm|quoi|cosa)(\s*[?.!]*)?$/i;
 
   let prefs = { my: 'tr', other: 'en' };
   try { prefs = Object.assign(prefs, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch { /* ignore */ }
@@ -70,26 +72,41 @@
     return d >= 0 ? 'toOther' : 'toMine';
   }
 
+  function isFiller(t) {
+    const s = String(t || '').trim();
+    if (!s) return true;
+    return FILLER_RE.test(s);
+  }
+
   // ---------------------------------------------------------------- oturumlar
   function session(key) {
     if (sessions[key]) return sessions[key];
+    // Eğitimdeki gibi: bas-konuş elle (vad:false); karşılıklı otomatik algılama (vad:true)
     const body = key === 'both'
       ? () => ({ kind: 'interpret', source: prefs.my, target: prefs.other, both: true, vad: true })
-      : () => ({ kind: 'interpret', source: sourceOf(key), target: targetOf(key) });
+      : () => ({ kind: 'interpret', source: sourceOf(key), target: targetOf(key), vad: false });
     const s = new LiveAudio.Session({
       body,
       onInput: (t) => {
+        const chunk = String(t || '');
         let b = cur[key];
-        if (key === 'both' && (!b || b.trans)) b = newBubble('both', 'toOther'); // yeni konuşmacı / yeni cümle
+        if (key === 'both' && (!b || b.trans)) b = newBubble('both', 'toOther');
         if (!b) return;
-        b.orig = (b.orig + t).replace(/\s+/g, ' ');
+        const next = (b.orig + chunk).replace(/\s+/g, ' ');
+        // Tek başına dolgu (¿Qué?) yazma — uydurma metin gösterme
+        if (!b.orig.trim() && isFiller(next)) return;
+        b.orig = next;
+        b._heard = true;
         if (key === 'both') retarget(b);
         renderSoon();
       },
       onOutput: (t) => {
+        const chunk = String(t || '');
         let b = cur[key];
         if (!b || b.done) b = newBubble(key, key === 'both' ? 'toOther' : key);
-        b.trans = (b.trans + t).replace(/\s+/g, ' ');
+        const next = (b.trans + chunk).replace(/\s+/g, ' ');
+        if (!b.trans.trim() && isFiller(next) && !b.orig.trim() && !(b.audio && b.audio.length)) return;
+        b.trans = next;
         b.listening = false;
         if (key === 'both') retarget(b);
         renderSoon();
@@ -98,6 +115,8 @@
         let b = cur[key];
         if (!b || b.done) b = newBubble(key, key === 'both' ? 'toOther' : key);
         b.audio.push(u8); b.rate = rate;
+        b._heard = true;
+        LiveAudio.unlock();
         player.enqueue(u8, rate);
       },
       onInterrupted: () => { player.stop(); },
@@ -133,10 +152,19 @@
     if (!b) return;
     cur[key] = null;
     b.listening = false;
-    if (!b.trans.trim() && !b.orig.trim()) { const i = bubbles.indexOf(b); if (i >= 0) bubbles.splice(i, 1); renderSoon(); return; }
+    const orig = (b.orig || '').trim();
+    const trans = (b.trans || '').trim();
+    // Boş / dolgu turu (¿Qué?) — kutucuğu ve sesi at (eğitimdeki boş mesaj silme gibi)
+    if ((!orig && !trans) || (isFiller(orig) && (!trans || isFiller(trans))) || (isFiller(trans) && !orig && !(b.audio && b.audio.length))) {
+      player.stop();
+      const i = bubbles.indexOf(b);
+      if (i >= 0) bubbles.splice(i, 1);
+      renderSoon();
+      return;
+    }
+    if (isFiller(trans) && orig) b.trans = '';
     b.done = true;
     renderSoon();
-    // Okunuş arka planda — Gemini Live sesini / UI'yi bekletmesin
     if (b.to !== 'tr' && b.trans.trim()) {
       const q = b.trans.trim().slice(0, 400);
       void fetch('/api/pronounce?' + new URLSearchParams({ q, lang: b.to }))
@@ -283,10 +311,11 @@
     if (!(await ensureMicFor(btn))) return;
     if (!btn._held) return;
     holdDir = dir; pending = [];
+    btn._holdT0 = performance.now();
     player.stop();
     btn.classList.add('recording');
     setStatus(`Dinliyorum — ${lang(sourceOf(dir)).name} konuş`, true);
-    const b = newBubble(dir, dir); b.listening = true; renderSoon(); // her basış = yeni çeviri
+    const b = newBubble(dir, dir); b.listening = true; b._heard = false; renderSoon();
     const s = session(dir);
     s._activity = false;
     turnReady = s.connect().then(() => {
@@ -307,8 +336,20 @@
     const d = holdDir; holdDir = null;
     if (mic) { mic.stop(); mic = null; }
     btn.classList.remove('recording', 'arming');
-    if (d) finalize(d);
-    showErr(msg); idle();
+    // activityEnd yok — uydurma cevap tetiklenmesin
+    const s = d && sessions[d];
+    if (s) s._activity = false;
+    if (d) {
+      const b = cur[d];
+      cur[d] = null;
+      if (b) {
+        const i = bubbles.indexOf(b);
+        if (i >= 0) bubbles.splice(i, 1);
+      }
+      renderSoon();
+    }
+    if (msg) showErr(msg);
+    idle();
   }
   async function holdEnd(btn) {
     if (!holdDir) return;
@@ -316,16 +357,32 @@
     btn.classList.remove('recording', 'arming');
     btn.style.removeProperty('--lv');
     const b = cur[dir]; if (b) { b.listening = false; renderSoon(); }
-    setStatus('Çeviriliyor…', true);
+    const holdMs = performance.now() - (btn._holdT0 || 0);
     const m = mic; mic = null;
     if (m) await m.stop();
     const s = sessions[dir];
     try { await turnReady; } catch { return; }
     if (!s || !s.isOpen) return;
+    // Eğitim gibi: ses yoksa / çok kısa basışta Gemini'ye bitiş gönderme → ¿Qué? uydurmasın
+    if (!b || (!b._heard && holdMs < 450)) {
+      s._activity = false;
+      cur[dir] = null;
+      const i = b ? bubbles.indexOf(b) : -1;
+      if (i >= 0) bubbles.splice(i, 1);
+      renderSoon();
+      setStatus('Seni duyamadım — basılı tutup konuş');
+      setTimeout(() => { if (!holdDir) idle(); }, 2200);
+      return;
+    }
+    setStatus('Çeviriliyor…', true);
     if (pending.length) { const q = pending; pending = []; q.forEach((c) => s.sendAudio(c)); }
     s.activityEnd(); s._activity = false;
-    // hiç ses algılanmadıysa kutucuğu kaldır
-    setTimeout(() => { if (cur[dir] === b && b && !b.orig && !b.trans) { finalize(dir); setStatus('Seni duyamadım — basılı tutup tekrar konuş'); } }, 6000);
+    setTimeout(() => {
+      if (cur[dir] === b && b && !b.orig.trim() && !b.trans.trim() && !(b.audio && b.audio.length)) {
+        finalize(dir);
+        setStatus('Seni duyamadım — basılı tutup tekrar konuş');
+      }
+    }, 6000);
   }
   function bindHold(btn, dirFn) {
     if (!btn) return;

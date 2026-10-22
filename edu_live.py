@@ -129,10 +129,14 @@ def interpret_instructions(source: str, target: str, both: bool) -> str:
 
 
 def interpret_setup(model: str, source: str, target: str, both: bool = False, vad: bool = False) -> dict:
-    """Canlı tercüman — eğitimdeki aynı Live model; bas-konuş (elle) ya da eller serbest (otomatik algılama)."""
+    """Canlı tercüman — eğitimdeki aynı Live model + aynı VAD hassasiyeti.
+
+    Önceki HIGH + 700 ms İngilizce dışı dillerde cümleyi yarıda kesiyordu.
+    Eğitim (tutor) ile aynı: END_SENSITIVITY_LOW + 1600 ms → tüm dillerde akıcı.
+    """
     ric = ({"automaticActivityDetection": {
         "disabled": False, "startOfSpeechSensitivity": "START_SENSITIVITY_HIGH",
-        "endOfSpeechSensitivity": "END_SENSITIVITY_HIGH", "prefixPaddingMs": 100, "silenceDurationMs": 700}}
+        "endOfSpeechSensitivity": "END_SENSITIVITY_LOW", "prefixPaddingMs": 120, "silenceDurationMs": 1600}}
         if vad else {"automaticActivityDetection": {"disabled": True}})
     return {
         "model": f"models/{model}",
@@ -141,6 +145,7 @@ def interpret_setup(model: str, source: str, target: str, both: bool = False, va
         "realtimeInputConfig": ric,
         "inputAudioTranscription": {},
         "outputAudioTranscription": {},
+        "sessionResumption": {},
     }
 
 

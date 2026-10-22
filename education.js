@@ -695,14 +695,16 @@
     if (!tutor) { render(); idleStatus(); return; }
     tutor.reply = tutor.reply.trim();
     tutor.you = tutor.mode === 'speak' && user ? user.text.trim() : '';
+    // Cevap + ses hemen bitsin; okunuş/TR arka planda gelsin (takılma azalır)
+    tutor.pending = false;
     render(); saveChat();
     if (!L.player.playing) idleStatus();
-    // Ekrana: okunuş + Türkçe + (varsa) düzeltme — ses zaten çaldı, kullanıcıyı bekletmez
-    try {
-      const r = await fetch('/api/edu/annotate', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lang: tutor.lang, tutor_text: tutor.reply, user_text: user && user.mode !== 'help' ? user.text : '', mode: tutor.mode, level: level() }) });
-      const a = await r.json();
-      if (r.ok) {
+    void (async () => {
+      try {
+        const r = await fetch('/api/edu/annotate', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ lang: tutor.lang, tutor_text: tutor.reply, user_text: user && user.mode !== 'help' ? user.text : '', mode: tutor.mode, level: level() }) });
+        const a = await r.json();
+        if (!r.ok) return;
         tutor.okunus = a.okunus || ''; tutor.fix = a.fix || null; tutor.words = a.words || [];
         tutor.reply_tr = a.tr || '';
         if (a.hint_tr) { tutor.explain_tr = a.hint_tr; tutor.reply_target = a.target || ''; }
@@ -717,10 +719,9 @@
         }
         recordLearning({ words: tutor.words, fix: tutor.fix }, tutor.you);
         saveProfile();
-      }
-    } catch { /* ekran bilgisi gelmezse ses yine de çaldı */ }
-    tutor.pending = false;
-    saveChat(); render(); syncHeader();
+        saveChat(); render(); syncHeader();
+      } catch { /* ses zaten çaldı */ }
+    })();
   }
 
   const SILENCE = new Uint8Array(3200); // 100 ms sessizlik @16 kHz
