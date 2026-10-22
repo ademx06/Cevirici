@@ -136,14 +136,32 @@
     if (!b.trans.trim() && !b.orig.trim()) { const i = bubbles.indexOf(b); if (i >= 0) bubbles.splice(i, 1); renderSoon(); return; }
     b.done = true;
     renderSoon();
+    // Okunuş arka planda — Gemini Live sesini / UI'yi bekletmesin
     if (b.to !== 'tr' && b.trans.trim()) {
-      try {
-        const r = await fetch('/api/pronounce?' + new URLSearchParams({ q: b.trans.trim().slice(0, 800), lang: b.to }));
-        const d = await r.json();
-        b.okunus = d.phonetic || '';
-        renderSoon();
-      } catch { /* ignore */ }
+      const q = b.trans.trim().slice(0, 400);
+      void fetch('/api/pronounce?' + new URLSearchParams({ q, lang: b.to }))
+        .then((r) => r.json())
+        .then((d) => { b.okunus = d.phonetic || ''; renderSoon(); })
+        .catch(() => {});
     }
+  }
+
+  /** Yazılı çeviri sesi — hızlı Google TTS + blob (uzun URL / nöral gecikme yok). Live yapısına dokunmaz. */
+  async function playTypedTts(text, lang) {
+    const q = (text || '').trim().slice(0, 1800);
+    if (!q) return;
+    LiveAudio.unlock();
+    try {
+      const r = await fetch('/api/tts?' + new URLSearchParams({ q, tl: lang }));
+      if (!r.ok) return;
+      const blob = await r.blob();
+      if (!blob.size) return;
+      const u = URL.createObjectURL(blob);
+      const au = new Audio(u);
+      au.onended = () => { URL.revokeObjectURL(u); LiveAudio.unlock(); };
+      au.onerror = () => { URL.revokeObjectURL(u); LiveAudio.unlock(); };
+      await au.play();
+    } catch { /* ignore */ }
   }
 
   // ---------------------------------------------------------------- render (yerinde güncelleme → titreme yok)
@@ -373,13 +391,13 @@
       const dir = d.from === prefs.my ? 'toOther' : 'toMine';
       const b = { dir, from: d.from, to: d.to, orig: text, trans: d.text, done: true, okunus: '', audio: [], rate: 24000 };
       bubbles.push(b); render();
-      // Tam metni seslendir — 400 karakter kesmesi cümleyi yarıda bırakıyordu
-      const speakText = (d.text || '').trim().slice(0, 2500);
-      const au = new Audio('/api/tts?' + new URLSearchParams({ q: speakText, tl: d.to, n: '1' }));
-      au.play().catch(() => {});
-      if (d.to !== 'tr') {
-        const p = await (await fetch('/api/pronounce?' + new URLSearchParams({ q: speakText.slice(0, 800), lang: d.to }))).json();
-        b.okunus = p.phonetic || ''; render();
+      // Ses hemen (hızlı TTS); okunuş arka planda — Live oturumuna dokunulmaz
+      await playTypedTts(d.text, d.to);
+      if (d.to !== 'tr' && (d.text || '').trim()) {
+        void fetch('/api/pronounce?' + new URLSearchParams({ q: d.text.trim().slice(0, 400), lang: d.to }))
+          .then((r) => r.json())
+          .then((p) => { b.okunus = p.phonetic || ''; render(); })
+          .catch(() => {});
       }
       idle();
     } catch (e) { showErr(e.message || 'Çeviri başarısız'); idle(); }

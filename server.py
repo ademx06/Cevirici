@@ -32,7 +32,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.10.22-v75.4"
+APP_VERSION = "2026.10.22-v75.5"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -1347,12 +1347,16 @@ def prepare_wav(data: bytes, *, fast: bool = False) -> str:
 
 
 def audio_has_speech(wav: str) -> bool:
-    result = subprocess.run(
-        ["ffmpeg", "-i", wav, "-af", "volumedetect", "-f", "null", "-"],
-        capture_output=True,
-        text=True,
-        timeout=15,
-    )
+    """Hızlı sessizlik kontrolü. Belirsiz/hata → True (STT'ye bırak; Live yoluna dokunmaz)."""
+    try:
+        result = subprocess.run(
+            ["ffmpeg", "-i", wav, "-af", "volumedetect", "-f", "null", "-"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except Exception:
+        return True
     output = (result.stderr or "") + (result.stdout or "")
     mean = re.search(r"mean_volume:\s*([-\d.]+)\s*dB", output)
     maxv = re.search(r"max_volume:\s*([-\d.]+)\s*dB", output)

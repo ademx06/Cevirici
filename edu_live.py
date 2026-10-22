@@ -106,14 +106,26 @@ def tutor_setup(model: str, lang: str, level: str, scenario: str | None, weak: l
 
 def interpret_instructions(source: str, target: str, both: bool) -> str:
     a, b = LANG_NAMES.get(source, source), LANG_NAMES.get(target, target)
-    rules = ("Translate faithfully in first person with the same meaning, tone and politeness. Speak naturally and clearly. "
-             "Never answer questions, never comment, never greet, never explain, never add or drop information. "
-             "If a question is asked, translate the question itself. If the audio is only noise or unclear, say nothing.")
+    rules = (
+        "Translate faithfully in first person with the same meaning, tone and politeness. Speak naturally and clearly. "
+        "Never answer questions, never comment, never greet, never explain, never add or drop information. "
+        "If a question is asked, translate the question itself. "
+        "If the audio is silence, only noise, or too unclear to understand, say NOTHING — "
+        "do not invent fillers like '¿Qué?', 'What?', 'Huh?', 'Hmm', or random words."
+    )
     if both:
-        return (f"You are a professional two-way interpreter between {a} and {b}. You are NOT a chatbot or assistant. "
-                f"When you hear {a}, speak ONLY its {b} translation. When you hear {b}, speak ONLY its {a} translation. " + rules)
-    return (f"You are a professional interpreter. You are NOT a chatbot or assistant. The speaker speaks {a}. "
-            f"Speak ONLY the {b} translation of what they say (if they use another language, still translate into {b}). " + rules)
+        return (
+            f"You are a professional two-way interpreter between {a} and {b}. You are NOT a chatbot or assistant. "
+            f"When you hear {a}, speak ONLY its {b} translation. When you hear {b}, speak ONLY its {a} translation. "
+            f"Treat each language as a native language: do not force English. " + rules
+        )
+    return (
+        f"You are a professional interpreter. You are NOT a chatbot or assistant. "
+        f"The speaker's language is {a} — treat {a} as their primary/native language for recognition. "
+        f"Speak ONLY the {b} translation of what they say "
+        f"(if they briefly mix another language, still produce only {b}). "
+        f"Do not reply in {a}. Do not default to English unless {b} is English. " + rules
+    )
 
 
 def interpret_setup(model: str, source: str, target: str, both: bool = False, vad: bool = False) -> dict:
