@@ -92,7 +92,7 @@
   const str = (v, n = 600) => (typeof v === 'string' ? v : v == null ? '' : String(v)).slice(0, n);
   function cleanMsg(m) {
     if (!m || typeof m !== 'object') return null;
-    if (m.role === 'user') return m.text ? { role: 'user', text: str(m.text, 500), mode: m.mode === 'help' ? 'help' : 'speak', t: Number(m.t) || 0 } : null;
+    if (m.role === 'user') return m.text ? { role: 'user', text: str(m.text, 500), okunus: str(m.okunus, 600), mode: m.mode === 'help' ? 'help' : 'speak', t: Number(m.t) || 0 } : null;
     if (m.role !== 'tutor') return null;
     const fix = m.fix && typeof m.fix === 'object' && m.fix.fixed
       ? { status: m.fix.status === 'better' ? 'better' : 'fix', fixed: str(m.fix.fixed), okunus: str(m.fix.okunus), explain_tr: str(m.fix.explain_tr) } : null;
@@ -105,6 +105,7 @@
       speak: arr(m.speak).filter((i) => i.text).map((i) => ({ text: str(i.text, 480), lang: str(i.lang, 5) })),
       provider: str(m.provider, 10), t: Number(m.t) || 0,
       reply_target: str(m.reply_target), checked: !!m.checked,
+      segments: arr(m.segments).filter((g) => g.text).map((g) => ({ text: str(g.text, 400), lang: str(g.lang, 5) })),
     };
     return out.reply || out.examples.length ? out : null;
   }
@@ -255,7 +256,7 @@
   function renderUser(m, i) {
     const help = m.mode === 'help';
     const txt = m.text || (m.pending ? '🎙️ Dinliyorum…' : '');
-    return `<div class="msg msg-user ${help ? 'help' : ''} ${m.pending ? 'is-live' : ''}" data-i="${i}">${help ? '<span class="msg-tag">Yardım · Türkçe</span>' : ''}<div class="msg-body">${esc(txt)}</div></div>`;
+    return `<div class="msg msg-user ${help ? 'help' : ''} ${m.pending ? 'is-live' : ''}" data-i="${i}">${help ? '<span class="msg-tag">Yardım · Türkçe</span>' : ''}<div class="msg-body">${esc(txt)}${!help && m.okunus && P.showOkunus ? `<p class="t-okunus">${esc(m.okunus)}</p>` : ''}</div></div>`;
   }
 
   function render() {
@@ -280,7 +281,8 @@
   function partItems(m, part) {
     if (!m) return [];
     const lang = m.lang || P.lang;
-    if (part === 'reply') return [{ text: m.reply, lang }];
+    // Türkçe ipucu Türkçe aksanla, hedef dil kendi aksanıyla (sırası korunur)
+    if (part === 'reply') return (m.segments && m.segments.length) ? m.segments.map((g) => ({ text: g.text, lang: g.lang === 'tr' ? 'tr' : lang })) : [{ text: m.reply, lang }];
     if (part === 'fix' && m.fix) return [{ text: m.fix.fixed, lang }];
     if (part.startsWith('ex')) { const ex = (m.examples || [])[Number(part.slice(2))]; return ex ? [{ text: ex.text, lang }] : []; }
     return [];
@@ -706,6 +708,8 @@
         const a = await r.json();
         if (!r.ok) return;
         tutor.okunus = a.okunus || ''; tutor.fix = a.fix || null; tutor.words = a.words || [];
+        tutor.segments = Array.isArray(a.segments) ? a.segments : [];
+        if (user && a.user_okunus) user.okunus = a.user_okunus;
         tutor.reply_tr = a.tr || '';
         if (a.hint_tr) { tutor.explain_tr = a.hint_tr; tutor.reply_target = a.target || ''; }
         tutor.checked = !!a.checked;
@@ -759,6 +763,7 @@
   }
 
   function beginTalk(btn, mode) {
+    const wasPlaying = !!(L.player && L.player.playing);
     L.player && L.player.stop();
     stopAudio();
     if (L.tutorMsg) { L.tutorMsg.pending = false; L.tutorMsg = null; }
@@ -782,6 +787,7 @@
     });
     L.turnReady.catch((e) => { L.failed += 1; liveAbort(btn, e.message || 'Canlı bağlantı kurulamadı'); });
     L.mic = new LiveAudio.Mic({
+      preroll: !wasPlaying, // öğretmenin sesi mikrofona karışmasın
       onChunk: (u8) => {
         if (L.session && L.session.isOpen && L.session._activity && !L.pendingChunks.length) L.session.sendAudio(u8);
         else L.pendingChunks.push(u8);

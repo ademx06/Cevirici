@@ -916,6 +916,7 @@
       }
       if (!btn._held) return;
       LV.talking = true; LV.pending = [];
+      const wasPlaying = !!(LV.player && LV.player.playing);
       if (LV.player) LV.player.stop();
       LV.turn = { inputId, text: '', submitted: false, timer: null };
       const input = $(inputId); if (input) input.value = '';
@@ -929,6 +930,7 @@
       });
       LV.ready.catch(() => { LV.talking = false; btn.classList.remove('recording'); setUi('Canlı bağlantı kurulamadı — yazarak dene', false); });
       LV.mic = new LiveAudio.Mic({
+        preroll: !wasPlaying,
         onChunk: (u8) => { if (s.isOpen && s._activity && !LV.pending.length) s.sendAudio(u8); else LV.pending.push(u8); },
         onLevel: (lv) => { btn.style.setProperty('--lv', Math.min(1, lv * 3).toFixed(2)); if (lv > 0.06) setUi('🎙️ Seni duyuyorum…', true); },
       });

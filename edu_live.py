@@ -58,6 +58,8 @@ def tutor_instructions(lang: str, level: str, scenario: str | None = None, weak:
         f"If the learner speaks TURKISH, they need help: tell them in one short Turkish sentence how to say it, then say the {name} "
         f"sentence clearly, say it once more slowly, and invite them (in {name}) to repeat it.",
         "Never read out emojis, lists or symbols. Never mention that you are an AI model.",
+        f"PRONUNCIATION: speak every Turkish sentence with native Turkish pronunciation and every {name} sentence with native "
+        f"{name} pronunciation — never read Turkish with a foreign accent or {name} with a Turkish accent.",
     ]
     if scenario:
         rp = ee.ROLEPLAYS.get(scenario) or {}

@@ -610,18 +610,32 @@ def annotate(lang: str, tutor_text: str, user_text: str = "", *, level: str = "A
     target_parts, tr_parts = split_turkish(full_text, lang)
     tutor_text = " ".join(target_parts).strip()
     hint_tr = " ".join(tr_parts).strip()
-    out: dict[str, Any] = {"okunus": "", "tr": "", "hint_tr": hint_tr, "target": tutor_text, "fix": None,
+    # Sesli tekrar için sıralı parçalar: Türkçe ipucu Türkçe sesle, hedef dil kendi sesiyle
+    segments = [{"text": x, "lang": "tr" if _is_turkish_sentence(x, lang) else lang}
+                for x in (y.strip() for y in re.findall(r"[^.!?。！？؟]+[.!?。！？؟]*", full_text or "")) if x]
+    out: dict[str, Any] = {"segments": segments, "okunus": "", "tr": "", "hint_tr": hint_tr, "target": tutor_text, "fix": None,
                            "user_level": "", "words": [], "checked": False}
 
-    def do_okunus() -> str:
-        if not tutor_text:
+    def okunus_of(text: str) -> str:
+        if not text:
             return ""
         if lang in PINYIN_LANGS:
-            return llm_okunus(tutor_text, lang)
+            return llm_okunus(text, lang)
         if lang in LLM_OKUNUS:
-            got = llm_okunus_batch([tutor_text], lang)[0]
-            return got if _okunus_ok(got, tutor_text, lang) else (ok.okunus(tutor_text, lang) if lang == "en" else "")
-        return ok.okunus(tutor_text, lang)
+            got = llm_okunus_batch([text], lang)[0]
+            return got if _okunus_ok(got, text, lang) else (ok.okunus(text, lang) if lang == "en" else "")
+        return ok.okunus(text, lang)
+
+    def do_okunus() -> str:
+        return okunus_of(tutor_text)
+
+    # Öğrencinin söylediği (hedef dilde ise) okunuşu
+    user_target = " ".join(split_turkish(user_text, lang)[0]).strip() if user_text and mode != "help" else ""
+    if user_target and _is_turkish_sentence(user_target, lang):
+        user_target = ""
+
+    def do_user_okunus() -> str:
+        return okunus_of(user_target) if user_target else ""
 
     def do_tr() -> str:
         if not tutor_text or not translate_fn:
@@ -647,9 +661,11 @@ def annotate(lang: str, tutor_text: str, user_text: str = "", *, level: str = "A
                               require="ok")
         return parsed
 
-    with ThreadPoolExecutor(max_workers=3) as pool:
+    with ThreadPoolExecutor(max_workers=4) as pool:
         f_ok, f_tr, f_ck = pool.submit(do_okunus), pool.submit(do_tr), pool.submit(do_check)
+        f_uo = pool.submit(do_user_okunus)
         out["okunus"] = f_ok.result() or ""
+        out["user_okunus"] = f_uo.result() or ""
         out["tr"] = f_tr.result() or ""
         ck = f_ck.result()
     if isinstance(ck, dict):

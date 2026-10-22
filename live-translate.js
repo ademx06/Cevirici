@@ -34,7 +34,8 @@
     : { my: 'myLang', other: 'otherLang', swap: 'swapBtn', status: 'statusText', dot: 'statusDot', err: 'errorBox', msgs: 'messages', clear: 'clearBtn' };
 
   // ---------------------------------------------------------------- state
-  const player = new LiveAudio.Player({ onStart: () => setStatus('Çeviri seslendiriliyor…', true), onIdle: () => idle() });
+  let lastPlayEnd = 0;
+  const player = new LiveAudio.Player({ onStart: () => setStatus('Çeviri seslendiriliyor…', true), onIdle: () => { lastPlayEnd = performance.now(); idle(); } });
   const sessions = {}; // key → Session   (translate: 'toOther' / 'toMine'; talk: 'both')
   const bubbles = []; // {dir, from, to, orig, trans, done, okunus, audio:[], rate, listening}
   const cur = {}; // session key → bubble that receives this session's current turn
@@ -116,7 +117,6 @@
         if (!b || b.done) b = newBubble(key, key === 'both' ? 'toOther' : key);
         b.audio.push(u8); b.rate = rate;
         b._heard = true;
-        LiveAudio.unlock();
         player.enqueue(u8, rate);
       },
       onInterrupted: () => { player.stop(); },
@@ -154,9 +154,10 @@
     b.listening = false;
     const orig = (b.orig || '').trim();
     const trans = (b.trans || '').trim();
-    // Boş / dolgu turu (¿Qué?) — kutucuğu ve sesi at (eğitimdeki boş mesaj silme gibi)
-    if ((!orig && !trans) || (isFiller(orig) && (!trans || isFiller(trans))) || (isFiller(trans) && !orig && !(b.audio && b.audio.length))) {
-      player.stop();
+    // Boş / dolgu turu (¿Qué?) — yalnızca SES YOKSA at (yazı sesten geç gelebilir → çalan çeviriyi kesme)
+    const hasAudio = !!(b.audio && b.audio.length);
+    const fil = (x) => !!x && FILLER_RE.test(x);
+    if (!hasAudio && (!trans || fil(trans)) && (!orig || fil(orig))) {
       const i = bubbles.indexOf(b);
       if (i >= 0) bubbles.splice(i, 1);
       renderSoon();
@@ -312,6 +313,7 @@
     if (!btn._held) return;
     holdDir = dir; pending = [];
     btn._holdT0 = performance.now();
+    const wasPlaying = player.playing || performance.now() - lastPlayEnd < 600;
     player.stop();
     btn.classList.add('recording');
     setStatus(`Dinliyorum — ${lang(sourceOf(dir)).name} konuş`, true);
@@ -324,6 +326,7 @@
     });
     turnReady.catch((e) => holdAbort(btn, (e && e.message) || 'Canlı bağlantı kurulamadı'));
     mic = new LiveAudio.Mic({
+      preroll: !wasPlaying,
       onChunk: (u8) => { if (s.isOpen && s._activity && !pending.length) s.sendAudio(u8); else pending.push(u8); },
       onLevel: (lv) => {
         btn.style.setProperty('--lv', Math.min(1, lv * 3).toFixed(2));
@@ -413,7 +416,7 @@
       mic = new LiveAudio.Mic({
         preroll: false,
         // çeviri sesi çalarken sessizlik gönder → kendi çevirisini tekrar çevirmesin
-        onChunk: (u8) => { if (s.isOpen) s.sendAudio(player.playing ? SILENCE : u8); },
+        onChunk: (u8) => { if (s.isOpen) s.sendAudio(player.playing || performance.now() - lastPlayEnd < 700 ? SILENCE : u8); },
         onLevel: (lv) => { const m = $('ltMeter'); if (m) m.style.transform = `scale(${1 + Math.min(0.6, player.playing ? 0 : lv * 2.5)})`; },
       });
       await Promise.all([mic.start(), s.connect()]);
