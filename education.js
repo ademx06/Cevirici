@@ -148,7 +148,7 @@
 
   const ttsCache = new Map(); // key -> Promise<objectURL>
   function ttsUrl(text, lang, slow) {
-    const q = new URLSearchParams({ q: text.slice(0, 480), tl: lang });
+    const q = new URLSearchParams({ q: text.slice(0, 2500), tl: lang });
     if (slow) q.set('slow', '1');
     const acc = P.accents[lang];
     if (acc) q.set('voice', acc);

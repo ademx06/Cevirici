@@ -32,7 +32,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.10.21-v75.3"
+APP_VERSION = "2026.10.22-v75.4"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -1368,6 +1368,22 @@ HALLUCINATION_RE = re.compile(
     re.I,
 )
 
+# Sessiz / çok kısa basışta Whisper'ın uydurduğu tek-kelime dolgular (tüm diller)
+_SILENCE_FILLERS = {
+    "teşekkür", "teşekkürler", "teşekkür ederim",
+    "thank you", "thanks", "thanks for watching",
+    "thank you for watching", "subscribe", "abone ol",
+    "abone olmayı unutmayın", "thanks for listening",
+    # Sessizlikte uydurma dolgular — gerçek kısa cevaplar (oui/sí/ja/no) burada YOK
+    "qué", "que", "qué?", "que?", "¿qué", "¿qué?", "¿que?",
+    "what", "what?", "huh", "huh?", "hmm", "mm", "mhm", "uh", "um", "er",
+    "ah", "oh", "eh", "ha", "he", "ya", "yo",
+    "was", "was?", "hä", "hä?", "ähm", "äh",
+    "quoi", "quoi?", "euh", "bah",
+    "cosa", "cosa?", "eh?", "boh",
+    "а", "ну", "эм", "типа",
+}
+
 
 def is_hallucination(text: str) -> bool:
     t = text.strip()
@@ -1375,16 +1391,18 @@ def is_hallucination(text: str) -> bool:
         return True
     if HALLUCINATION_RE.match(t):
         return True
-    low = t.lower().strip(" .!?،。")
-    if low in {
-        "teşekkür", "teşekkürler", "teşekkür ederim",
-        "thank you", "thanks", "thanks for watching",
-        "thank you for watching", "subscribe", "abone ol",
-        "abone olmayı unutmayın", "thanks for listening",
-    }:
+    # Yalnızca noktalama / boşluk
+    if not re.search(r"[\w\u0400-\u04FF\u10A0-\u10FF\u0600-\u06FF\u4e00-\u9fff]", t, re.UNICODE):
+        return True
+    low = t.lower().strip(" .!?¿¡،。…\"'""''")
+    if low in _SILENCE_FILLERS:
         return True
     # Sessizlikte sık Whisper uydurmaları
     if re.fullmatch(r"(thank you for watching\.?|thanks for watching\.?|subscribe\.?)", low):
+        return True
+    # Tek dolgu kelimesi (¿Qué? / huh) — gerçek kısa cevaplar (sí/oui/ja/no) filler listesinde yok
+    letters = re.findall(r"[\w\u0400-\u04FF\u10A0-\u10FF\u0600-\u06FF\u4e00-\u9fff]+", low, re.UNICODE)
+    if len(letters) == 1 and letters[0] in _SILENCE_FILLERS:
         return True
     return False
 
@@ -2676,11 +2694,29 @@ def stt_for_bas_konus(wav: str, lang: str) -> tuple[str, str, float] | None:
     """Bas Konuş profesyonel STT: dil kilitli, large-v3, birebir prompt.
 
     Auto-detect YOK. Çeviri YOK. Sadece seçilen dilde verbatim transcript.
+    Seçilen dil ana dil gibi işlenir; EN çöpü ES/DE/FR'ye sızmaz.
     """
     if lang not in STT_LANG:
         return None
+
+    def _accept_forced(text: str, score: float) -> tuple[str, str, float] | None:
+        text = clean_stt_text(text)
+        if not text or is_hallucination(text):
+            return None
+        if lang in ("ka", "ru", "ar", "zh"):
+            return (text, lang, score) if _script_matches_lang(text, lang) else None
+        if not _script_matches_lang(text, lang):
+            return None
+        # 3+ kelimede seçilen dil gibi görünmeli; aksi halde EN sızıntısı reddedilir
+        if lang in ("en", "tr", "de", "fr", "es", "it") and not looks_like_lang(text, lang):
+            words = text.split()
+            if len(words) >= 3:
+                return None
+            if lang != "en" and looks_like_lang(text, "en"):
+                return None
+        return text, lang, score
+
     prompt = BAS_KONUS_WHISPER_PROMPTS.get(lang, BAS_KONUS_WHISPER_PROMPT_GENERIC)
-    # Tüm Bas Konuş dillerinde large-v3 — "ikincil dil" muamelesi yok
     model = "whisper-large-v3"
     groq = _groq_stt_request(
         wav,
@@ -2689,34 +2725,23 @@ def stt_for_bas_konus(wav: str, lang: str) -> tuple[str, str, float] | None:
         model=model,
         timeout_sec=22,
     )
-    if groq and (groq[0] or "").strip() and not is_hallucination(groq[0]):
-        text = clean_stt_text(groq[0])
-        if text and _script_matches_lang(text, lang):
-            return text, lang, float(groq[2]) + 20
+    if groq and (groq[0] or "").strip():
+        ok = _accept_forced(groq[0], float(groq[2]) + 20)
+        if ok:
+            return ok
 
     google = google_stt(wav, lang)
-    if google and (google[0] or "").strip() and not is_hallucination(google[0]):
-        text = clean_stt_text(google[0])
-        if text and _script_matches_lang(text, lang):
-            return text, lang, score_text(text, lang) + 30
-
-    # Latin diller: script zaten uyumluysa Groq'u son çare kabul et
-    # ka/ru/ar/zh: yanlış script ASLA kabul etme (Türkçe/fonetik fallback YOK)
-    if groq and (groq[0] or "").strip() and not is_hallucination(groq[0]):
-        text = clean_stt_text(groq[0])
-        if text and lang in ("ka", "ru", "ar", "zh"):
-            return None
-        if text and _script_matches_lang(text, lang):
-            return text, lang, float(groq[2])
-        if text and lang not in ("ka", "ru", "ar", "zh"):
-            return text, lang, float(groq[2])
+    if google and (google[0] or "").strip():
+        ok = _accept_forced(google[0], score_text(google[0], lang) + 30)
+        if ok:
+            return ok
 
     if not DISABLE_WHISPER:
         local = stt_for_lang(wav, lang, allow_whisper=True)
-        if local and (local[0] or "").strip() and not is_hallucination(local[0]):
-            text = clean_stt_text(local[0])
-            if text and _script_matches_lang(text, lang):
-                return text, lang, float(local[2])
+        if local and (local[0] or "").strip():
+            ok = _accept_forced(local[0], float(local[2]))
+            if ok:
+                return ok
     return None
 
 
@@ -2738,6 +2763,9 @@ def transcribe_forced(
         timings["audio_pipeline"] = "bas_konus_v2"
     t_stt = time.perf_counter()
     try:
+        # Sessiz basışta Whisper "¿Qué?" / "Hmm" uydurmasın — önce ses var mı bak
+        if not audio_has_speech(wav):
+            raise ValueError("no speech")
         result = stt_for_bas_konus(wav, source_lang)
         # Kontrollü tek retry — yine AYNI source_lang (dil değiştirme yok)
         if not result or not (result[0] or "").strip():

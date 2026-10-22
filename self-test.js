@@ -210,7 +210,7 @@
   }
 
   async function playTts(text, lang) {
-    const q = (text || '').trim().slice(0, 600);
+    const q = (text || '').trim().slice(0, 2500);
     if (!q) return;
     const r = await fetch(`/api/tts?${new URLSearchParams({ q, tl: lang })}`);
     if (!r.ok) return;

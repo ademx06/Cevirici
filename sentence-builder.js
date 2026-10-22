@@ -129,7 +129,7 @@
   }
 
   async function playTts(text, lang) {
-    const q = (text || '').trim().slice(0, 600);
+    const q = (text || '').trim().slice(0, 2500);
     if (!q) return;
     const r = await fetch(`/api/tts?${new URLSearchParams({ q, tl: lang })}`);
     if (!r.ok) return;
@@ -142,25 +142,30 @@
     try { await audio.play(); } catch { /* ignore */ }
   }
 
-  function formatIpa(ipa) {
-    const raw = (ipa || '').trim();
-    if (!raw) return '';
-    return raw.startsWith('/') ? raw : `/${raw}/`;
+  function formatIpa(_ipa) {
+    // IPA alanı kaldırıldı — yalnızca Türkçe okunuş gösterilir
+    return '';
   }
 
-  function formatPronLine(pron, ipa) {
-    const ipaStr = formatIpa(ipa);
-    if (ipaStr && pron) return `🗣️ ${ipaStr} (${pron})`;
-    if (ipaStr) return `🗣️ ${ipaStr}`;
-    if (pron) return `🗣️ ${pron}`;
-    return '';
+  function formatPronLine(pron, _ipa) {
+    const p = (pron || '').trim();
+    return p ? `🗣️ ${p}` : '';
+  }
+
+  /** Açıklamada 1️⃣ (ve varsa 2️⃣) kalsın; kelime-kelime / 3️⃣+ adımlar UI'da gösterilmez. */
+  function trimTeachingEssentials(text) {
+    const raw = String(text || '').trim();
+    if (!raw) return '';
+    const parts = raw.split(/(?=^[1-9]️⃣)/m).map((p) => p.trim()).filter(Boolean);
+    if (!parts.length) return raw;
+    const keep = parts.filter((p) => /^[12]️⃣/.test(p));
+    return (keep.length ? keep : parts.slice(0, 1)).join('\n\n');
   }
 
   function renderCardActions(ex, lang, idx) {
     return `
       <div class="mod-card-actions">
         <button type="button" class="mod-listen-btn builder-listen" data-text="${esc(ex.target)}" data-lang="${lang}">▶ Dinle</button>
-        <button type="button" class="mod-detail-btn builder-sentence-detail" data-ex-idx="${idx}" data-lang="${lang}">📖 Cümle detay</button>
       </div>`;
   }
 
@@ -341,26 +346,9 @@
       patterns.map((p) => renderUsageLineItem(p, lang)).join('')
     }</div>`;
   }
-  function renderWordBreakdown(ex) {
-    const items = ex.word_breakdown || ex.parts || [];
-    if (!items.length) return '';
-    const hasPron = items.some((p) => p.pronunciation_tr || p.pronunciation_hint || p.ipa);
-    if (hasPron) {
-      return `<table class="mod-wb-table"><thead><tr><th>İngilizce</th><th>Okunuş / IPA</th><th>Türkçesi</th><th>Görevi</th></tr></thead><tbody>${
-        items.map((p) => {
-          const tok = p.token || p.tr || '';
-          const pron = p.pronunciation_tr || p.pronunciation_hint || '';
-          const ipa = formatIpa(p.ipa);
-          const pronCell = ipa && pron ? `${esc(pron)} ${esc(ipa)}` : esc(pron || ipa);
-          return `<tr><td>${esc(tok)}</td><td>${pronCell}</td><td>${esc(p.meaning_tr || '')}</td><td>${esc(p.role_tr || '')}</td></tr>`;
-        }).join('')
-      }</tbody></table>`;
-    }
-    return `<ul class="mod-parts">${items.map((p) => {
-      const tok = p.token || p.tr || '';
-      const role = p.role_tr ? `<small>${esc(p.role_tr)}</small>` : '';
-      return `<li><span class="mod-part-tr">${esc(tok)}</span>${role}<span class="mod-part-mean">${esc(p.meaning_tr || '')}</span></li>`;
-    }).join('')}</ul>`;
+  function renderWordBreakdown(_ex) {
+    // Kelime-kelime tablo kaldırıldı — eğitim kartında yalnızca kısa açıklama kalır
+    return '';
   }
 
   function renderPatternBlock(ex, lang) {
@@ -391,22 +379,14 @@
   }
 
   function renderPronunciationBlock(ex, lang, cardId) {
-    const ipa = ex.ipa || '';
-    const words = ex.word_pronunciations || [];
-    const wordRows = words.map((w) => `
-      <div class="mod-word-pron">
-        <span class="mod-word-pron-en">${esc(w.word)}</span>
-        <span class="mod-word-pron-tr">${formatPronLine(w.pronunciation_tr, w.ipa) || esc(w.pronunciation_tr)}</span>
-      </div>`).join('');
+    const pron = (ex.pronunciation_tr || '').trim();
+    if (!pron) return '';
     return `
       <div class="mod-pron-block">
         <div class="mod-pron-row">
-          <span class="mod-pron-label">${formatPronLine(ex.pronunciation_tr, ipa) || '🗣️ Okunuş'}</span>
-          ${!formatPronLine(ex.pronunciation_tr, ipa) ? `<span class="mod-pron-value">${esc(ex.pronunciation_tr || '')}</span>` : ''}
+          <span class="mod-pron-label">🗣️ Okunuş</span>
+          <span class="mod-pron-value">${esc(pron)}</span>
         </div>
-        ${ipa && !formatPronLine(ex.pronunciation_tr, ipa) ? `<div class="mod-ipa-row" data-ipa-panel="${cardId}"><span class="mod-ipa-label">IPA</span> ${esc(formatIpa(ipa))}</div>` : ''}
-        ${wordRows ? `<div class="mod-word-pron-list">${wordRows}</div>` : ''}
-        ${ipa ? `<button type="button" class="mod-ipa-toggle" data-ipa-toggle="${cardId}">IPA göster</button>` : ''}
       </div>`;
   }
 
@@ -442,28 +422,24 @@
   }
 
   function renderTeachingBlock(ex, lang, opts = {}) {
-    const how = ex.how_it_is_formed_tr || ex.explanation_tr || buildDetailFallback(ex);
+    const rawHow = ex.how_it_is_formed_tr || ex.explanation_tr || '';
+    // Kelime-kelime fallback ve 3️⃣+ adımlar gösterilmez — eğitici özet yeter
+    const how = trimTeachingEssentials(rawHow);
     const why = ex.why_this_structure_tr || '';
     const note = ex.important_note_tr || '';
-    const label = ex.structure_label_tr || '';
     const pattern = ex.pattern_tr || '';
-    // Cümle modülünde varsayılan açık — detay kaybolmasın
     const forceOpen = opts.open !== false;
     const open = (opts.open || (forceOpen && how)) ? ' open' : '';
-    if (!how && !why && !note && !ex.structure_tr) {
+    if (!how && !why && !note && !pattern) {
       return '';
     }
     return `
       <details class="mod-details mod-teach-details"${open}>
-        <summary>🧠 Nasıl kuruldu? <span class="mod-teach-hint">dil bilgisi adım adım</span></summary>
+        <summary>🧠 Nasıl kuruldu? <span class="mod-teach-hint">kısa eğitici açıklama</span></summary>
         <div class="mod-detail-text mod-teach-body">${formatTeachingText(how)}</div>
         ${why ? `<p class="mod-detail-why">💡 ${esc(why)}</p>` : ''}
         ${note ? `<p class="mod-warn">⚠️ ${esc(note)}</p>` : ''}
-        ${ex.structure_tr ? `<p class="mod-structure">📐 Formül: <code>${esc(ex.structure_tr)}</code></p>` : ''}
-        ${label && !label.includes(ex.structure_tr || '___') ? `<p class="mod-structure-label">${esc(label)}</p>` : ''}
         ${pattern ? `<p class="mod-pattern-tr">${esc(pattern)}</p>` : ''}
-        ${renderWordBreakdown(ex)}
-        ${renderPatternBlock(ex, lang)}
       </details>`;
   }
 
@@ -471,8 +447,9 @@
     const cardId = `ex-${idx}`;
     const typeLabel = ex.scenario_badge || ex.sentence_type_label || ex.sentence_type || '';
     const typeBadge = typeLabel ? `<span class="mod-badge">${esc(typeLabel)}</span>` : '';
-    const pronLine = formatPronLine(ex.pronunciation_tr, ex.ipa)
+    const pronLine = formatPronLine(ex.pronunciation_tr)
       || (ex.pronunciation_tr ? `🗣️ ${esc(ex.pronunciation_tr)}` : '');
+    const teach = renderTeachingBlock(ex, lang, { open: idx === 0 });
     const useCompact = compact || (isMobileView() && idx > 0);
     if (useCompact) {
       return `
@@ -482,6 +459,7 @@
         <div class="mod-card-line mod-card-target"><span class="mod-flag">🇺🇸</span>${esc(ex.target)}</div>
         ${pronLine ? `<p class="mod-pron-inline">${pronLine}</p>` : ''}
         ${renderCardActions(ex, lang, idx)}
+        ${teach}
       </article>`;
     }
     return `
@@ -492,6 +470,7 @@
         ${pronLine ? `<p class="mod-pron-inline">${pronLine}</p>` : ''}
         ${renderCardActions(ex, lang, idx)}
         ${renderPronunciationBlock(ex, lang, cardId)}
+        ${teach}
       </article>`;
   }
 

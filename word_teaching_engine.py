@@ -1423,8 +1423,22 @@ def _is_quiet_like(word_tr: str, target_word: str) -> bool:
     return _any_category_hint(word_tr, target_word, hints)
 
 
+def _soften_tr_stem(word: str) -> str:
+    """Ünsüz yumuşaması (vokal ek öncesi): p→b, ç→c, t→d, k→ğ; nk→ng."""
+    if not word:
+        return word
+    low = word.lower()
+    # renk → reng-, denk → deng-
+    if len(word) >= 2 and low.endswith("nk"):
+        return word[:-1] + ("g" if word[-1].islower() else "G")
+    mut = {"p": "b", "ç": "c", "t": "d", "k": "ğ", "P": "B", "Ç": "C", "T": "D", "K": "Ğ"}
+    if word[-1] in mut:
+        return word[:-1] + mut[word[-1]]
+    return word
+
+
 def _possessive_tr(word_tr: str) -> str:
-    """Türkçe iyelik: cüzdan → cüzdanım, şemsiye → şemsiyem."""
+    """Türkçe iyelik: oyuncak → oyuncağım, kitap → kitabım, şemsiye → şemsiyem."""
     w = safe_str(word_tr).strip()
     if not w:
         return w
@@ -1434,6 +1448,9 @@ def _possessive_tr(word_tr: str) -> str:
         "araba": "arabam", "otomobil": "otomobilim",
         "çanta": "çantam", "canta": "çantam", "anahtar": "anahtarım", "kitap": "kitabım",
         "telefon": "telefonum", "gözlük": "gözlüğüm", "gozluk": "gözlüğüm",
+        "oyuncak": "oyuncağım", "ağaç": "ağacım", "agac": "ağacım",
+        "köpek": "köpeğim", "kopek": "köpeğim", "çiçek": "çiçeğim", "cicek": "çiçeğim",
+        "yatak": "yatağım", "bardak": "bardağım", "renk": "rengim",
     }
     if low in known:
         return known[low]
@@ -1447,7 +1464,8 @@ def _possessive_tr(word_tr: str) -> str:
         if last in "aı":
             return w[:-1] + "m" if low.endswith(("ye", "ya")) else w + "m"
         return w + "m"
-    return w + suffix
+    # Ünsüz yumuşaması: oyuncak + ım → oyuncağım (oyuncakım değil)
+    return _soften_tr_stem(w) + suffix
 
 
 def _is_eyewear_like(word_tr: str, target_word: str) -> bool:

@@ -138,7 +138,7 @@
     renderSoon();
     if (b.to !== 'tr' && b.trans.trim()) {
       try {
-        const r = await fetch('/api/pronounce?' + new URLSearchParams({ q: b.trans.trim().slice(0, 400), lang: b.to }));
+        const r = await fetch('/api/pronounce?' + new URLSearchParams({ q: b.trans.trim().slice(0, 800), lang: b.to }));
         const d = await r.json();
         b.okunus = d.phonetic || '';
         renderSoon();
@@ -373,10 +373,12 @@
       const dir = d.from === prefs.my ? 'toOther' : 'toMine';
       const b = { dir, from: d.from, to: d.to, orig: text, trans: d.text, done: true, okunus: '', audio: [], rate: 24000 };
       bubbles.push(b); render();
-      const au = new Audio('/api/tts?' + new URLSearchParams({ q: d.text.slice(0, 400), tl: d.to }));
+      // Tam metni seslendir — 400 karakter kesmesi cümleyi yarıda bırakıyordu
+      const speakText = (d.text || '').trim().slice(0, 2500);
+      const au = new Audio('/api/tts?' + new URLSearchParams({ q: speakText, tl: d.to, n: '1' }));
       au.play().catch(() => {});
       if (d.to !== 'tr') {
-        const p = await (await fetch('/api/pronounce?' + new URLSearchParams({ q: d.text.slice(0, 400), lang: d.to }))).json();
+        const p = await (await fetch('/api/pronounce?' + new URLSearchParams({ q: speakText.slice(0, 800), lang: d.to }))).json();
         b.okunus = p.phonetic || ''; render();
       }
       idle();
