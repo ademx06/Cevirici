@@ -915,7 +915,7 @@
         if (perm !== 'granted' || performance.now() - t0 > 900 || !btn._held) { setUi('Mikrofon hazır ✓ — şimdi basılı tutup Türkçe söyle', false); return; }
       }
       if (!btn._held) return;
-      LV.talking = true; LV.pending = [];
+      LV.talking = true;
       const wasPlaying = !!(LV.player && LV.player.playing);
       if (LV.player) LV.player.stop();
       LV.turn = { inputId, text: '', submitted: false, timer: null };
@@ -924,15 +924,14 @@
       setUi('🎙️ Dinliyorum — Türkçe söyle', true);
       const s = liveSession();
       s._activity = false;
-      LV.ready = s.connect().then(() => {
-        s.activityStart(); s._activity = true;
-        const q = LV.pending; LV.pending = []; q.forEach((c) => s.sendAudio(c));
-      });
+      LV.ready = s.connect();
+      LV.turnObj = new LiveAudio.Turn(s, LV.ready);
+      const t = LV.turnObj;
       LV.ready.catch(() => { LV.talking = false; btn.classList.remove('recording'); setUi('Canlı bağlantı kurulamadı — yazarak dene', false); });
       LV.mic = new LiveAudio.Mic({
         preroll: !wasPlaying,
-        onChunk: (u8) => { if (s.isOpen && s._activity && !LV.pending.length) s.sendAudio(u8); else LV.pending.push(u8); },
-        onLevel: (lv) => { btn.style.setProperty('--lv', Math.min(1, lv * 3).toFixed(2)); if (lv > 0.06) setUi('🎙️ Seni duyuyorum…', true); },
+        onChunk: (u8) => t.chunk(u8),
+        onLevel: (lv) => { t.level(lv); btn.style.setProperty('--lv', Math.min(1, lv * 3).toFixed(2)); if (t.voiced) setUi('🎙️ Seni duyuyorum…', true); },
       });
       LV.mic.start().catch(() => { LV.talking = false; btn.classList.remove('recording'); setUi('Mikrofon açılamadı', false); });
     };
@@ -946,11 +945,10 @@
       setUi('🔄 Anlıyorum…', true);
       const m = LV.mic; LV.mic = null;
       if (m) await m.stop();
-      const s = LV.session;
-      try { await LV.ready; } catch { return; }
-      if (!s || !s.isOpen) return;
-      if (LV.pending.length) { const q = LV.pending; LV.pending = []; q.forEach((c) => s.sendAudio(c)); }
-      s.activityEnd(); s._activity = false;
+      let sent = false;
+      try { sent = LV.turnObj ? await LV.turnObj.end() : false; } catch { return; }
+      LV.turnObj = null;
+      if (!sent) { LV.turn = null; setUi('Seni duyamadım — basılı tutup tekrar söyle', false); return; }
       const tn = LV.turn;
       setTimeout(() => { if (LV.turn === tn && tn && !tn.text) setUi('Seni duyamadım — basılı tutup tekrar söyle', false); }, 5000);
     };

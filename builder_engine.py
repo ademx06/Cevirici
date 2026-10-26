@@ -573,8 +573,11 @@ def _analyze_sentence_structured(
         if _is_generic_explanation(how0) and len(how0) < 80:
             # İnce AI açıklaması — kural öğretimini tercih et / zenginleştir
             rule = rule_sentence_teaching(tr_sentence, target_lang, translate_fn)
-            if rule and rule.get("target_sentence"):
-                # Hedefi koru, öğretimi zenginleştir
+            # Kural açıklaması yalnızca AYNI cümle için geçerli: farklı bir cümleye yapıştırılırsa
+            # açıklama cümleyle uyuşmaz ("nasıl kuruldu" saçmalar). Cümleler benzemiyorsa AI çıktısı korunur.
+            if rule and rule.get("target_sentence") and _similarity(
+                safe_str(rule["target_sentence"]), safe_str(parsed.get("target_sentence")),
+            ) >= 0.85:
                 rule = dict(rule)
                 rule["target_sentence"] = parsed.get("target_sentence") or rule["target_sentence"]
                 parsed = rule

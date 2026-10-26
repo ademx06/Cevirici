@@ -1181,14 +1181,14 @@ def translate_pair_safe(
     return translated, from_lang, to_lang
 
 
-def translate_phonetic(text: str, lang: str) -> str:
+def translate_phonetic(text: str, lang: str, fast: bool = False) -> str:
     """Hedef dil metninin Türkçe okunuşu — çeviri metni değil, yalnızca hedef dil sesi."""
     if not text or lang == "tr":
         return ""
     # Telaffuz ASLA Türkçe anlam üzerinden üretilmez; verilen metin hedef dil olmalıdır.
     snippet = re.sub(r"\s+", " ", text.strip())
     try:
-        return safe_str(okunus_mod.okunus(snippet, lang, llm_fn=_llm_okunus)).strip()[:2500]
+        return safe_str(okunus_mod.okunus(snippet, lang, llm_fn=None if fast else _llm_okunus)).strip()[:2500]
     except Exception:
         return ""
 
@@ -3968,9 +3968,10 @@ class Handler(SimpleHTTPRequestHandler):
         if not text:
             self.send_json_error(400, "Metin gerekli")
             return
+        fast = (params.get("fast") or ["0"])[0].lower() in ("1", "true", "yes")
         try:
-            # Kelime modülüyle aynı profesyonel Türkçe fonetik (LLM yok → hızlı)
-            phonetic = translate_phonetic(text, lang) or pronounce_text(text, lang)
+            # fast=1: LLM'siz anında okunuş (çeviri akarken); fast=0: LLM'li kaliteli sürüm
+            phonetic = translate_phonetic(text, lang, fast=fast) or ("" if fast else pronounce_text(text, lang))
             body = json.dumps({"phonetic": phonetic}).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")

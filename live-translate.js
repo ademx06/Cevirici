@@ -42,9 +42,8 @@
   let mic = null;
   let holdDir = null;
   let handsFree = false;
-  let pending = [];
+  let turn = null;
   let micBusy = false;
-  let turnReady = null;
 
   function setStatus(t, live = false) { $(ids.status).textContent = t; $(ids.dot).classList.toggle('active', !!live); }
   function idle() {
@@ -110,6 +109,7 @@
         b.trans = next;
         b.listening = false;
         if (key === 'both') retarget(b);
+        phoneticSoon(b);
         renderSoon();
       },
       onAudio: (u8, rate) => {
@@ -119,7 +119,8 @@
         b._heard = true;
         player.enqueue(u8, rate);
       },
-      onInterrupted: () => { player.stop(); },
+      // bas-konuşta kesme yalnızca bizim basışımızla olur; sahte 'interrupted' sinyali çeviri sesini ortada kesmesin
+      onInterrupted: () => { if (handsFree) player.stop(); },
       onTurnComplete: () => { if (holdDir !== key) finalize(key); },
       onState: (st, info) => {
         if (st === 'error') showErr(String(info || 'Canlı bağlantı kurulamadı'));
@@ -147,6 +148,24 @@
     const dir = guessDir(b.orig, b.trans);
     if (dir !== b.dir) { b.dir = dir; b.from = sourceOf(dir); b.to = targetOf(dir); lastSig = ''; }
   }
+  // Okunuş iki aşamalı: çeviri akarken hızlı (LLM'siz) sürüm → bitince kaliteli sürüm. Eski cevap yenisini ezmez.
+  const phoneticTimers = new WeakMap();
+  async function loadPhonetic(b, fast) {
+    const text = b.trans.trim();
+    if (b.to === 'tr' || !text) return;
+    const seq = (b._pseq = (b._pseq || 0) + 1);
+    try {
+      const r = await fetch('/api/pronounce?' + new URLSearchParams({ q: text.slice(0, 400), lang: b.to, fast: fast ? '1' : '0' }));
+      const d = await r.json();
+      if (seq !== b._pseq || (b.done && fast)) return;
+      if (d.phonetic) { b.okunus = d.phonetic; lastSig = ''; renderSoon(); }
+    } catch { /* ignore */ }
+  }
+  function phoneticSoon(b) {
+    clearTimeout(phoneticTimers.get(b));
+    phoneticTimers.set(b, setTimeout(() => { if (!b.done) void loadPhonetic(b, true); }, 450));
+  }
+
   async function finalize(key) {
     const b = cur[key];
     if (!b) return;
@@ -166,31 +185,9 @@
     if (isFiller(trans) && orig) b.trans = '';
     b.done = true;
     renderSoon();
-    if (b.to !== 'tr' && b.trans.trim()) {
-      const q = b.trans.trim().slice(0, 400);
-      void fetch('/api/pronounce?' + new URLSearchParams({ q, lang: b.to }))
-        .then((r) => r.json())
-        .then((d) => { b.okunus = d.phonetic || ''; renderSoon(); })
-        .catch(() => {});
-    }
-  }
-
-  /** Yazılı çeviri sesi — hızlı Google TTS + blob (uzun URL / nöral gecikme yok). Live yapısına dokunmaz. */
-  async function playTypedTts(text, lang) {
-    const q = (text || '').trim().slice(0, 1800);
-    if (!q) return;
-    LiveAudio.unlock();
-    try {
-      const r = await fetch('/api/tts?' + new URLSearchParams({ q, tl: lang }));
-      if (!r.ok) return;
-      const blob = await r.blob();
-      if (!blob.size) return;
-      const u = URL.createObjectURL(blob);
-      const au = new Audio(u);
-      au.onended = () => { URL.revokeObjectURL(u); LiveAudio.unlock(); };
-      au.onerror = () => { URL.revokeObjectURL(u); LiveAudio.unlock(); };
-      await au.play();
-    } catch { /* ignore */ }
+    void loadPhonetic(b, false);
+    // Model bu dilde ses üretmediyse (yalnızca yazı geldiyse) çeviriyi sunucu sesiyle oku → her dilde ses var
+    if (!hasAudio && b.trans.trim()) void playTts(b.trans.trim(), b.to);
   }
 
   // ---------------------------------------------------------------- render (yerinde güncelleme → titreme yok)
@@ -311,7 +308,7 @@
     showErr('');
     if (!(await ensureMicFor(btn))) return;
     if (!btn._held) return;
-    holdDir = dir; pending = [];
+    holdDir = dir;
     btn._holdT0 = performance.now();
     const wasPlaying = player.playing || performance.now() - lastPlayEnd < 600;
     player.stop();
@@ -320,37 +317,30 @@
     const b = newBubble(dir, dir); b.listening = true; b._heard = false; renderSoon();
     const s = session(dir);
     s._activity = false;
-    turnReady = s.connect().then(() => {
-      s.activityStart(); s._activity = true;
-      const q = pending; pending = []; q.forEach((c) => s.sendAudio(c));
-    });
-    turnReady.catch((e) => holdAbort(btn, (e && e.message) || 'Canlı bağlantı kurulamadı'));
+    turn = new LiveAudio.Turn(s, s.connect());
+    turn.ready.catch((e) => holdAbort(btn, (e && e.message) || 'Canlı bağlantı kurulamadı'));
+    const t = turn;
     mic = new LiveAudio.Mic({
       preroll: !wasPlaying,
-      onChunk: (u8) => { if (s.isOpen && s._activity && !pending.length) s.sendAudio(u8); else pending.push(u8); },
+      onChunk: (u8) => t.chunk(u8),
       onLevel: (lv) => {
+        t.level(lv);
         btn.style.setProperty('--lv', Math.min(1, lv * 3).toFixed(2));
-        if (lv > 0.06 && b.listening && !b._heard) { b._heard = true; renderSoon(); }
+        if (t.voiced && b.listening && !b._heard) { b._heard = true; renderSoon(); }
       },
     });
     mic.start().catch((e) => holdAbort(btn, e && e.name === 'NotAllowedError' ? 'Mikrofon izni gerekli' : 'Mikrofon açılamadı'));
   }
+  function dropBubble(b) {
+    const i = bubbles.indexOf(b); if (i >= 0) bubbles.splice(i, 1);
+    Object.keys(cur).forEach((k) => { if (cur[k] === b) cur[k] = null; });
+    lastSig = ''; renderSoon();
+  }
   function holdAbort(btn, msg) {
-    const d = holdDir; holdDir = null;
+    const d = holdDir; holdDir = null; turn = null;
     if (mic) { mic.stop(); mic = null; }
     btn.classList.remove('recording', 'arming');
-    // activityEnd yok — uydurma cevap tetiklenmesin
-    const s = d && sessions[d];
-    if (s) s._activity = false;
-    if (d) {
-      const b = cur[d];
-      cur[d] = null;
-      if (b) {
-        const i = bubbles.indexOf(b);
-        if (i >= 0) bubbles.splice(i, 1);
-      }
-      renderSoon();
-    }
+    if (d && cur[d]) dropBubble(cur[d]);
     if (msg) showErr(msg);
     idle();
   }
@@ -362,27 +352,21 @@
     const b = cur[dir]; if (b) { b.listening = false; renderSoon(); }
     const holdMs = performance.now() - (btn._holdT0 || 0);
     const m = mic; mic = null;
+    const t = turn; turn = null;
     if (m) await m.stop();
-    const s = sessions[dir];
-    try { await turnReady; } catch { return; }
-    if (!s || !s.isOpen) return;
-    // Eğitim gibi: ses yoksa / çok kısa basışta Gemini'ye bitiş gönderme → ¿Qué? uydurmasın
-    if (!b || (!b._heard && holdMs < 450)) {
-      s._activity = false;
-      cur[dir] = null;
-      const i = b ? bubbles.indexOf(b) : -1;
-      if (i >= 0) bubbles.splice(i, 1);
-      renderSoon();
+    let sent = false;
+    try { sent = t ? await t.end() : false; } catch { return; }
+    if (!sent) { // ses yok / çok kısa → modele hiçbir şey gitmedi, uydurma cevap (¿Qué?) gelmez
+      if (b) dropBubble(b);
       setStatus('Seni duyamadım — basılı tutup konuş');
       setTimeout(() => { if (!holdDir) idle(); }, 2200);
       return;
     }
     setStatus('Çeviriliyor…', true);
-    if (pending.length) { const q = pending; pending = []; q.forEach((c) => s.sendAudio(c)); }
-    s.activityEnd(); s._activity = false;
+    // ses gitti ama yazıya/sese dönüşmediyse kutucuğu kaldır
     setTimeout(() => {
       if (cur[dir] === b && b && !b.orig.trim() && !b.trans.trim() && !(b.audio && b.audio.length)) {
-        finalize(dir);
+        dropBubble(b);
         setStatus('Seni duyamadım — basılı tutup tekrar konuş');
       }
     }, 6000);
@@ -437,6 +421,20 @@
   function stopAll() { if (handsFree) stopHandsFree(); if (mic) { mic.stop(); mic = null; } holdDir = null; player.stop(); }
 
   // ---------------------------------------------------------------- yazılı çeviri (Çeviri sayfası)
+  // iOS'ta await sonrası new Audio().play() engellenir → kilidi açılmış AudioContext ile çal
+  let ttsSrc = null;
+  async function playTts(text, tl) {
+    try {
+      const r = await fetch('/api/tts?' + new URLSearchParams({ q: text.trim().slice(0, 1800), tl }));
+      if (!r.ok) throw new Error('tts');
+      const buf = await LiveAudio.audioCtx().decodeAudioData(await r.arrayBuffer());
+      const c = LiveAudio.unlock();
+      player.stop();
+      if (ttsSrc) { try { ttsSrc.stop(); } catch { /* ignore */ } }
+      ttsSrc = c.createBufferSource(); ttsSrc.buffer = buf; ttsSrc.connect(c.destination); ttsSrc.start();
+    } catch { showErr('Ses oluşturulamadı — metin ekranda'); }
+  }
+
   async function translateTyped() {
     const inp = $('translateTextInput');
     const text = (inp.value || '').trim();
@@ -449,16 +447,10 @@
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || 'Çeviri başarısız');
       const dir = d.from === prefs.my ? 'toOther' : 'toMine';
-      const b = { dir, from: d.from, to: d.to, orig: text, trans: d.text, done: true, okunus: '', audio: [], rate: 24000 };
+      const b = { dir, from: d.from, to: d.to, orig: text, trans: d.text, done: true, okunus: '', audio: [], rate: 24000, t: Date.now() };
       bubbles.push(b); render();
-      // Ses hemen (hızlı TTS); okunuş arka planda — Live oturumuna dokunulmaz
-      await playTypedTts(d.text, d.to);
-      if (d.to !== 'tr' && (d.text || '').trim()) {
-        void fetch('/api/pronounce?' + new URLSearchParams({ q: d.text.trim().slice(0, 400), lang: d.to }))
-          .then((r) => r.json())
-          .then((p) => { b.okunus = p.phonetic || ''; render(); })
-          .catch(() => {});
-      }
+      void loadPhonetic(b, false);
+      await playTts(d.text, d.to);
       idle();
     } catch (e) { showErr(e.message || 'Çeviri başarısız'); idle(); }
   }

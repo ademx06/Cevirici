@@ -388,7 +388,48 @@
     }
   }
 
-  global.LiveAudio = { unlock, audioCtx, micReady, micPermission, openMic, closeMic, warmIfGranted, Mic, Player, Session, b64FromBytes, bytesFromB64 };
+  // ------------------------------------------------------------- Turn: bas-konuş turu (tüm sayfalarda ortak)
+  // Gerçek ses (ardışık birkaç seviye ölçümü) algılanmadan Google'a HİÇBİR ŞEY gönderilmez → boş/kısa basışta
+  // model "¿Qué?" / "Evet?" gibi uydurma cevap üretmez. Ses gelince ön tamponla birlikte akıtılır.
+  const VOICE_LEVEL = 0.04; // tepe genliği eşiği
+  const VOICE_HITS = 3;     // ~80 ms gerçek ses
+  class Turn {
+    /** getSession: () => Session (hazır olunca), ready: bağlantı Promise'i */
+    constructor(session, ready) {
+      this.s = session; this.pending = []; this.hits = 0; this.voiced = false; this.started = false; this.sentAny = false;
+      this.ready = Promise.resolve(ready).then(() => { this._try(); });
+      this.ready.catch(() => {});
+    }
+    chunk(u8) {
+      if (this.started && this.s.isOpen) { this.s.sendAudio(u8); return; }
+      this.pending.push(u8);
+      if (!this.voiced && this.pending.length > 14) this.pending.shift(); // sessizken yalnızca son ~1,4 sn
+    }
+    level(lv) {
+      if (this.voiced) return;
+      if (lv > VOICE_LEVEL) { if (++this.hits >= VOICE_HITS) { this.voiced = true; this._try(); } } else if (this.hits > 0) this.hits -= 1;
+    }
+    _try() {
+      if (!this.voiced || this.started || !this.s.isOpen) return;
+      this.started = true;
+      if (!this.s.vad) this.s.activityStart();
+      this.s._activity = true;
+      const q = this.pending; this.pending = [];
+      q.forEach((c) => this.s.sendAudio(c));
+    }
+    /** Bırakıldı. Ses yoksa false (hiçbir şey gönderilmedi); varsa konuşmayı bitirir ve true döner */
+    async end() {
+      await this.ready;
+      this._try();
+      if (!this.voiced || !this.started || !this.s.isOpen) { this.pending = []; this.s._activity = false; return false; }
+      const q = this.pending; this.pending = []; q.forEach((c) => this.s.sendAudio(c));
+      if (this.s.vad) { for (let i = 0; i < 3; i++) this.s.sendAudio(new Uint8Array(3200)); this.s.streamEnd(); } else this.s.activityEnd();
+      this.s._activity = false;
+      return true;
+    }
+  }
+
+  global.LiveAudio = { unlock, audioCtx, micReady, micPermission, openMic, closeMic, warmIfGranted, Mic, Player, Session, Turn, b64FromBytes, bytesFromB64 };
   if (typeof document !== 'undefined' && navigator.mediaDevices) {
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', warmIfGranted);
     else warmIfGranted();

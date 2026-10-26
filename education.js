@@ -620,7 +620,7 @@
           L.tutorMsg.reply = (L.tutorMsg.reply + t).replace(/\s+/g, ' ');
           patchSoon();
         },
-        onInterrupted: () => { L.player.stop(); },
+        onInterrupted: () => { if (L.talking) L.player.stop(); },
         onTurnComplete: () => finishLiveTurn(),
         onState: (st) => {
           if (st === 'closed' || st === 'goaway') {
@@ -768,36 +768,25 @@
     stopAudio();
     if (L.tutorMsg) { L.tutorMsg.pending = false; L.tutorMsg = null; }
     clearTimeout(L.turnTimer);
-    L.talking = true; L.mode = mode; L.pendingChunks = []; L.heard = false;
+    L.talking = true; L.mode = mode; L.heard = false;
     btn.classList.add('recording');
     setStatus(mode === 'help' ? 'Dinliyorum — Türkçe söyle' : `Dinliyorum — ${langOf(P.lang).tr} konuş`, true, true);
     L.userMsg = { role: 'user', text: '', mode, t: Date.now(), pending: true };
     S.msgs.push(L.userMsg);
     renderSoon();
-    const s = L.session;
-    const flushPending = () => {
-      if (!L.session || !L.session.isOpen) return;
-      const q = L.pendingChunks; L.pendingChunks = [];
-      q.forEach((c) => L.session.sendAudio(c));
-    };
-    L.turnReady = ensureLive().then(() => {
-      if (!L.session.vad) L.session.activityStart();
-      L.session._activity = true;
-      flushPending();
-    });
+    L.turnReady = ensureLive();
+    L.turn = new LiveAudio.Turn(L.session, L.turnReady);
+    const t = L.turn;
     L.turnReady.catch((e) => { L.failed += 1; liveAbort(btn, e.message || 'Canlı bağlantı kurulamadı'); });
     L.mic = new LiveAudio.Mic({
       preroll: !wasPlaying, // öğretmenin sesi mikrofona karışmasın
-      onChunk: (u8) => {
-        if (L.session && L.session.isOpen && L.session._activity && !L.pendingChunks.length) L.session.sendAudio(u8);
-        else L.pendingChunks.push(u8);
-      },
+      onChunk: (u8) => t.chunk(u8),
       onLevel: (lv) => {
+        t.level(lv);
         btn.style.setProperty('--lv', Math.min(1, lv * 3).toFixed(2));
-        if (lv > 0.06 && L.userMsg && !L.userMsg.text && !L.heard) { L.heard = true; patchSoon(); }
+        if (t.voiced && L.userMsg && !L.userMsg.text && !L.heard) { L.heard = true; patchSoon(); }
       },
     });
-    void s; // (oturum ensureLive içinde hazırlanır)
     L.mic.start().catch((e) => liveAbort(btn, (e && e.name === 'NotAllowedError') ? 'Mikrofon izni gerekli' : 'Mikrofon açılamadı'));
   }
 
@@ -821,17 +810,14 @@
     setStatus('Cevap geliyor…', true, true);
     patchSoon();
     if (m) await m.stop();
-    try {
-      await L.turnReady;
-      if (L.pendingChunks.length && L.session && L.session.isOpen) {
-        const q = L.pendingChunks; L.pendingChunks = []; q.forEach((c) => L.session.sendAudio(c));
-      }
-      if (L.session) {
-        if (L.session.vad) { for (let i = 0; i < 3; i++) L.session.sendAudio(SILENCE); L.session.streamEnd(); }
-        else L.session.activityEnd();
-        L.session._activity = false;
-      }
-    } catch (e) { S.busy = false; setStatus((e && e.message) || 'Bağlantı sorunu'); render(); return; }
+    let sent = false;
+    try { sent = L.turn ? await L.turn.end() : false; } catch (e) { S.busy = false; setStatus((e && e.message) || 'Bağlantı sorunu'); render(); return; }
+    L.turn = null;
+    if (!sent) { // ses yok → modele hiçbir şey gitmedi (uydurma cevap yok)
+      if (L.userMsg) { const i = S.msgs.indexOf(L.userMsg); if (i >= 0) S.msgs.splice(i, 1); L.userMsg = null; }
+      S.busy = false; render(); setStatus('Seni duyamadım — basılı tutup tekrar konuş');
+      return;
+    }
     clearTimeout(L.turnTimer);
     // hiç ses algılanmadıysa kullanıcıyı bekletme
     L.turnTimer = setTimeout(() => {
