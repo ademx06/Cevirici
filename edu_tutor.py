@@ -654,7 +654,7 @@ def annotate(lang: str, tutor_text: str, user_text: str = "", *, level: str = "A
             "verb forms/tense, auxiliaries, articles, gender, case, agreement, prepositions, word order. Ignore punctuation, "
             "capitalisation and speech-recognition filler. Return ONLY JSON: "
             '{"check": "<short analysis>", "ok": true|false, "fixed": "<corrected sentence or empty>", '
-            '"fixed_tr": "<Turkish meaning>", "explain_tr": "<1 short Turkish sentence: the rule>", '
+            '"fixed_tr": "<Turkish meaning>", "explain_tr": "<2 short Turkish sentences: the rule, then one more correct example in the target language with its Turkish meaning in parentheses>", '
             '"user_level": "A1|A2|B1|B2|C1|C2", "words": [{"word": "<useful word from the tutor reply>", "tr": "<Turkish>"}]}'
         )
         parsed, _ = _call_llm(system, f"Tutor said: {tutor_text}\nLearner sentence: {user_text}", max_tokens=320,
