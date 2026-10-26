@@ -187,6 +187,14 @@
     if (isFiller(trans) && orig) b.trans = '';
     b.done = true;
     renderSoon();
+    // Bazı dillerde (ör. Gürcüce) Google ses verir ama yazı dökümü göndermez → metni çeviri servisiyle tamamla
+    if (!b.trans.trim() && b.orig.trim() && hasAudio) {
+      try {
+        const r = await fetch('/api/translate?' + new URLSearchParams({ q: b.orig.trim().slice(0, 500), from: b.from, to: b.to, my: b.from, other: b.to }));
+        const d = await r.json();
+        if (d && d.text) { b.trans = d.text; lastSig = ''; renderSoon(); }
+      } catch { /* ignore */ }
+    }
     void loadPhonetic(b, false);
     // Model bu dilde ses üretmediyse (yalnızca yazı geldiyse) çeviriyi sunucu sesiyle oku → her dilde ses var
     if (!hasAudio && b.trans.trim()) void playTts(b.trans.trim(), b.to);
