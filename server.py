@@ -25,6 +25,7 @@ import edu_tutor
 import edu_live
 import okunus as okunus_mod
 from builder_engine import (
+    clean_lesson_texts,
     generate_word_lesson,
     analyze_sentence_for_builder,
     grade_word_answer,
@@ -32,7 +33,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.10.22-v75.7"
+APP_VERSION = "2026.10.26-v75.8"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -3506,7 +3507,7 @@ class Handler(SimpleHTTPRequestHandler):
                 cached = dict(cached); cached["cached"] = True
                 return self._send_json(cached)
             try:
-                result = generate_word_lesson(word_tr, lang, translate_fn=translate_text, skip_ai=True)
+                result = clean_lesson_texts(generate_word_lesson(word_tr, lang, translate_fn=translate_text, skip_ai=True))
                 if isinstance(result, dict) and result.get("ok"):
                     result["fast"] = True
                     _cache_set(_WORD_LESSON_CACHE, cache_key + ("fast",), dict(result))
@@ -3521,7 +3522,7 @@ class Handler(SimpleHTTPRequestHandler):
             return
         t0 = time.monotonic()
         try:
-            result = generate_word_lesson(word_tr, lang, translate_fn=translate_text)
+            result = clean_lesson_texts(generate_word_lesson(word_tr, lang, translate_fn=translate_text))
             elapsed = round(time.monotonic() - t0, 2)
             if isinstance(result, dict):
                 result["generation_sec"] = elapsed
@@ -3539,7 +3540,7 @@ class Handler(SimpleHTTPRequestHandler):
         tr_sentence = (payload.get("sentence") or "").strip()
         lang = (payload.get("lang") or "en").strip()
         try:
-            result = analyze_sentence_for_builder(tr_sentence, lang, translate_fn=translate_text)
+            result = clean_lesson_texts(analyze_sentence_for_builder(tr_sentence, lang, translate_fn=translate_text))
             self._send_json(result)
         except Exception as e:
             self.send_json_error(422, self.api_error_message(e))

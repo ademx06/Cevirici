@@ -621,7 +621,9 @@
           patchSoon();
         },
         onInterrupted: () => { if (L.talking) L.player.stop(); },
-        onTurnComplete: () => finishLiveTurn(),
+        // metin bitince (ses hâlâ çalarken) okunuş/çeviri istenir → ekranda bekleme olmaz
+        onGenerationComplete: () => { if (L.tutorMsg) finishLiveTurn(); },
+        onTurnComplete: () => { if (L.tutorMsg || L.userMsg) finishLiveTurn(); },
         onState: (st) => {
           if (st === 'closed' || st === 'goaway') {
             if (L.session) L.session.ws = null;

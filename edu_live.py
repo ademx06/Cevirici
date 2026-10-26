@@ -142,7 +142,8 @@ def interpret_setup(model: str, source: str, target: str, both: bool = False, va
         if vad else {"automaticActivityDetection": {"disabled": True}})
     return {
         "model": f"models/{model}",
-        "generationConfig": {"responseModalities": ["AUDIO"], "temperature": 0.2},
+        # 0.2 yerel ses modelinde ~2 sn sonra SESSİZLİK üretiyordu (yazı tam, ses kesik) → eğitimle aynı 0.7
+        "generationConfig": {"responseModalities": ["AUDIO"], "temperature": 0.7},
         "systemInstruction": {"parts": [{"text": interpret_instructions(source, target, both)}]},
         "realtimeInputConfig": ric,
         "inputAudioTranscription": {},

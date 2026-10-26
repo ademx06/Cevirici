@@ -621,6 +621,39 @@ def _analyze_sentence_structured(
 
 
 
+def dedupe_teaching_text(text: str) -> str:
+    """Açıklama iki kez eklenmişse ("1️⃣ Genel anlam… 1️⃣ Genel anlam…") tek kopyaya indir; tekrarlanan paragrafları at."""
+    t = safe_str(text).strip()
+    if not t:
+        return t
+    first = t.find("1️⃣")
+    if first >= 0:
+        second = t.find("1️⃣", first + 1)
+        if second > 0:
+            t = t[:second].rstrip()
+    out, seen = [], set()
+    for para in re.split(r"\n\s*\n", t):
+        key = re.sub(r"\W+", "", para.lower())[:120]
+        if key and key in seen:
+            continue
+        seen.add(key)
+        out.append(para.strip())
+    return "\n\n".join(p for p in out if p)
+
+
+def clean_lesson_texts(result: dict[str, Any]) -> dict[str, Any]:
+    """Cümle ve kelime derslerindeki açıklama tekrarlarını temizle (tüm diller)."""
+    if not isinstance(result, dict):
+        return result
+    for k in ("how_it_is_formed_tr", "why_this_structure_tr", "grammar_explanation_tr"):
+        if result.get(k):
+            result[k] = dedupe_teaching_text(result[k])
+    for ex in result.get("examples") or []:
+        if isinstance(ex, dict) and ex.get("how_it_is_formed_tr"):
+            ex["how_it_is_formed_tr"] = dedupe_teaching_text(ex["how_it_is_formed_tr"])
+    return result
+
+
 def analyze_sentence_for_builder(
     tr_sentence: str,
     target_lang: str,

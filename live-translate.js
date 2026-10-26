@@ -121,6 +121,8 @@
       },
       // bas-konuşta kesme yalnızca bizim basışımızla olur; sahte 'interrupted' sinyali çeviri sesini ortada kesmesin
       onInterrupted: () => { if (handsFree) player.stop(); },
+      // Metin tamamlandı (ses hâlâ çalıyor olabilir) → okunuşu hemen getir; turnComplete ses süresi kadar gecikir
+      onGenerationComplete: () => { if (holdDir !== key) finalize(key); },
       onTurnComplete: () => { if (holdDir !== key) finalize(key); },
       onState: (st, info) => {
         if (st === 'error') showErr(String(info || 'Canlı bağlantı kurulamadı'));

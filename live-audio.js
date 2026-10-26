@@ -364,6 +364,7 @@
         }
       }
       if (sc.outputTranscription && sc.outputTranscription.text && this.o.onOutput) this.o.onOutput(sc.outputTranscription.text);
+      if (sc.generationComplete && this.o.onGenerationComplete) this.o.onGenerationComplete();
       if (sc.turnComplete && this.o.onTurnComplete) this.o.onTurnComplete();
     }
     send(obj) {
@@ -391,8 +392,8 @@
   // ------------------------------------------------------------- Turn: bas-konuş turu (tüm sayfalarda ortak)
   // Gerçek ses (ardışık birkaç seviye ölçümü) algılanmadan Google'a HİÇBİR ŞEY gönderilmez → boş/kısa basışta
   // model "¿Qué?" / "Evet?" gibi uydurma cevap üretmez. Ses gelince ön tamponla birlikte akıtılır.
-  const VOICE_LEVEL = 0.04; // tepe genliği eşiği
-  const VOICE_HITS = 3;     // ~80 ms gerçek ses
+  const VOICE_LEVEL = 0.05; // tepe genliği eşiği
+  const VOICE_HITS = 7;     // ~190 ms gerçek ses (dokunma tıkırtısı / kısa gürültü konuşma sayılmasın)
   class Turn {
     /** getSession: () => Session (hazır olunca), ready: bağlantı Promise'i */
     constructor(session, ready) {

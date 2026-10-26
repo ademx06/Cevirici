@@ -873,6 +873,7 @@
           tn.timer = setTimeout(() => submitTurn(tn), 350);
         },
         onAudio: (u8, rate) => { LV.player.enqueue(u8, rate); },
+        onGenerationComplete: () => { if (LV.turn) submitTurn(LV.turn); },
         onTurnComplete: () => { if (LV.turn) submitTurn(LV.turn); },
         onState: (st) => {
           if ((st === 'closed' || st === 'goaway') && document.visibilityState === 'visible' && LV.session === s) {
