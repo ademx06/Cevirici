@@ -355,6 +355,19 @@ def okunus(text: str, lang: str, llm_fn=None) -> str:
     hit = cached(text, lang)
     if hit:
         return hit
+    if lang == "zh":
+        # LLM'siz, anında ve tutarlı: pypinyin varsa pinyin → Türkçe okunuş
+        try:
+            from pypinyin import Style, lazy_pinyin
+            py = " ".join(lazy_pinyin(text, style=Style.TONE, errors=lambda x: [x]))
+            py = py.translate(str.maketrans("，。？！；：、", ",.?!;:,"))
+            py = re.sub(r"\s+([,.?!;:])", lambda m: m.group(1), py)
+            got = pinyin_okunus(py)
+            if got.strip():
+                remember(text, lang, got)
+                return got
+        except Exception:
+            pass
     if llm_fn is not None:
         try:
             got = (llm_fn(text, lang) or "").strip()
@@ -425,7 +438,10 @@ def _py_syl_tr(syl: str) -> str:
             ini_tr = _PY_INI_TR.get(ini, ini)
             if fin == "i" and ini in ("zh", "ch", "sh", "r", "z", "c", "s"):
                 return ini_tr + "ı"
-            return ini_tr + _PY_FIN_TR.get(fin, fin)
+            fin_tr = _PY_FIN_TR.get(fin, fin)
+            if ini in ("j", "q", "x") and fin_tr.startswith("y"):
+                fin_tr = "i" + fin_tr[1:]  # jiao → ciau (cyau değil)
+            return ini_tr + fin_tr
     return syl
 
 
