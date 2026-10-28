@@ -664,10 +664,10 @@ def annotate(lang: str, tutor_text: str, user_text: str = "", *, level: str = "A
         system = (
             f"You are a strict but kind {name} teacher for a Turkish learner (level {level}). Check the learner sentence: "
             "verb forms/tense, auxiliaries, articles, gender, case, agreement, prepositions, word order. Ignore punctuation, "
-            "capitalisation and speech-recognition filler. LANGUAGE RULE: 'explain_tr' and 'fixed_tr' MUST be written in TURKISH "
+            "capitalisation and speech-recognition filler. SPEECH-RECOGNITION RULE: the learner text comes from speech recognition. If it contains non-existent words, stray letters or fragments (e.g. 'srg') or does not form a meaningful sentence, set garbled=true, ok=true and fixed=empty (do NOT treat it as correct and do NOT invent a fix). LANGUAGE RULE: 'explain_tr' and 'fixed_tr' MUST be written in TURKISH "
             f"(never in {name}); only the one example sentence inside explain_tr is in {name}. Write the rule itself ONLY with Turkish words "
             f"(fiil, özne, nesne, zaman, ek...), NEVER with {name} words, in the form: 'Kural cümlesi. Örnek: <example> (Türkçesi).' Return ONLY JSON: "
-            '{"check": "<short analysis>", "ok": true|false, "fixed": "<corrected sentence or empty>", '
+            '{"check": "<short analysis>", "ok": true|false, "garbled": true|false, "fixed": "<corrected sentence or empty>", '
             '"fixed_tr": "<Turkish meaning>", "how_tr": "<how to BUILD this sentence like a teacher: the pieces in order joined by ' + ', each with a Turkish label and its target-language words, e.g. Özne (Ich) + fiil (gehe) + yer (zur Schule)>", "explain_tr": "<2 short Turkish sentences: the rule, then one more correct example in the target language with its Turkish meaning in parentheses>", '
             '"user_level": "A1|A2|B1|B2|C1|C2", "words": [{"word": "<useful word from the tutor reply>", "tr": "<Turkish>"}]}'
         )
@@ -682,6 +682,16 @@ def annotate(lang: str, tutor_text: str, user_text: str = "", *, level: str = "A
         out["user_okunus"] = f_uo.result() or ""
         out["tr"] = f_tr.result() or ""
         ck = f_ck.result()
+    garbled = bool(isinstance(ck, dict) and ck.get("garbled"))
+    if user_target and lang in ("en", "de", "fr", "es", "it", "id"):
+        # Sesli tanıma çöpü: ünlüsüz "kelime" (srg, ktb…) → doğru kabul etme
+        for tok in re.findall(r"[^\W\d_]{3,}", user_target, re.U):
+            if not re.search(r"[aeiouyáàâäéèêëíìîïóòôöúùûüœ]", tok.lower()):
+                garbled = True
+                break
+    if garbled:
+        out["unclear"] = True
+        ck = None
     if isinstance(ck, dict):
         out["checked"] = True
         lv = _s(ck.get("user_level"), 4).upper()

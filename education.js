@@ -105,7 +105,7 @@
       explain_tr: str(m.explain_tr), words: arr(m.words).filter((w) => w.word).map((w) => ({ word: str(w.word, 60), tr: str(w.tr, 80) })),
       speak: arr(m.speak).filter((i) => i.text).map((i) => ({ text: str(i.text, 480), lang: str(i.lang, 5) })),
       provider: str(m.provider, 10), t: Number(m.t) || 0,
-      reply_target: str(m.reply_target), checked: !!m.checked,
+      reply_target: str(m.reply_target), checked: !!m.checked, unclear: !!m.unclear,
       segments: arr(m.segments).filter((g) => g.text).map((g) => ({ text: str(g.text, 400), lang: str(g.lang, 5) })),
     };
     return out.reply || out.examples.length ? out : null;
@@ -229,6 +229,8 @@
         ${m.fix.how_tr ? `<p class="fix-how">🧩 Nasıl kurulur: ${esc(m.fix.how_tr)}</p>` : ''}
         <div class="t-actions">${playBtns(idx, 'fix')}</div>
       </div>`;
+    } else if (m.mode === 'speak' && m.unclear) {
+      html += '<span class="ok-badge is-unclear">🎤 Seni net duyamadım — yavaşça tekrar söyle</span>';
     } else if (m.mode === 'speak' && m.you && !m.pending && m.provider && m.provider !== 'rules' && (m.provider !== 'live' || m.checked)) {
       html += '<span class="ok-badge">✓ Doğru söyledin</span>';
     }
@@ -716,8 +718,8 @@
         if (user && a.user_okunus) user.okunus = a.user_okunus;
         tutor.reply_tr = a.tr || '';
         if (a.hint_tr) { tutor.explain_tr = a.hint_tr; tutor.reply_target = a.target || ''; }
-        tutor.checked = !!a.checked;
-        if (tutor.mode === 'speak' && user && user.text.trim()) {
+        tutor.checked = !!a.checked; tutor.unclear = !!a.unclear;
+        if (tutor.mode === 'speak' && user && user.text.trim() && !tutor.unclear) {
           P.turns = (P.turns || 0) + 1;
           if (!tutor.fix) P.correct = (P.correct || 0) + 1;
           adaptLevel({ fix: tutor.fix, user_level: a.user_level });
