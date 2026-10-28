@@ -39,6 +39,21 @@ LEVEL_STYLE = {
     "C2": "Speak fully natively, sophisticated and nuanced.",
 }
 
+A1_LADDER = ("1 hello/goodbye; 2 'my name is…' and 'what is your name?'; 3 'how are you?' and 'I am fine, thank you'; "
+             "4 'I am from Turkey' and 'where are you from?'; 5 numbers 1-10; 6 please, thank you, sorry, yes, no; "
+             "7 'I want/I would like…' with food and drink; 8 family: 'this is my…'; 9 'how much is it?'; 10 'where is…?'")
+A2_LADDER = ("1 daily routine; 2 past events ('yesterday I…'); 3 plans ('tomorrow I will…'); 4 shopping and prices; "
+             "5 travel and directions; 6 weather and seasons; 7 jobs and hobbies; 8 health and feelings; 9 restaurant ordering; 10 describing people and places")
+BEGINNER_METHOD = (
+    "BEGINNER LESSON MODE: you LEAD a step-by-step lesson; never wait for the learner to know what to say. Every turn follows this loop: "
+    "(a) in ONE short Turkish sentence say what we learn now and its meaning; (b) say the {name} phrase slowly and clearly; "
+    "(c) invite the learner (in Turkish, e.g. 'Şimdi sen söyle') to repeat it, and STOP and wait. "
+    "When the learner repeats it: if it is right, praise in a few Turkish words, then add ONE tiny variation (swap one word) or move to the next step; "
+    "if it is wrong or unclear, say it again slowly, point to the one hard word, and ask again (at most 2 tries, then move on kindly). "
+    "Every 3-4 phrases, do a quick review: ask in Turkish how to say a phrase you taught earlier. "
+    "If the learner says they do not understand or do not know, simplify: a shorter phrase, word by word with Turkish meanings. "
+    "LESSON LADDER (follow in order, continue from the last unfinished step, never restart): {ladder}. "
+)
 _DEAD_MODELS: dict[str, float] = {}
 _KEY_COOLDOWN: dict[str, float] = {}
 
@@ -47,15 +62,18 @@ def tutor_instructions(lang: str, level: str, scenario: str | None = None, weak:
                        history: list[dict] | None = None) -> str:
     name = LANG_NAMES.get(lang, "English")
     level = level if level in LEVEL_STYLE else "A1"
+    beginner = level in ("A1", "A2") and not scenario
     parts = [
         f"You are a warm, encouraging {name} conversation tutor talking by voice with a Turkish native speaker.",
         f"Learner level: CEFR {level}. {LEVEL_STYLE[level]}",
-        f"Speak {name} only, except very short Turkish explanations when the learner needs help.",
+        (f"You are TEACHING a learner who may know ZERO {name}. Use Turkish for short explanations and {name} for the phrases being taught."
+         if beginner else f"Speak {name} only, except very short Turkish explanations when the learner needs help."),
         "Keep every reply SHORT (max 3 sentences) so the dialogue flows, but make every turn TEACH something:",
-        f"TEACHING METHOD: (1) react briefly to what the learner said; (2) when it fits, introduce ONE useful new {name} word or "
+        (BEGINNER_METHOD.format(name=name, ladder=(A1_LADDER if level == "A1" else A2_LADDER)) if beginner else "") +
+        ("" if beginner else (f"TEACHING METHOD: (1) react briefly to what the learner said; (2) when it fits, introduce ONE useful new {name} word or "
         "phrase from your own sentence and give its Turkish meaning in a few Turkish words; (3) end with ONE easy question or a "
         "small task the learner can answer with the new phrase (but when you are correcting a mistake, follow the CORRECTION RULE instead and ask no new question). Vary the tasks (answer a question, say it another way, "
-        "describe something, make a sentence with the new word). Do not repeat a phrase you already taught.",
+        "describe something, make a sentence with the new word). Do not repeat a phrase you already taught.")),
         "TURKISH SUPPORT: Turkish explanations must be natural, correct Turkish. "
         + ("A1-A2: give a Turkish tip nearly every turn. " if level in ("A1", "A2") else
            "B1-B2: give a Turkish tip only when the learner struggles or makes a mistake. " if level in ("B1", "B2") else
@@ -90,11 +108,18 @@ def tutor_instructions(lang: str, level: str, scenario: str | None = None, weak:
         lines = [("Learner" if h.get("role") == "user" else "You") + ": " + str(h.get("text"))[:240].replace("\n", " ") for h in hist]
         parts.append("CONVERSATION SO FAR (continue it naturally, remember what the learner told you, do not restart):\n"
                      + "\n".join(lines))
-        parts.append(f"When you receive the text '[BAŞLA]', welcome the learner back in {name} in one short sentence and "
-                     "continue from where you left off with one question.")
+        parts.append(
+            ("When you receive the text '[BAŞLA]', welcome the learner back in ONE short Turkish sentence, quickly review the last phrase "
+             "you taught (ask them to say it), then continue the lesson ladder."
+             if beginner else
+             f"When you receive the text '[BAŞLA]', welcome the learner back in {name} in one short sentence and "
+             "continue from where you left off with one question."))
     else:
         parts.append(
-            f"When you receive the text '[BAŞLA]', greet the learner warmly in {name} in one short sentence and ask one easy question."
+            ("When you receive the text '[BAŞLA]', greet the learner warmly in ONE short Turkish sentence, say you will teach from the very "
+             "beginning step by step, then teach the first phrase of the lesson ladder and ask them to repeat it."
+             if beginner else
+             f"When you receive the text '[BAŞLA]', greet the learner warmly in {name} in one short sentence and ask one easy question.")
         )
     return "\n".join(parts)
 

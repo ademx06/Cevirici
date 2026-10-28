@@ -124,7 +124,9 @@ def _system_prompt(lang: str, level: str, mode: str, scenario: str, weak: list[s
             f"'fix' = null. Never 'fix' punctuation or capitalization only. "
             f"3) Reply naturally in {name}: react to what they said, then ask ONE follow-up question so the "
             f"conversation continues. 4) 'words': 0-2 useful words from your reply that are likely new at this "
-            f"level (word in {name} + Turkish meaning)."
+            f"level (word in {name} + Turkish meaning). "
+            + ("BEGINNER (A1/A2): act as a step-by-step teacher — teach ONE short phrase per turn (say what it means in 'reply_tr'), "
+               "and END 'reply' by inviting the learner to repeat or use that phrase instead of asking an open question. " if level in ("A1", "A2") else "")
         )
         schema = (
             '{"check": "<one short English line: quote each wrong word/form in the learner sentence and the rule, or OK>", '
