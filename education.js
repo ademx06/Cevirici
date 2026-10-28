@@ -96,7 +96,7 @@
     if (m.role === 'user') return m.text ? { role: 'user', text: str(m.text, 500), okunus: str(m.okunus, 600), mode: m.mode === 'help' ? 'help' : 'speak', t: Number(m.t) || 0 } : null;
     if (m.role !== 'tutor') return null;
     const fix = m.fix && typeof m.fix === 'object' && m.fix.fixed
-      ? { status: m.fix.status === 'better' ? 'better' : 'fix', fixed: str(m.fix.fixed), okunus: str(m.fix.okunus), explain_tr: str(m.fix.explain_tr) } : null;
+      ? { status: m.fix.status === 'better' ? 'better' : 'fix', fixed: str(m.fix.fixed), okunus: str(m.fix.okunus), explain_tr: str(m.fix.explain_tr), how_tr: str(m.fix.how_tr) } : null;
     const arr = (v) => (Array.isArray(v) ? v.filter((x) => x && typeof x === 'object') : []);
     const out = {
       role: 'tutor', lang: str(m.lang, 5) || P.lang, mode: str(m.mode, 10), you: str(m.you, 500),
@@ -226,6 +226,7 @@
         <p class="fix-right"${dir}>${esc(m.fix.fixed)}</p>
         ${okunusLine(m.fix.okunus)}
         ${m.fix.explain_tr ? `<p class="fix-why">${esc(m.fix.explain_tr)}</p>` : ''}
+        ${m.fix.how_tr ? `<p class="fix-how">🧩 Nasıl kurulur: ${esc(m.fix.how_tr)}</p>` : ''}
         <div class="t-actions">${playBtns(idx, 'fix')}</div>
       </div>`;
     } else if (m.mode === 'speak' && m.you && !m.pending && m.provider && m.provider !== 'rules' && (m.provider !== 'live' || m.checked)) {

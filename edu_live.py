@@ -123,6 +123,7 @@ def interpret_instructions(source: str, target: str, both: bool) -> str:
         "Translate faithfully in first person with the same meaning, tone and politeness. Speak naturally and clearly. "
         "Never answer questions, never comment, never greet, never explain, never add or drop information. "
         "If a question is asked, translate the question itself. "
+        "Ignore background noise, music, TV and distant or overlapping voices: translate only the clear, close main speaker. "
         "If the audio is silence, only noise, or too unclear to understand, say NOTHING — "
         "do not invent fillers like '¿Qué?', 'What?', 'Huh?', 'Hmm', or random words."
     )

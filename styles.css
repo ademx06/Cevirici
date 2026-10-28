@@ -496,6 +496,9 @@ input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--accent);
   font-size: 16px;
 }
 .msg-user.help .msg-body { background: var(--help-soft); color: var(--help-ink); }
+/* kendi konuşmanın okunuşu balonun arka planında görünsün */
+.msg-user .t-okunus { color: inherit; opacity: .92; }
+.msg-user .t-okunus::before { background: color-mix(in srgb, currentColor 20%, transparent); color: inherit; }
 .msg-user .msg-tag { margin: 0 6px 4px; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); }
 .msg-tutor .msg-body {
   padding: 16px;
@@ -538,6 +541,7 @@ input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--accent);
 .fix-right { margin: 4px 0 0; font: 600 17px/1.35 var(--font-display); color: var(--ink); }
 .fix .t-okunus { margin-top: 4px; font-size: 14px; }
 .fix-why { margin: 8px 0 0; font-size: 14px; color: var(--ink-2); }
+.fix-how { margin: 8px 0 0; padding: 8px 10px; border-radius: 10px; background: var(--accent-soft); font-size: 14px; color: var(--accent-text); font-weight: 600; }
 .fix .t-btn { background: var(--surface); }
 .fix .t-btn.playing, .t-btn.playing { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .ok-badge { display: inline-flex; align-items: center; gap: 6px; margin-bottom: 10px; padding: 4px 10px; border-radius: 999px; background: var(--ok-soft); color: var(--ok); font-size: 12px; font-weight: 800; }

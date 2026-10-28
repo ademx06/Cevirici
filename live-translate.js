@@ -409,11 +409,29 @@
     try {
       await LiveAudio.openMic();
       if (!handsFree) return;
+      // Ortam sesi kapısı: zemin gürültüsünü öğrenir; yalnızca belirgin konuşma (+ kısa ön tampon, 600 ms bekleme) gönderilir
+      let lastLv = 0, floor = 0.01, openUntil = 0, wasOpen = false;
+      const pre = [];
       mic = new LiveAudio.Mic({
         preroll: false,
         // çeviri sesi çalarken sessizlik gönder → kendi çevirisini tekrar çevirmesin
-        onChunk: (u8) => { if (s.isOpen) s.sendAudio(player.playing || performance.now() - lastPlayEnd < 700 ? SILENCE : u8); },
-        onLevel: (lv) => { const m = $('ltMeter'); if (m) m.style.transform = `scale(${1 + Math.min(0.6, player.playing ? 0 : lv * 2.5)})`; },
+        onChunk: (u8) => {
+          if (!s.isOpen) return;
+          const now = performance.now();
+          if (lastLv < floor * 1.6) floor = floor * 0.95 + lastLv * 0.05; else floor = floor * 0.998 + lastLv * 0.002;
+          floor = Math.min(floor, 0.08);
+          if (lastLv > Math.max(0.045, floor * 3)) openUntil = now + 600;
+          const open = now < openUntil;
+          if (player.playing || now - lastPlayEnd < 700) { pre.length = 0; wasOpen = false; s.sendAudio(SILENCE); return; }
+          if (open) {
+            if (!wasOpen) { pre.forEach((c) => s.sendAudio(c)); pre.length = 0; }
+            wasOpen = true; s.sendAudio(u8);
+          } else {
+            wasOpen = false; pre.push(u8); if (pre.length > 3) pre.shift();
+            s.sendAudio(SILENCE);
+          }
+        },
+        onLevel: (lv) => { lastLv = lv; const m = $('ltMeter'); if (m) m.style.transform = `scale(${1 + Math.min(0.6, player.playing ? 0 : lv * 2.5)})`; },
       });
       await Promise.all([mic.start(), s.connect()]);
       if (handsFree) setStatus('Dinliyorum — konuşabilirsiniz', true);

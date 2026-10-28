@@ -659,7 +659,7 @@ def annotate(lang: str, tutor_text: str, user_text: str = "", *, level: str = "A
             f"(never in {name}); only the one example sentence inside explain_tr is in {name}. Write the rule itself ONLY with Turkish words "
             f"(fiil, özne, nesne, zaman, ek...), NEVER with {name} words, in the form: 'Kural cümlesi. Örnek: <example> (Türkçesi).' Return ONLY JSON: "
             '{"check": "<short analysis>", "ok": true|false, "fixed": "<corrected sentence or empty>", '
-            '"fixed_tr": "<Turkish meaning>", "explain_tr": "<2 short Turkish sentences: the rule, then one more correct example in the target language with its Turkish meaning in parentheses>", '
+            '"fixed_tr": "<Turkish meaning>", "how_tr": "<how to BUILD this sentence like a teacher: the pieces in order joined by ' + ', each with a Turkish label and its target-language words, e.g. Özne (Ich) + fiil (gehe) + yer (zur Schule)>", "explain_tr": "<2 short Turkish sentences: the rule, then one more correct example in the target language with its Turkish meaning in parentheses>", '
             '"user_level": "A1|A2|B1|B2|C1|C2", "words": [{"word": "<useful word from the tutor reply>", "tr": "<Turkish>"}]}'
         )
         parsed, _ = _call_llm(system, f"Tutor said: {tutor_text}\nLearner sentence: {user_text}", max_tokens=320,
@@ -678,10 +678,18 @@ def annotate(lang: str, tutor_text: str, user_text: str = "", *, level: str = "A
         lv = _s(ck.get("user_level"), 4).upper()
         out["user_level"] = lv if lv in LEVELS else ""
         fixed = _clean_target(_s(ck.get("fixed"), 400))
+        if lang == "ka" and ck.get("ok") is False and translate_fn and _s(ck.get("fixed_tr"), 300):
+            # Gürcüce: modelin yazdığı cümle sık hatalı → Türkçe anlamı güvenilir çeviri hattından (yerel Gürcüce) geçir
+            try:
+                g = _s(translate_fn(_s(ck.get("fixed_tr"), 300), "tr", "ka"), 400)
+                if g and re.search(r"[\u10A0-\u10FF]", g):
+                    fixed = _clean_target(g)
+            except Exception:
+                pass
         if ck.get("ok") is False and fixed and not _same(fixed, user_text):
             out["fix"] = {"status": "fix", "fixed": fixed, "fixed_tr": _s(ck.get("fixed_tr"), 400),
                           "okunus": ok.okunus(fixed, lang) if lang in RULE_LANGS_LOCAL else "",
-                          "explain_tr": _s(ck.get("explain_tr"), 400)}
+                          "explain_tr": _s(ck.get("explain_tr"), 400), "how_tr": _s(ck.get("how_tr"), 220)}
         for w in (ck.get("words") or [])[:2]:
             if isinstance(w, dict) and _s(w.get("word"), 40):
                 out["words"].append({"word": _clean_target(_s(w.get("word"), 40)), "tr": _s(w.get("tr"), 60)})
