@@ -63,20 +63,26 @@ def _fin(w: str) -> str:
 # ---------------------------------------------------------------- Spanish
 
 _ES = [
+    (r"ch", "Ç"),
     (r"h", ""),
     (r"ü", "U"),
-    (r"ch", "Ç"), (r"ll", "Y"), (r"ñ", "NY"), (r"rr", "R"),
+    (r"ll", "Y"), (r"ñ", "NY"), (r"rr", "R"),
     (r"qu(?=[eiéí])", "K"), (r"gu(?=[eiéí])", "G"),
     (r"c(?=[eiéí])", "S"), (r"c", "K"), (r"z", "S"),
     (r"g(?=[eiéí])", "H"), (r"j", "H"), (r"g", "G"),
     (r"v", "B"), (r"x", "KS"), (r"w", "U"),
-    (r"y$", "I"), (r"^y$", "I"), (r"y", "Y"),
+    (r"(?<=[aeou])y$", "Y"), (r"y$", "I"), (r"^y$", "I"), (r"y", "Y"),
 ]
 
 
+def _glide_i(s: str) -> str:
+    """Ünsüzden sonra, ünlüden önce gelen i → y (gracias→grasyas, chiamo→kyamo, estación→estasyon). í/ì (vurgulu) korunur."""
+    return re.sub(r"(?<=[bcçdfghjklmnprstvyzğş])i(?=[aeou])", "y", s)
+
+
 def _es_word(w: str) -> str:
-    w = _strip_accents(w.replace("ü", "w"), keep="ñ").replace("w", "ü")
-    return _fin(_apply(w, _ES))
+    w = _strip_accents(w.replace("ü", "w"), keep="ñí").replace("w", "ü")
+    return _glide_i(_fin(_apply(w, _ES))).replace("í", "i")
 
 
 # ---------------------------------------------------------------- Italian
@@ -94,7 +100,7 @@ _IT = [
 
 
 def _it_word(w: str) -> str:
-    return _fin(_apply(_strip_accents(w), _IT))
+    return _glide_i(_fin(_apply(_strip_accents(w, keep="ìí"), _IT))).replace("ì", "i").replace("í", "i")
 
 
 # ---------------------------------------------------------------- German
@@ -168,7 +174,7 @@ _FR = [
     (r"ien(?![aeiouyn])", "IYEN"),
     (r"(?:an|am|en|em)(?![aeiouyn m])", "AN"),
     (r"on(?![aeiouyn])|om(?![aeiouym])", "ON"),
-    (r"ai|ei|ê|è|é|ë", "E"), (r"eu|œu|œ", "Ö"),
+    (r"aî|ai|ei|ê|è|é|ë", "E"), (r"eu|œu|œ", "Ö"),
     (r"ch", "Ş"), (r"gn", "NY"), (r"qu", "K"), (r"ph", "F"), (r"th", "T"),
     (r"ç", "S"), (r"c(?=[eiyéèê])", "S"), (r"c", "K"),
     (r"ge(?=[aou])", "J"), (r"g(?=[eiyéèê])", "J"), (r"j", "J"),
