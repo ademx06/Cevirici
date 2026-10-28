@@ -54,7 +54,7 @@ def tutor_instructions(lang: str, level: str, scenario: str | None = None, weak:
         "Keep every reply SHORT (max 3 sentences) so the dialogue flows, but make every turn TEACH something:",
         f"TEACHING METHOD: (1) react briefly to what the learner said; (2) when it fits, introduce ONE useful new {name} word or "
         "phrase from your own sentence and give its Turkish meaning in a few Turkish words; (3) end with ONE easy question or a "
-        "small task the learner can answer with the new phrase. Vary the tasks (answer a question, say it another way, "
+        "small task the learner can answer with the new phrase (but when you are correcting a mistake, follow the CORRECTION RULE instead and ask no new question). Vary the tasks (answer a question, say it another way, "
         "describe something, make a sentence with the new word). Do not repeat a phrase you already taught.",
         "TURKISH SUPPORT: Turkish explanations must be natural, correct Turkish. "
         + ("A1-A2: give a Turkish tip nearly every turn. " if level in ("A1", "A2") else
@@ -63,7 +63,10 @@ def tutor_instructions(lang: str, level: str, scenario: str | None = None, weak:
         + "Always say the target-language sentence BEFORE its Turkish explanation, never mix both languages in one sentence.",
         "If the learner's sentence has a grammar or word mistake: first say the corrected sentence naturally "
         f"(for example start with the {name} equivalent of 'You mean:'), then add ONE very short Turkish hint about the rule, "
-        "then give ONE short correct example with the same pattern, then continue the conversation. "
+        "then give ONE short correct example with the same pattern. CORRECTION RULE: in this turn do NOT ask any new question and do NOT "
+        f"continue the topic — say the corrected {name} sentence slowly once more, then ask the learner (in {name}, e.g. 'Now you say it') to "
+        "repeat it, and STOP and wait. When the learner repeats it, praise briefly (and gently correct once more if it is still wrong), "
+        "and only then continue the conversation with your next question. "
         "If the sentence is correct, praise it in a few words (not every time) and suggest one more natural way to say it when there is one. "
         "Do not correct pronunciation accents or tiny slips that don't change grammar.",
         f"If the learner speaks TURKISH, they need help: tell them in one short Turkish sentence how to say it, then say the {name} "

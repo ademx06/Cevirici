@@ -107,6 +107,17 @@
     }
   }
 
+  // Ana menü dışındaki sayfalarda küçük sürüm etiketi (sol alt köşe)
+  function showBadge() {
+    if (document.getElementById('appVersionBar') || document.getElementById('appVerBadge')) return;
+    const b = document.createElement('div');
+    b.id = 'appVerBadge';
+    b.style.cssText = 'position:fixed;left:8px;bottom:6px;z-index:5;font:600 10px/1 system-ui,sans-serif;color:#888;opacity:.75;pointer-events:none;letter-spacing:.04em';
+    document.body.appendChild(b);
+    fetchAppStatus().then((d) => { b.textContent = d && d.app_version ? 'v' + String(d.app_version).replace(/^.*-v/, '') : ''; }).catch(() => {});
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', showBadge); else showBadge();
+
   global.AppVersion = {
     init: initAppVersion,
     fetchStatus: fetchAppStatus,
