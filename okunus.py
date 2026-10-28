@@ -110,6 +110,8 @@ _DE_SPECIAL = {
     "auch": "auh", "noch": "noh", "doch": "doh", "ja": "ya", "und": "unt",
     "sind": "zint", "die": "di", "sie": "zi", "wie": "vi", "bitte": "bite",
     "danke": "danke", "hallo": "halo", "tschüss": "çüs", "tschüs": "çüs",
+    "entschuldigung": "entşuldigung", "entschuldigen": "entşuldigen", "entschuldigen sie": "entşuldigen zi",
+    "sehr": "zer", "mehr": "mer", "lehrer": "lerır", "lehrerin": "lerırin",
 }
 _DE = [
     (r"^ch", "K"),
@@ -123,10 +125,10 @@ _DE = [
     (r"qu", "KV"), (r"tz", "TS"), (r"z", "TS"),
     (r"^s(?=[aeiouäöüy])", "Z"), (r"(?<=[aeiouäöüyrlnAEIOUYRLN])s(?=[aeiouäöüy])", "Z"),
     (r"v", "F"), (r"w", "V"), (r"j", "Y"), (r"y", "Ü"), (r"x", "KS"), (r"ck", "K"), (r"c", "K"),
-    (r"(?<=[aeiouöüAEIOUÖÜ])h(?![aeiouöü])", ""),
+    (r"(?<=[aeiouöüAEIOUÖÜ])h", ""),  # sessiz uzatma-h (gehen, Uhr, Zahl, sehr)
     (r"ss", "S"),
     (r"(?<=[aeiouöüAEIOUÖÜ])b$", "P"), (r"(?<=[aeiouöürlnAEIOUÖÜRLN])d$", "T"),
-    (r"(?<=[aeiouöürlnAEIOUÖÜRLN])g$", "K"),
+    (r"(?<=[aeiouöürlAEIOUÖÜRL])g$", "K"),
     (r"(?<=.)er$", "ƗR"),
 ]
 
