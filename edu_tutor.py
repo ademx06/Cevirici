@@ -260,6 +260,15 @@ def llm_okunus_batch(texts: list[str], lang: str) -> list[str]:
         "Keep EVERY word of the source, in the same order; do not translate. "
         'Return ONLY JSON: {"okunus": ["<reading of line 1>", "<reading of line 2>", ...]}'
     )
+    if lang == "en":
+        # Aynı kelime her yerde aynı okunsun: sözlük okunuşlarını referans ver (model yalnızca açıkça yanlışsa değiştirir)
+        try:
+            import pronunciation_service as _ps
+            words = list(dict.fromkeys(re.findall(r"[A-Za-z']{3,}", " ".join(texts))))[:40]
+            hints = "; ".join(f"{w}={_ps._resolve_en_phonetic(w).replace('-', '')}" for w in words)
+            system += " REFERENCE dictionary readings (use them; change one only if clearly wrong): " + hints + "."
+        except Exception:
+            pass
     user = "\n".join(f"{i + 1}. {t}" for i, t in enumerate(texts))
     parsed, _ = _call_llm_simple(system, user)
     arr = (parsed or {}).get("okunus")

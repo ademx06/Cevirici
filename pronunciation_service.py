@@ -25,6 +25,8 @@ EN_CANONICAL: dict[str, str] = {
     "the": "dı",
     "a": "e",
     "an": "en",
+    "nice": "nays", "thank": "tenk", "thanks": "tenks", "feedback": "fidbek", "yesterday": "yestırdey",
+    "tomorrow": "tumorou", "favorite": "feyvırit", "favourite": "feyvırit", "homework": "houmvörk",
     "and": "end",
     "or": "or",
     "to": "tu",
