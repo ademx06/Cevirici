@@ -693,6 +693,12 @@ def annotate(lang: str, tutor_text: str, user_text: str = "", *, level: str = "A
         for w in (ck.get("words") or [])[:2]:
             if isinstance(w, dict) and _s(w.get("word"), 40):
                 out["words"].append({"word": _clean_target(_s(w.get("word"), 40)), "tr": _s(w.get("tr"), 60)})
+    if out["fix"] and lang == "ka":
+        # Gürcüce: modelin ürettiği örnek/iskelet güvenilmez → kuralı koru, örnek olarak doğrulanmış cümleyi göster
+        rule = re.split(r"\s*Örnek\s*:", out["fix"].get("explain_tr") or "")[0].strip()
+        ex = out["fix"]["fixed"] + (f" ({out['fix']['fixed_tr']})" if out["fix"].get("fixed_tr") else "")
+        out["fix"]["explain_tr"] = (rule + " " if rule else "") + "Örnek: " + ex
+        out["fix"]["how_tr"] = ""
     if out["fix"] and not out["fix"]["okunus"] and lang in LLM_OKUNUS | PINYIN_LANGS:
         out["fix"]["okunus"] = (llm_okunus_batch([out["fix"]["fixed"]], lang)[0] if lang in LLM_OKUNUS
                                 else llm_okunus(out["fix"]["fixed"], lang))
