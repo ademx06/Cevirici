@@ -656,7 +656,8 @@ def annotate(lang: str, tutor_text: str, user_text: str = "", *, level: str = "A
             f"You are a strict but kind {name} teacher for a Turkish learner (level {level}). Check the learner sentence: "
             "verb forms/tense, auxiliaries, articles, gender, case, agreement, prepositions, word order. Ignore punctuation, "
             "capitalisation and speech-recognition filler. LANGUAGE RULE: 'explain_tr' and 'fixed_tr' MUST be written in TURKISH "
-            f"(never in {name}); only the one example sentence inside explain_tr is in {name}. Return ONLY JSON: "
+            f"(never in {name}); only the one example sentence inside explain_tr is in {name}. Write the rule itself ONLY with Turkish words "
+            f"(fiil, özne, nesne, zaman, ek...), NEVER with {name} words, in the form: 'Kural cümlesi. Örnek: <example> (Türkçesi).' Return ONLY JSON: "
             '{"check": "<short analysis>", "ok": true|false, "fixed": "<corrected sentence or empty>", '
             '"fixed_tr": "<Turkish meaning>", "explain_tr": "<2 short Turkish sentences: the rule, then one more correct example in the target language with its Turkish meaning in parentheses>", '
             '"user_level": "A1|A2|B1|B2|C1|C2", "words": [{"word": "<useful word from the tutor reply>", "tr": "<Turkish>"}]}'
