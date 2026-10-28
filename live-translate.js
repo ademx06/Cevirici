@@ -13,9 +13,10 @@
     { code: 'es', name: 'Español', flag: '🇪🇸' }, { code: 'it', name: 'Italiano', flag: '🇮🇹' },
     { code: 'ru', name: 'Русский', flag: '🇷🇺' }, { code: 'ar', name: 'العربية', flag: '🇸🇦' },
     { code: 'zh', name: '中文', flag: '🇨🇳' }, { code: 'ka', name: 'ქართული', flag: '🇬🇪' },
+    { code: 'id', name: 'Bahasa Indonesia', flag: '🇮🇩' },
   ];
   const HOLD = { tr: 'Basılı tut, konuş', en: 'Hold to speak', de: 'Gedrückt halten', fr: 'Maintenir pour parler',
-    es: 'Mantén para hablar', it: 'Tieni premuto', ru: 'Удерживай', ar: 'اضغط مطولاً', zh: '按住说话', ka: 'დააჭირე და ილაპარაკე' };
+    es: 'Mantén para hablar', it: 'Tieni premuto', ru: 'Удерживай', ar: 'اضغط مطولاً', zh: '按住说话', ka: 'დააჭირე და ილაპარაკე', id: 'Tahan untuk bicara' };
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const lang = (c) => LANGS.find((l) => l.code === c) || LANGS[0];
@@ -65,6 +66,7 @@
     es: /[ñ¿¡áéíóú]|\b(el|la|que|y|es|sí|no|gracias|hola|yo|tú|por|para|una?)\b/gi,
     it: /[àèìòù]|\b(il|che|è|sono|non|grazie|ciao|io|tu|per|una?|lo|gli)\b/gi,
     ru: /[а-яё]/gi, ar: /[؀-ۿ]/g, zh: /[一-鿿]/g, ka: /[Ⴀ-ჿ]/g,
+    id: /\b(saya|aku|kamu|anda|yang|dan|di|ke|dari|ini|itu|tidak|bukan|ada|apa|bagaimana|dengan|untuk|terima|kasih|selamat|halo|ya|sangat|sudah|bisa|mau)\b/gi,
   };
   const score = (text, code) => ((String(text || '').match(HINTS[code] || /$^/g) || []).length);
   function guessDir(orig, trans) {

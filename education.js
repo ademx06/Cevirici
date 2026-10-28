@@ -15,6 +15,7 @@
     { code: 'ar', flag: '🇸🇦', name: 'العربية', tr: 'Arapça', rtl: true },
     { code: 'zh', flag: '🇨🇳', name: '中文', tr: 'Çince' },
     { code: 'ka', flag: '🇬🇪', name: 'ქართული', tr: 'Gürcüce' },
+    { code: 'id', flag: '🇮🇩', name: 'Bahasa Indonesia', tr: 'Endonezce' },
   ];
   const LEVELS = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
   const LEVEL_TR = { A1: 'Başlangıç', A2: 'Temel', B1: 'Orta', B2: 'Orta üstü', C1: 'İleri', C2: 'Ustalık' };

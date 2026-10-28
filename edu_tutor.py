@@ -24,6 +24,7 @@ LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"]
 LANG_NAMES = {
     "en": "English", "de": "German", "fr": "French", "es": "Spanish", "it": "Italian",
     "ru": "Russian", "ar": "Arabic", "zh": "Chinese (Mandarin, simplified)", "ka": "Georgian",
+    "id": "Indonesian (Bahasa Indonesia)",
 }
 
 LEVEL_GUIDE = {
@@ -427,11 +428,12 @@ _FALLBACK_REPLIES = {
     "ru": [("Понятно! Расскажи мне больше.", "Anlıyorum! Bana daha fazla anlat."), ("Здорово! А что ты любишь делать?", "Harika! Peki ne yapmayı seversin?")],
     "ar": [("فَهِمْتُ! أَخْبِرْنِي الْمَزِيدَ.", "Anladım! Bana daha fazla anlat.")],
     "zh": [("我明白了！再多说一点。", "Anladım! Biraz daha anlat.")],
+    "id": [("Saya mengerti! Ceritakan lebih banyak.", "Anlıyorum! Biraz daha anlat."), ("Bagus! Dan kamu suka melakukan apa?", "Güzel! Peki sen ne yapmayı seversin?")],
     "ka": [("გასაგებია! მეტი მომიყევი.", "Anlaşıldı! Bana daha fazla anlat."), ("კარგია! შენ რა გიყვარს?", "Güzel! Sen neyi seversin?")],
 }
 _TRY_IT = {"en": "Try saying it!", "de": "Versuch es mal!", "fr": "Essaie de le dire !", "es": "¡Inténtalo!",
            "it": "Prova a dirlo!", "ru": "Попробуй сказать!", "ar": "حَاوِلْ أَنْ تَقُولَهَا!", "zh": "试着说一说！",
-           "ka": "სცადე თქვა!"}
+           "ka": "სცადე თქვა!", "id": "Coba katakan!"}
 _HELP_FILLER = re.compile(
     r"\b(yardım|yardim|nasıl\s+(derim|denir|söylerim|söylenir)|ne\s+demeliyim|ne\s+diyeyim|"
     r"(ingilizce|almanca|fransızca|ispanyolca|italyanca|rusça|arapça|çince|gürcüce)\s*(de|da|olarak)?|"
@@ -546,6 +548,7 @@ OPENERS = {
     "ru": {"A1": "Привет! Как дела?", "B1": "Привет! Как проходит твой день?", "C1": "Привет! О чём ты в последнее время думаешь?"},
     "ar": {"A1": "مَرْحَبًا! كَيْفَ حَالُكَ الْيَوْمَ؟", "B1": "أَهْلًا! كَيْفَ يَسِيرُ يَوْمُكَ؟", "C1": "أَهْلًا! مَا الَّذِي يَشْغَلُ بَالَكَ هَذِهِ الْأَيَّامَ؟"},
     "zh": {"A1": "你好！你今天好吗？", "B1": "你好！你今天过得怎么样？", "C1": "你好！最近你在想些什么呢？"},
+    "id": {"A1": "Halo! Apa kabar hari ini?", "B1": "Halo! Bagaimana harimu sejauh ini?", "C1": "Halo! Apa yang sedang kamu pikirkan akhir-akhir ini?"},
     "ka": {"A1": "გამარჯობა! როგორ ხარ დღეს?", "B1": "გამარჯობა! როგორ მიდის შენი დღე?", "C1": "გამარჯობა! რაზე ფიქრობ ბოლო დროს?"},
 }
 OPENERS_TR = {"A1": "Merhaba! Bugün nasılsın?", "B1": "Merhaba! Günün nasıl geçiyor?", "C1": "Merhaba! Son zamanlarda aklını meşgul eden ne?"}
@@ -688,7 +691,7 @@ def annotate(lang: str, tutor_text: str, user_text: str = "", *, level: str = "A
     return out
 
 
-RULE_LANGS_LOCAL = {"es", "it", "de", "fr", "ru", "ka"}
+RULE_LANGS_LOCAL = {"es", "it", "de", "fr", "ru", "ka", "id"}
 
 _TR_WORDS = re.compile(
     r"\b(ve|bir|bu|şu|için|yerine|kullan\w*|geçmiş|zaman\w*|fiil\w*|cümle\w*|demek|diyoruz|söyle\w*|olur|değil|"

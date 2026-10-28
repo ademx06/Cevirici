@@ -51,11 +51,13 @@ LANG_NAMES = {
     "tr": "Turkish",
     "en": "English", "de": "German", "fr": "French", "es": "Spanish",
     "ru": "Russian", "ka": "Georgian", "it": "Italian", "ar": "Arabic", "zh": "Chinese",
+    "id": "Indonesian",
 }
 
 LANG_NAMES_TR = {
     "tr": "Türkçe", "en": "İngilizce", "de": "Almanca", "fr": "Fransızca", "es": "İspanyolca",
     "ru": "Rusça", "ka": "Gürcüce", "it": "İtalyanca", "ar": "Arapça", "zh": "Çince",
+    "id": "Endonezce",
 }
 
 
@@ -331,6 +333,7 @@ GREETINGS = {
     "ru": ["Привет! Как прошёл твой день?", "Здравствуй! Что ты делал сегодня?"],
     "ka": ["გამარჯობა! როგორ გაატარე დღე?", "გამარჯობა! რა გააკეთე დღეს?"],
     "it": ["Ciao! Com'è andata la giornata?", "Buonasera! Cosa hai fatto oggi?"],
+    "id": ["Halo! Bagaimana harimu?", "Selamat sore! Apa yang kamu lakukan hari ini?"],
 }
 
 ROLEPLAYS = {
@@ -357,6 +360,7 @@ ROLEPLAYS = {
             'ar': 'مرحبا! كيف حالك اليوم؟',
             'zh': '你好！你今天怎么样？',
             'ka': 'გამარჯობა! როგორ ხარ დღეს?',
+            'id': 'Halo! Apa kabar hari ini?',
         },
         'boundaries': 'Stay inside this scenario world. The scenario defines environment and roles, NOT a scripted question list.',
     },
@@ -1231,6 +1235,7 @@ GREETING_OPENERS = {
     "ar": "مرحبا! كيف حالك اليوم؟",
     "zh": "你好！你今天怎么样？",
     "ka": "გამარჯობა! როგორ ხარ დღეს?",
+    "id": "Halo! Apa kabar hari ini?",
 }
 
 TOPICS_BY_LEVEL = {
@@ -5036,6 +5041,7 @@ def _how_to_say_stuck_short_mode(
         "ru": "Я не знаю, как это сказать.",
         "ka": "არ ვიცი როგორ ვთქვა.",
         "it": "Non so come dirlo.",
+        "id": "Saya tidak tahu cara mengatakannya.",
     }
     phrase_en = phrases.get(target_lang, phrases["en"])
     tr_meaning = "Bunu nasıl söyleyeceğimi bilmiyorum."
@@ -5758,6 +5764,12 @@ def looks_like_lang(text: str, lang: str) -> bool:
             t,
             re.I,
         ))
+    if lang == "id":
+        return bool(re.search(
+            r"\b(saya|aku|kamu|anda|yang|dan|di|ke|dari|ini|itu|tidak|bukan|ada|apa|bagaimana|dengan|untuk|"
+            r"terima|kasih|selamat|halo|baik|sangat|sudah|bisa|mau|hari|tinggal|bekerja|belajar)\b",
+            t, re.I,
+        ))
     if lang == "zh":
         return bool(re.search(r"[\u4e00-\u9fff]", t))
     return False
@@ -5897,6 +5909,7 @@ def _asr_mismatch_clarify_turn(
         "ka": "კარგად ვერ გავიგე. შეგიძლია გაიმეორო?",
         "ar": "لم أفهم بوضوح. هل يمكنك الإعادة؟",
         "zh": "我没听清楚。你可以再说一遍吗？",
+        "id": "Saya kurang jelas mendengarnya. Bisakah kamu mengulanginya?",
         "en": "I didn't catch that clearly. Could you say it again?",
     }
     if target_lang in clarify:
@@ -7855,6 +7868,7 @@ _FAIRY_OPENERS = {
     "ka": "ერთხელ იყო",
     "ar": "كان يا ما كان",
     "zh": "从前",
+    "id": "Dahulu kala",
     "tr": "Bir varmış bir yokmuş",
 }
 
@@ -7863,6 +7877,7 @@ _SCRIPT_HINTS = {
     "ar": "Write 100% in Arabic script.",
     "ru": "Write 100% in Russian Cyrillic.",
     "zh": "Write 100% in Simplified Chinese characters.",
+    "id": "Write natural native Indonesian (Bahasa Indonesia, standard but conversational), not English.",
     "de": "Write natural native German (not English).",
     "fr": "Write natural native French (not English).",
     "es": "Write natural native Spanish (not English).",
@@ -8451,6 +8466,7 @@ def _try_ai_tutor_turn(
                     "ka": "გასაგებია. მითხარით ცოტა მეტი, რომ დაგეხმაროთ.",
                     "ar": "مفهوم. هل يمكنك إخباري بالمزيد حتى أتمكن من المساعدة؟",
                     "zh": "明白了。您能再多说一点，方便我帮您吗？",
+                    "id": "Saya mengerti. Bisakah Anda ceritakan sedikit lagi supaya saya bisa membantu?",
                 }
                 fixed = native_scenario.get(target_lang) or fixed
             else:
@@ -8463,6 +8479,7 @@ def _try_ai_tutor_turn(
                     "ka": "კარგი! მითხარი მეტი — დღეს რა გააკეთე?",
                     "ar": "حسنًا! أخبرني المزيد — ماذا فعلت اليوم؟",
                     "zh": "好的！再多说一点——你今天做了什么？",
+                    "id": "Baik! Ceritakan lebih banyak — apa yang kamu lakukan hari ini?",
                 }
                 fixed = native_continue.get(target_lang) or fixed
         teacher_en = fixed

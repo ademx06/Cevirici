@@ -33,7 +33,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.10.26-v75.9"
+APP_VERSION = "2026.10.28-v76.0"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -71,7 +71,7 @@ UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.1
 STT_LANG = {
     "tr": "tr-TR", "en": "en-US", "de": "de-DE", "fr": "fr-FR",
     "es": "es-ES", "ka": "ka-GE", "ar": "ar-SA", "ru": "ru-RU",
-    "it": "it-IT", "zh": "zh-CN",
+    "it": "it-IT", "zh": "zh-CN", "id": "id-ID",
 }
 
 EDGE_VOICES = {
@@ -85,6 +85,7 @@ EDGE_VOICES = {
     "ru": "ru-RU-SvetlanaNeural",
     "it": "it-IT-ElsaNeural",
     "zh": "zh-CN-XiaoxiaoNeural",
+    "id": "id-ID-GadisNeural",
 }
 
 # Accent variants selectable in Eğitim (locale → Edge neural voice)
@@ -289,7 +290,7 @@ def tts_prewarm(items: list[dict], slow: bool = False, locale: str | None = None
 
 GOOGLE_TL = {
     "tr": "tr", "en": "en", "de": "de", "fr": "fr", "es": "es",
-    "ka": "ka", "ar": "ar", "ru": "ru", "it": "it", "zh": "zh-CN",
+    "ka": "ka", "ar": "ar", "ru": "ru", "it": "it", "zh": "zh-CN", "id": "id",
 }
 
 
@@ -556,7 +557,7 @@ def _script_matches_lang(text: str, lang: str) -> bool:
         if re.search(r"[\u10A0-\u10FF\u0400-\u04FF\u0600-\u06FF\u4e00-\u9fff]", t):
             return False
         return True
-    if lang in ("de", "fr", "es", "it", "en"):
+    if lang in ("de", "fr", "es", "it", "en", "id"):
         if re.search(r"[\u10A0-\u10FF\u0600-\u06FF\u0400-\u04FF\u4e00-\u9fff]", t):
             return False
         return True
@@ -1236,6 +1237,7 @@ TRANSLATE_WHISPER_PROMPTS: dict[str, str] = {
     "ar": "محادثة عربية طبيعية.",
     "ru": "Естественная русская речь.",
     "it": "Conversazione italiana naturale.",
+    "id": "Percakapan bahasa Indonesia yang alami. Transkripsikan persis apa yang diucapkan.",
     "zh": "自然的中文对话。",
 }
 
@@ -1275,6 +1277,7 @@ BAS_KONUS_WHISPER_PROMPTS: dict[str, str] = {
         "Parlato italiano naturale. Trascrivi parola per parola. "
         "Non tradurre, non riformulare, non inventare."
     ),
+    "id": "Percakapan bahasa Indonesia yang alami. Tulis kata demi kata. Jangan menerjemahkan, jangan mengubah, jangan mengarang.",
     "zh": "自然中文口语。逐字转写，不要翻译、改写或编造。",
 }
 
@@ -1423,6 +1426,7 @@ _WHISPER_LANG_ALIASES = {
     "russian": "ru", "ru": "ru",
     "italian": "it", "it": "it",
     "chinese": "zh", "zh": "zh", "mandarin": "zh",
+    "indonesian": "id", "id": "id", "bahasa indonesia": "id",
 }
 
 
@@ -1593,7 +1597,7 @@ def groq_stt_auto(wav: str) -> tuple[str, str, float] | None:
 
 def whisper_stt(wav: str, lang_code: str) -> tuple[str, str, float] | None:
     wlang = None if lang_code == "auto" else (
-        lang_code if lang_code in ("tr", "en", "de", "fr", "es", "ka", "ar", "ru", "it", "zh") else None
+        lang_code if lang_code in ("tr", "en", "de", "fr", "es", "ka", "ar", "ru", "it", "zh", "id") else None
     )
     prompt = WHISPER_PROMPTS.get(lang_code, "") if lang_code != "auto" else ""
     try:
@@ -1720,6 +1724,13 @@ def looks_like_lang(text: str, lang: str) -> bool:
         return bool(re.search(r"\b(ciao|grazie|buongiorno|si|no|come|per|favore|oggi)\b", t, re.I))
     if lang == "zh":
         return bool(re.search(r"[\u4e00-\u9fff]", t))
+    if lang == "id":
+        return bool(re.search(
+            r"\b(saya|aku|kamu|anda|kami|kita|dia|mereka|yang|dan|di|ke|dari|ini|itu|tidak|bukan|ada|apa|siapa|bagaimana|kapan|"
+            r"dengan|untuk|pada|akan|sudah|belum|sedang|bisa|mau|ingin|terima|kasih|selamat|pagi|siang|sore|malam|halo|hai|"
+            r"maaf|tolong|silakan|ya|tidak|nggak|enggak|sangat|sekali|hari|besok|kemarin|makan|minum|pergi|datang|rumah)\b",
+            t, re.I,
+        ))
     return False
 
 
@@ -2713,7 +2724,7 @@ def stt_for_bas_konus(wav: str, lang: str) -> tuple[str, str, float] | None:
         if not _script_matches_lang(text, lang):
             return None
         # 3+ kelimede seçilen dil gibi görünmeli; aksi halde EN sızıntısı reddedilir
-        if lang in ("en", "tr", "de", "fr", "es", "it") and not looks_like_lang(text, lang):
+        if lang in ("en", "tr", "de", "fr", "es", "it", "id") and not looks_like_lang(text, lang):
             words = text.split()
             if len(words) >= 3:
                 return None

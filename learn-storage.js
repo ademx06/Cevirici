@@ -19,6 +19,7 @@
     { code: 'ru', name: 'Русский', flag: '🇷🇺' },
     { code: 'it', name: 'Italiano', flag: '🇮🇹' },
     { code: 'zh', name: '中文', flag: '🇨🇳' },
+    { code: 'id', name: 'Bahasa Indonesia', flag: '🇮🇩' },
   ];
 
   function uid() {

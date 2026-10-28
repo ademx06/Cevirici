@@ -14,7 +14,7 @@ import re
 import threading
 import unicodedata
 
-RULE_LANGS = {"es", "it", "de", "fr", "ru", "ka"}
+RULE_LANGS = {"es", "it", "de", "fr", "ru", "ka", "id"}
 LLM_LANGS = {"en", "ar", "zh"}
 
 _WORD_RE = re.compile(r"[^\W\d_]+(?:['’][^\W\d_]+)*", re.UNICODE)
@@ -265,7 +265,43 @@ def _ka_text(text: str) -> str:
     return re.sub(r"(^|[.!?]\s+)([a-zçğış])", lambda m: m.group(1) + m.group(2).upper(), s)
 
 
-_WORD_FNS = {"es": _es_word, "it": _it_word, "de": _de_word, "fr": _fr_word, "ru": _ru_word}
+# ---------------------------------------------------------------- Indonesian
+
+_ID_SHORT = {
+    "yang": "yang", "dengan": "dıngan", "ke": "kı", "se": "sı", "de": "dı", "te": "tı", "be": "bı", "me": "mı", "pe": "pı",
+    "kamu": "kamu", "anda": "anda", "saya": "saya", "aku": "aku", "apa": "apa", "kabar": "kabar", "baik": "bayk",
+    "terima": "tırima", "kasih": "kasih", "selamat": "sılamat", "tidak": "tidak", "bagaimana": "bagaymana",
+    "ada": "ada", "dan": "dan", "di": "di", "dari": "dari", "ini": "ini", "itu": "itu", "juga": "cuga", "jadi": "cadi",
+    "enak": "enak", "ember": "ember", "teh": "te", "sate": "sate", "tempe": "tempe", "kopi": "kopi", "es": "es",
+    "enam": "ınam", "empat": "ımpat", "engkau": "ıngkau", "untuk": "untuk", "orang": "orang", "bisa": "bisa",
+}
+_ID_E_KEEP = {"bebek", "lele", "indonesia", "restoran", "menu", "hotel", "telepon", "besok", "bensin", "sate", "tempe",
+              "komputer", "internet", "televisi", "energi", "teknologi", "kopi", "ekonomi", "negeri", "gereja"}
+_ID = [
+    (r"ngg", "NGG"), (r"ng", "NG"), (r"ny", "NY"), (r"sy", "Ş"), (r"kh", "H"), (r"gh", "Ğ"),
+    (r"ai", "AY"), (r"au", "AV"), (r"oi", "OY"),
+    (r"c", "Ç"), (r"j", "C"), (r"q", "K"), (r"x", "KS"), (r"w", "V"),
+]
+
+
+def _id_word(w: str) -> str:
+    if w in _ID_SHORT:
+        return _ID_SHORT[w]
+    w = _strip_accents(w)
+    last = max((i for i, ch in enumerate(w) if ch in "aeiou"), default=-1)
+    # Yerli sözcüklerde 'e' çoğunlukla belirsiz ünlü (ı): ilk/orta hecelerde ı; son hecede ve sözcük başında e
+    chars = []
+    for i, ch in enumerate(w):
+        if ch == "e" and i != 0 and i != last and w not in _ID_E_KEEP:
+            chars.append("Ɨ")
+        else:
+            chars.append(ch)
+    w = "".join(chars)
+    w = re.sub(r"^e(?=[mn][bcdfgjklmnprstvz])", "Ɨ", w)  # empat, enam, engkau
+    return _fin(_apply(w, _ID))
+
+
+_WORD_FNS = {"id": _id_word, "es": _es_word, "it": _it_word, "de": _de_word, "fr": _fr_word, "ru": _ru_word}
 
 
 def rule_okunus(text: str, lang: str) -> str:

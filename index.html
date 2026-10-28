@@ -88,7 +88,7 @@
         document.getElementById('homeGreeting').textContent =
           h < 6 ? 'İyi geceler 🌙' : h < 12 ? 'Günaydın ☀️' : h < 18 ? 'İyi günler 👋' : 'İyi akşamlar 🌆';
         const p = JSON.parse(localStorage.getItem('edu_v3_profile') || 'null');
-        const names = { en: 'İngilizce', de: 'Almanca', fr: 'Fransızca', es: 'İspanyolca', it: 'İtalyanca', ru: 'Rusça', ar: 'Arapça', zh: 'Çince', ka: 'Gürcüce' };
+        const names = { en: 'İngilizce', de: 'Almanca', fr: 'Fransızca', es: 'İspanyolca', it: 'İtalyanca', ru: 'Rusça', ar: 'Arapça', zh: 'Çince', ka: 'Gürcüce', id: 'Endonezce' };
         if (p && p.lang) {
           const lv = (p.levels && p.levels[p.lang]) || 'A1';
           document.getElementById('eduContinue').textContent = `${names[p.lang] || ''} · ${lv} — devam et`;

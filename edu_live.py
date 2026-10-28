@@ -26,9 +26,9 @@ TRANSLATE_MODELS = [m for m in (os.environ.get("LIVE_TRANSLATE_MODEL", "").strip
 
 LANG_NAMES = {
     "en": "English", "de": "German", "fr": "French", "es": "Spanish", "it": "Italian", "ru": "Russian",
-    "ar": "Arabic", "zh": "Mandarin Chinese", "ka": "Georgian", "tr": "Turkish",
+    "ar": "Arabic", "zh": "Mandarin Chinese", "ka": "Georgian", "id": "Indonesian", "tr": "Turkish",
 }
-BCP47 = {"en": "en", "de": "de", "fr": "fr", "es": "es", "it": "it", "ru": "ru", "ar": "ar", "zh": "zh-Hans", "ka": "ka", "tr": "tr"}
+BCP47 = {"en": "en", "de": "de", "fr": "fr", "es": "es", "it": "it", "ru": "ru", "ar": "ar", "zh": "zh-Hans", "ka": "ka", "id": "id", "tr": "tr"}
 
 LEVEL_STYLE = {
     "A1": "Use very short, simple sentences (max ~8 words), very common words, present tense. Speak a little slowly and clearly.",
