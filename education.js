@@ -357,14 +357,16 @@
     const guess = LEVELS.indexOf(res.user_level) + 1;
     if (guess > 0) {
       const prev = Number(P.ema[lang]) || cur;
-      P.ema[lang] = Math.round((prev * 0.75 + guess * 0.25) * 100) / 100;
+      // ilk turlarda (yerleştirme) tahmine daha çok güven: C2 konuşan biri A1'de takılı kalmasın
+      const w = (Number(P.sinceChange[lang]) || 0) < 4 ? 0.5 : 0.25;
+      P.ema[lang] = Math.round((prev * (1 - w) + guess * w) * 100) / 100;
     }
     P.sinceChange[lang] = (Number(P.sinceChange[lang]) || 0) + 1;
-    if (!P.autoLevel || P.sinceChange[lang] < 6 || P.recent[lang].length < 6) return;
+    if (!P.autoLevel || P.sinceChange[lang] < 3 || P.recent[lang].length < 3) return;
     const acc = P.recent[lang].reduce((a, b) => a + b, 0) / P.recent[lang].length;
     const ema = Number(P.ema[lang]) || cur;
     let next = cur;
-    if (ema >= cur + 0.6 && acc >= 0.65 && cur < 6) next = cur + 1;
+    if (ema >= cur + 0.6 && acc >= 0.65 && cur < 6) next = Math.min(6, cur + Math.max(1, Math.min(3, Math.round(ema) - cur)));
     else if ((ema <= cur - 0.75 || acc <= 0.25) && cur > 1) next = cur - 1;
     if (next !== cur) {
       P.levels[lang] = LEVELS[next - 1];

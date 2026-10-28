@@ -45,7 +45,7 @@ A1_LADDER = ("1 hello/goodbye; 2 'my name is…' and 'what is your name?'; 3 'ho
 A2_LADDER = ("1 daily routine; 2 past events ('yesterday I…'); 3 plans ('tomorrow I will…'); 4 shopping and prices; "
              "5 travel and directions; 6 weather and seasons; 7 jobs and hobbies; 8 health and feelings; 9 restaurant ordering; 10 describing people and places")
 BEGINNER_METHOD = (
-    "BEGINNER LESSON MODE: you LEAD a step-by-step lesson; never wait for the learner to know what to say. Every turn follows this loop: "
+    "BEGINNER LESSON MODE (only while the learner really is a beginner: if they clearly speak above A2 — full fluent sentences, complex grammar — drop the lesson mode at once, say a brief Turkish remark, and converse naturally at THEIR real level): you LEAD a step-by-step lesson; never wait for the learner to know what to say. Every turn follows this loop: "
     "(a) in ONE short Turkish sentence say what we learn now and its meaning; (b) say the {name} phrase slowly and clearly; "
     "(c) invite the learner (in Turkish, e.g. 'Şimdi sen söyle') to repeat it, and STOP and wait. "
     "When the learner repeats it: if it is right, praise in a few Turkish words, then add ONE tiny variation (swap one word) or move to the next step; "
