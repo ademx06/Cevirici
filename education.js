@@ -786,13 +786,15 @@
     tutor.you = tutor.mode === 'speak' && user ? user.text.trim() : '';
     // Cevap + ses hemen bitsin; okunuş/TR arka planda gelsin (takılma azalır)
     tutor.pending = false;
+    const prevT = [...S.msgs].reverse().find((m) => m !== tutor && m.role === 'tutor' && m.reply && !m.pending);
+    const prevTutor = prevT ? String(prevT.reply).slice(0, 500) : '';
     render(); saveChat();
     saveLiveAudio(tutor); setTimeout(() => saveLiveAudio(tutor), 1500);
     if (!L.player.playing) idleStatus();
     void (async () => {
       try {
         const r = await fetch('/api/edu/annotate', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ lang: tutor.lang, tutor_text: tutor.reply, user_text: user && user.mode !== 'help' ? user.text : '', mode: tutor.mode, level: level() }) });
+          body: JSON.stringify({ lang: tutor.lang, tutor_text: tutor.reply, user_text: user && user.mode !== 'help' ? user.text : '', mode: tutor.mode, level: level(), prev_tutor: prevTutor }) });
         const a = await r.json();
         if (!r.ok) return;
         tutor.okunus = a.okunus || ''; tutor.fix = a.fix || null; tutor.words = a.words || [];

@@ -611,7 +611,7 @@ for _k, _v in _GREETING_OKUNUS.items():
 
 
 
-def annotate(lang: str, tutor_text: str, user_text: str = "", *, level: str = "A1", mode: str = "speak",
+def annotate(lang: str, tutor_text: str, user_text: str = "", *, level: str = "A1", mode: str = "speak", prev_tutor: str = "",
              translate_fn: Callable[[str, str, str], str] | None = None) -> dict:
     """Canlı (sesli) turdan sonra ekrana: öğretmen cümlesinin okunuşu + Türkçesi, öğrenci cümlesinin düzeltmesi.
 
@@ -625,8 +625,7 @@ def annotate(lang: str, tutor_text: str, user_text: str = "", *, level: str = "A
     tutor_text = " ".join(target_parts).strip()
     hint_tr = " ".join(tr_parts).strip()
     # Sesli tekrar için sıralı parçalar: Türkçe ipucu Türkçe sesle, hedef dil kendi sesiyle
-    segments = [{"text": x, "lang": "tr" if _is_turkish_sentence(x, lang) else lang}
-                for x in (y.strip() for y in re.findall(r"[^.!?。！？؟]+[.!?。！？؟]*", full_text or "")) if x]
+    segments = [{"text": x, "lang": "tr" if is_tr else lang} for x, is_tr in clause_labels(full_text or "", lang) if x]
     out: dict[str, Any] = {"segments": segments, "okunus": "", "tr": "", "hint_tr": hint_tr, "target": tutor_text, "fix": None,
                            "user_level": "", "words": [], "checked": False}
 
@@ -666,14 +665,14 @@ def annotate(lang: str, tutor_text: str, user_text: str = "", *, level: str = "A
         system = (
             f"You are a strict but kind {name} teacher for a Turkish learner (level {level}). Check the learner sentence: "
             "verb forms/tense, auxiliaries, articles, gender, case, agreement, prepositions, word order. Ignore punctuation, "
-            "capitalisation and speech-recognition filler. SPEECH-RECOGNITION RULE: the learner text comes from speech recognition. If it contains non-existent words, stray letters or fragments (e.g. 'srg') or does not form a meaningful sentence, set garbled=true, ok=true and fixed=empty (do NOT treat it as correct and do NOT invent a fix). LEVEL RULE: 'user_level' is the CEFR level the learner's OWN sentence shows (vocabulary range, tenses, subordinate clauses, idioms, fluency), NOT the lesson level and NOT correctness: a short simple phrase = A1/A2; everyday connected speech with some tenses = B1; fluent, varied, well-structured speech with connectors and abstract topics = B2/C1; sophisticated, precise, idiomatic or nuanced speech with complex clauses = C2. Never default to A1 for a fluent sentence. LANGUAGE RULE: 'explain_tr' and 'fixed_tr' MUST be written in TURKISH "
+            "capitalisation and speech-recognition filler. SPEECH-RECOGNITION RULE: the learner text comes from speech recognition. If it contains non-existent words, stray letters or fragments (e.g. 'srg') or does not form a meaningful sentence, set garbled=true, ok=true and fixed=empty (do NOT treat it as correct and do NOT invent a fix). EXPECTED-PHRASE RULE: if the previous tutor turn asked the learner to repeat or say a specific phrase, the learner sentence must be THAT phrase (tiny accent or recognition differences are fine). If it is a different sentence or meaning, set ok=false, fixed=the exact expected phrase, and explain_tr in Turkish saying this is not the phrase that was asked. LEVEL RULE: 'user_level' is the CEFR level the learner's OWN sentence shows (vocabulary range, tenses, subordinate clauses, idioms, fluency), NOT the lesson level and NOT correctness: a short simple phrase = A1/A2; everyday connected speech with some tenses = B1; fluent, varied, well-structured speech with connectors and abstract topics = B2/C1; sophisticated, precise, idiomatic or nuanced speech with complex clauses = C2. Never default to A1 for a fluent sentence. LANGUAGE RULE: 'explain_tr' and 'fixed_tr' MUST be written in TURKISH "
             f"(never in {name}); only the one example sentence inside explain_tr is in {name}. Write the rule itself ONLY with Turkish words "
             f"(fiil, özne, nesne, zaman, ek...), NEVER with {name} words, in the form: 'Kural cümlesi. Örnek: <example> (Türkçesi).' Return ONLY JSON: "
             '{"check": "<short analysis>", "ok": true|false, "garbled": true|false, "fixed": "<corrected sentence or empty>", '
             '"fixed_tr": "<Turkish meaning>", "how_tr": "<how to BUILD this sentence like a teacher: the pieces in order joined by ' + ', each with a Turkish label and its target-language words, e.g. Özne (Ich) + fiil (gehe) + yer (zur Schule)>", "explain_tr": "<2 short Turkish sentences: the rule, then one more correct example in the target language with its Turkish meaning in parentheses>", '
             '"user_level": "A1|A2|B1|B2|C1|C2", "words": [{"word": "<useful word from the tutor reply>", "tr": "<Turkish>"}]}'
         )
-        parsed, _ = _call_llm(system, f"Tutor said: {tutor_text}\nLearner sentence: {user_text}", max_tokens=320,
+        parsed, _ = _call_llm(system, f"Previous tutor turn (what the learner was answering): {prev_tutor[:500]}\nTutor said: {tutor_text}\nLearner sentence: {user_text}", max_tokens=320,
                               require="ok")
         return parsed
 
@@ -762,12 +761,60 @@ def _is_turkish_sentence(snt: str, lang: str) -> bool:
     return tr >= 1 and tr >= en and tr / len(words) >= 0.3
 
 
+def clause_labels(text: str, lang: str) -> list[tuple[str, bool]]:
+    """Metni [(parça, türkçe_mi)] olarak böl. Karışık cümlede ("Şimdi şunu söyle: I am fine.", "Önce I am. Sonra fine.")
+    Türkçe giriş ile hedef dil ifadesi AYRI parçalar olur; hedef ifade bölünmez/yutulmaz."""
+    out: list[tuple[str, bool]] = []
+    sents = [x.strip() for x in re.findall(r"[^.!?。！？؟]+[.!?。！？؟]*", text or "") if x.strip()]
+    for snt in sents:
+        for piece in [p for p in re.split(r"(?<=:)\s+", snt) if p.strip()]:
+            runs = _mixed_runs(piece, lang) if lang == "en" else None
+            if runs:
+                out.extend(runs)
+            else:
+                out.append((piece.strip(), _is_turkish_sentence(piece, lang)))
+    return out
+
+
+def _mixed_runs(piece: str, lang: str) -> list[tuple[str, bool]] | None:
+    toks = piece.split()
+    if len(toks) < 2:
+        return None
+    labs: list[bool | None] = []
+    for w in toks:
+        c = re.sub(r"^\W+|\W+$", "", w)
+        if not c:
+            labs.append(None)
+        elif re.search(r"[ğışİĞŞçöüÇÖÜ]", c) or _TR_WORDS.fullmatch(c) or _TR_SUFFIX.match(c):
+            labs.append(True)
+        elif c.lower() in ("de", "da", "diye", "diyelim", "dedi", "diyor", "deriz", "denir"):
+            labs.append(True)
+        elif c.lower() in _EN_COMMON:
+            labs.append(False)
+        else:
+            labs.append(None)
+    if True not in labs or False not in labs:
+        return None
+    for i in range(len(labs)):
+        if labs[i] is None:
+            labs[i] = labs[i - 1] if i > 0 and labs[i - 1] is not None else next((x for x in labs[i:] if x is not None), True)
+    runs: list[tuple[str, bool]] = []
+    cur, cl = [toks[0]], labs[0]
+    for w, lb in zip(toks[1:], labs[1:]):
+        if lb == cl:
+            cur.append(w)
+        else:
+            runs.append((" ".join(cur), bool(cl)))
+            cur, cl = [w], lb
+    runs.append((" ".join(cur), bool(cl)))
+    return runs
+
+
 def split_turkish(text: str, lang: str) -> tuple[list[str], list[str]]:
     """Öğretmenin sesli cevabındaki Türkçe ipucu cümlelerini hedef dil cümlelerinden ayır."""
-    sents = [x.strip() for x in re.findall(r"[^.!?。！？؟]+[.!?。！？؟]*", text or "") if x.strip()]
     target, tr = [], []
-    for snt in sents:
-        (tr if _is_turkish_sentence(snt, lang) else target).append(snt)
+    for snt, is_tr in clause_labels(text, lang):
+        (tr if is_tr else target).append(snt)
     if not target:
         return [text], []
     return target, tr

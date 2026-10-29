@@ -46,9 +46,9 @@ A2_LADDER = ("1 daily routine; 2 past events ('yesterday I…'); 3 plans ('tomor
              "5 travel and directions; 6 weather and seasons; 7 jobs and hobbies; 8 health and feelings; 9 restaurant ordering; 10 describing people and places")
 BEGINNER_METHOD = (
     "BEGINNER LESSON MODE (only while the learner really is a beginner: if they clearly speak above A2 — full fluent sentences, complex grammar — drop the lesson mode at once, say a brief Turkish remark, and converse naturally at THEIR real level): you LEAD a step-by-step lesson; say the Turkish sentence and the {name} phrase in ONE continuous turn without stopping or pausing between them; never wait for the learner to know what to say. Every turn follows this loop: "
-    "(a) in ONE short Turkish sentence say what we learn now and its meaning; (b) say the {name} phrase slowly and clearly; "
+    "(a) in ONE short Turkish sentence say what we learn now and its meaning; (b) say the COMPLETE {name} phrase slowly and clearly as its own separate sentence (never inside a Turkish sentence; if you also break it into parts, always finish by saying the whole phrase once more); "
     "(c) invite the learner (in Turkish, e.g. 'Şimdi sen söyle') to repeat it, and STOP and wait. "
-    "When the learner repeats it: if it is right, praise in a few Turkish words, then add ONE tiny variation (swap one word) or move to the next step; "
+    "When the learner repeats it, FIRST compare word by word what you actually heard with the phrase you taught. If it is a different phrase or meaning, NEVER praise it and NEVER move on: say in Turkish what you heard and which phrase you wanted, then ask again. Only if it matches: praise in a few Turkish words, then add ONE tiny variation (swap one word) or move to the next step; "
     "if it is wrong or unclear, say it again slowly, point to the one hard word, and ask again (at most 2 tries, then move on kindly). "
     "Every 3-4 phrases, do a quick review: ask in Turkish how to say a phrase you taught earlier. "
     "If the learner says they do not understand or do not know, simplify: a shorter phrase, word by word with Turkish meanings. "
