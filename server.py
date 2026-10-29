@@ -33,7 +33,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.10.30-v79.4"
+APP_VERSION = "2026.10.30-v79.5"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -2827,6 +2827,47 @@ def transcribe_forced(
             os.unlink(wav)
 
 
+_PAIR_NAMES = {"tr": "Turkish", "en": "English", "de": "German", "fr": "French", "es": "Spanish", "it": "Italian",
+               "ru": "Russian", "ar": "Arabic", "zh": "Chinese (Mandarin)", "ka": "Georgian", "id": "Indonesian"}
+
+
+def gemini_transcribe_pair(wav: str, a: str, b: str, err: list | None = None) -> tuple[str, str] | None:
+    """Gemini ses anlama: konuşma a mı b mi + o dilin kendi yazısıyla birebir döküm."""
+    import base64
+    try:
+        with open(wav, "rb") as f:
+            raw = f.read()
+        if len(raw) < 1500 or len(raw) > 6_000_000:
+            return None
+        na, nb = _PAIR_NAMES.get(a, a), _PAIR_NAMES.get(b, b)
+        prompt = (
+            f"This audio contains a person speaking, in EXACTLY one of two languages: {na} (code {a}) or {nb} (code {b}). "
+            "Decide which language is actually spoken from how it sounds - do not default to either one. "
+            "Transcribe exactly what was said, verbatim, in that language's own native writing system "
+            "(Georgian in Mkhedruli, Russian in Cyrillic, Arabic in Arabic script, Chinese in Chinese characters, others in Latin letters with correct diacritics). "
+            "Never translate, never romanize, never add comments. If there is no clear human speech, return empty text. "
+            f'Return ONLY JSON: {{"lang":"{a}" or "{b}","text":"<verbatim transcript>"}}'
+        )
+        body = {
+            "contents": [{"role": "user", "parts": [{"text": prompt}, {"inlineData": {"mimeType": "audio/wav", "data": base64.b64encode(raw).decode()}}]}],
+            "generationConfig": {"responseMimeType": "application/json", "temperature": 0, "maxOutputTokens": 600},
+        }
+        out = edu_tutor.ee._gemini_api_request(body, 600, timeout_sec=20)
+        if not out:
+            return None
+        parsed = edu_tutor.ee._parse_json_object(edu_tutor._strip_think(out)) or {}
+        lang = safe_str(parsed.get("lang")).strip().lower()[:5]
+        text = clean_stt_text(safe_str(parsed.get("text")))
+        if lang not in (a, b) or not text or is_hallucination(text) or not _script_matches_lang(text, lang):
+            return None
+        return text, lang
+    except Exception as e:  # noqa: BLE001
+        if err is not None:
+            err.append(repr(e)[:200])
+        return None
+
+
+
 def transcribe_pair(data: bytes, a: str, b: str, dbg: dict | None = None) -> tuple[str, str]:
     """Eller serbest: konuşulan dil a mı b mi? Whisper'ın dil kararı + her iki dilde kilitli STT paralel;
     yanlış dil kilitlenince çıkan çöp (komşu dilde uydurma) reddedilir. Türkçe'ye kayırma YOK."""
@@ -2834,6 +2875,13 @@ def transcribe_pair(data: bytes, a: str, b: str, dbg: dict | None = None) -> tup
     try:
         if not audio_has_speech(wav):
             raise ValueError("no speech")
+        _gerr: list = []
+        g = gemini_transcribe_pair(wav, a, b, _gerr)
+        if dbg is not None:
+            dbg["gem"] = g
+            dbg["gerr"] = _gerr
+        if g:
+            return g
         with ThreadPoolExecutor(max_workers=3) as pool:
             _aerr: list = []
             f_auto = pool.submit(lambda: _groq_stt_request(wav, lang_code=None, prompt="", model=None, verbose=True, err=_aerr))
