@@ -272,7 +272,9 @@ def llm_okunus_batch(texts: list[str], lang: str) -> list[str]:
         except Exception:
             pass
     user = "\n".join(f"{i + 1}. {t}" for i, t in enumerate(texts))
-    parsed, _ = _call_llm_simple(system, user)
+    parsed, _ = _call_llm(system, user, 400, require="okunus")  # Groq modelleri + 429 yönetimi + Gemini yedek
+    if not parsed:
+        parsed, _ = _call_llm_simple(system, user)
     arr = (parsed or {}).get("okunus")
     if isinstance(arr, str):
         arr = [arr]
