@@ -833,14 +833,15 @@
   }
 
   const SILENCE = new Uint8Array(3200); // 100 ms sessizlik @16 kHz
-  let micBusy = false;
+  let micBusy = false; let micBusyAt = 0;
 
   /** Bas: mikrofon zaten açık → anında kayıt. İlk kez → yalnızca izin iste, dinlemeye geçme. */
   async function liveHoldStart(btn, mode) {
+    if (micBusy && Date.now() - micBusyAt > 8000) micBusy = false; // takılı kalmış izin/açılış durumu
     if (L.talking || micBusy) return;
     LiveAudio.unlock();
     if (!LiveAudio.micReady()) {
-      micBusy = true;
+      micBusy = true; micBusyAt = Date.now();
       btn.classList.add('arming');
       let perm = 'unknown';
       try { perm = await LiveAudio.micPermission(); } catch { /* ignore */ }
@@ -872,7 +873,7 @@
     stopAudio();
     if (L.tutorMsg) { L.tutorMsg.pending = false; L.tutorMsg = null; }
     clearTimeout(L.turnTimer);
-    L.talking = true; L.mode = mode; L.heard = false;
+    L.talking = true; L.talkAt = Date.now(); L.mode = mode; L.heard = false;
     btn.classList.add('recording');
     setStatus(mode === 'help' ? 'Dinliyorum — Türkçe söyle' : `Dinliyorum — ${langOf(P.lang).tr} konuş`, true, true);
     L.userMsg = { role: 'user', text: '', mode, t: Date.now(), pending: true };
@@ -977,7 +978,10 @@
     const down = (e) => {
       e.preventDefault();
       btn._held = true;
-      if (useLive()) { void liveHoldStart(btn, mode); return; }
+      if (useLive()) {
+        if (L.talking && Date.now() - (L.talkAt || 0) > 800) void liveHoldEnd(btn); // önceki basış hiç bırakılmadıysa (kayıp touchend) onu bitir
+        void liveHoldStart(btn, mode); return;
+      }
       S.mode = mode; activeMicBtn = btn;
       if (mic) void mic.beginHold();
     };
@@ -1008,7 +1012,7 @@
       if (L.hiddenAt && Date.now() - L.hiddenAt > 4000) {
         // arka plandan dönüş: takılı kalan durumu temizle, bağlantıyı tazele
         if (L.tutorMsg || L.userMsg) void finishLiveTurn();
-        L.talking = false; S.busy = false;
+        L.talking = false; S.busy = false; micBusy = false;
         try { if (L.session) L.session.close(); } catch { /* ignore */ }
         L.session = null;
         idleStatus();

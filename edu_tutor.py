@@ -662,6 +662,8 @@ def annotate(lang: str, tutor_text: str, user_text: str = "", *, level: str = "A
     def do_check() -> dict | None:
         if mode == "help" or not user_text or len(user_text) < 2:
             return None
+        if not user_target:
+            return None  # Türkçe konuştu ("devam", "tamam"…): hedef dil kontrolü yapılmaz
         name = LANG_NAMES.get(lang, lang)
         system = (
             f"You are a strict but kind {name} teacher for a Turkish learner (level {level}). Check the learner sentence: "
@@ -693,15 +695,10 @@ def annotate(lang: str, tutor_text: str, user_text: str = "", *, level: str = "A
                 break
     if user_target and lang in ("ru", "ka"):
         vow = "аеёиоуыэюяАЕЁИОУЫЭЮЯ" if lang == "ru" else "აეიოუ"
-        for tok in re.findall(r"[^\W\d_]{3,}", user_target, re.U):
+        for tok in re.findall("[" + _SCRIPT_RNG[lang] + "]{3,}", user_target):
             if not any(ch in vow for ch in tok):
-                garbled = True
+                garbled = True  # ünlüsüz "kelime" = tanıma çöpü
                 break
-    rng = {"ru": "\u0400-\u04FF", "ka": "\u10A0-\u10FF", "ar": "\u0600-\u06FF", "zh": "\u4E00-\u9FFF"}.get(lang)
-    if user_target and rng:
-        letters = re.findall(r"[^\W\d_]", user_target, re.U)
-        if letters and sum(1 for c in letters if re.match("[" + rng + "]", c)) / len(letters) < 0.5:
-            garbled = True  # beklenen yazıda değil → yanlış tanıma
     if garbled:
         out["unclear"] = True
         ck = None
@@ -757,6 +754,7 @@ _TR_WORDS = re.compile(
     r"çünkü|yani|şöyle|doğru\w*|türkçe\w*|kelime\w*|anlam\w*|ile|gibi|ama|daha|sonra|şimdi|tekrar|sonuna|başına|"
     r"ekle\w*|ekliyoruz|burada|evet|hayır|çok|iyi|güzel|harika|aferin|bravo|dikkat|kural\w*|örne\w*|hatırla\w*|bak|"
     r"mesela|sadece|başına|ifade\w*|gerek\w*|şekl\w*|nasıl|neden|niye|mı|mü|yok|sona|gelir|gider|lazım|olmalı|olarak|oluyor|"
+    r"devam\w*|tamam|anla\w*|bilmiyorum|yardım\w*|peki|bekle|lütfen|teşekkür\w*|dur|"
     r"söylenir|denir|kullanılır|kullanılmaz|soru\w*|cevap\w*|dene|tekrarla|haydi|hadi|şimdiki|gelecek|çoğul|tekil|"
     r"artikel\w*|isim\w*|sıfat\w*|zamir\w*|eki|ekini|harf\w*|okunuş\w*|sesli|sessiz)\b", re.I)
 _TR_SUFFIX = re.compile(r"^\w{2,}(yor|yoruz|yorsun|yorum|mak|mek|ması|mesi|ları|leri|dır|dur|dür|tır|tur|tür|sınız|siniz|"
@@ -788,15 +786,19 @@ def clause_labels(text: str, lang: str) -> list[tuple[str, bool]]:
     """Metni [(parça, türkçe_mi)] olarak böl. Karışık cümlede ("Şimdi şunu söyle: I am fine.", "Önce I am. Sonra fine.")
     Türkçe giriş ile hedef dil ifadesi AYRI parçalar olur; hedef ifade bölünmez/yutulmaz."""
     out: list[tuple[str, bool]] = []
-    sents = [x.strip() for x in re.findall(r"[^.!?。！？؟]+[.!?。！？؟]*", text or "") if x.strip()]
+    text = re.sub(r"\.{2,}", "…", text or "")  # "..." cümle sonu sayılmasın ("Benim adım..." bölünmesin)
+    sents = [x.strip() for x in re.findall(r"[^.!?。！？؟]+[.!?。！？؟]*", text) if x.strip()]
     for snt in sents:
         for piece in [p for p in re.split(r"(?<=:)\s+", snt) if p.strip()]:
-            runs = _mixed_runs(piece, lang) if lang == "en" else None
+            runs = _mixed_runs(piece, lang) if (lang == "en" or lang in _SCRIPT_RNG) else None
             if runs:
                 out.extend(runs)
             else:
                 out.append((piece.strip(), _is_turkish_sentence(piece, lang)))
     return out
+
+
+_SCRIPT_RNG = {"ru": "\u0400-\u04FF", "ka": "\u10A0-\u10FF\u1C90-\u1CBF", "ar": "\u0600-\u06FF", "zh": "\u4E00-\u9FFF"}
 
 
 def _mixed_runs(piece: str, lang: str) -> list[tuple[str, bool]] | None:
@@ -806,7 +808,15 @@ def _mixed_runs(piece: str, lang: str) -> list[tuple[str, bool]] | None:
     labs: list[bool | None] = []
     for w in toks:
         c = re.sub(r"^\W+|\W+$", "", w)
-        if not c:
+        if lang in _SCRIPT_RNG:
+            # Latin olmayan hedef dil: yazı sistemi kesin ayırır (hedef harf → hedef dil, Latin → Türkçe)
+            if re.search("[" + _SCRIPT_RNG[lang] + "]", c):
+                labs.append(False)
+            elif re.search(r"[A-Za-zÇĞİÖŞÜçğıöşü]", c):
+                labs.append(True)
+            else:
+                labs.append(None)
+        elif not c:
             labs.append(None)
         elif re.search(r"[ğışİĞŞçöüÇÖÜ]", c) or _TR_WORDS.fullmatch(c) or _TR_SUFFIX.match(c):
             labs.append(True)
@@ -830,7 +840,8 @@ def _mixed_runs(piece: str, lang: str) -> list[tuple[str, bool]] | None:
             runs.append((" ".join(cur), bool(cl)))
             cur, cl = [w], lb
     runs.append((" ".join(cur), bool(cl)))
-    return runs
+    runs = [(re.sub(r"[\"“”«»]", "", t).strip(), is_tr) for t, is_tr in runs]
+    return [(t, is_tr) for t, is_tr in runs if t]
 
 
 def split_turkish(text: str, lang: str) -> tuple[list[str], list[str]]:

@@ -110,7 +110,11 @@
 
   // ------------------------------------------------------------- sıcak mikrofon
   const eng = { stream: null, ctx: null, src: null, node: null, mute: null, opening: null, taps: new Map(), seq: 0 };
-  function micReady() { return !!(eng.node && eng.stream && eng.stream.active); }
+  function micReady() {
+    // iOS: arama/Siri/uygulama değişimi sonrası iz 'muted' ya da bağlam kapanmış olabilir → hazır sayma, yeniden aç
+    return !!(eng.node && eng.stream && eng.stream.active && eng.ctx && eng.ctx.state !== 'closed'
+      && eng.stream.getAudioTracks().some((t) => t.readyState === 'live' && !t.muted));
+  }
 
   async function micPermission() {
     if (micReady()) return 'granted';
@@ -125,6 +129,7 @@
   function openMic() {
     if (micReady()) return Promise.resolve(eng);
     if (eng.opening) return eng.opening;
+    if (eng.stream || eng.node) closeMic(); // bayat/susmuş akışı temizle
     eng.opening = (async () => {
       setSession('play-and-record');
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -196,7 +201,8 @@
       this.active = true;
       await openMic();
       if (!this.active) return;
-      if (eng.ctx && eng.ctx.state !== 'running') eng.ctx.resume().catch(() => {});
+      if (eng.ctx && eng.ctx.state !== 'running') await Promise.race([eng.ctx.resume().catch(() => {}), new Promise((r) => setTimeout(r, 600))]);
+      if (!this.active) return;
       this.id = ++eng.seq;
       eng.taps.set(this.id, this);
       eng.node.port.postMessage({ cmd: 'on', id: this.id, preroll: this.preroll });
