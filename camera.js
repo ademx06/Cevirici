@@ -100,7 +100,7 @@
   });
 
   // ------------------------------------------------------------ canlı altyazı (Gemini Live: kare + ipucu → anında sesli çeviri)
-  const live = { on: false, session: null, player: null, gen: false, pending: false, timer: null, sig: null, sent: null, stable: 0, buf: '', lastSend: 0, lines: [] };
+  const live = { on: false, session: null, player: null, gen: false, pending: false, timer: null, sig: null, sent: null, stable: 0, buf: '', lastSend: 0, lines: [], count: 0 };
   const sigOf = () => {
     const c = document.createElement('canvas'); c.width = 24; c.height = 24;
     const x = c.getContext('2d'); x.drawImage(video, 0, 0, 24, 24);
@@ -118,10 +118,13 @@
   async function trigger() {
     const s = live.session; if (!s || !stream || !video.videoWidth) return;
     live.lastSend = Date.now(); live.sent = live.sig; live.pending = false;
+    // her ~18 çeviride oturumu yenile (bağlam şişmesin, gecikme artmasın)
+    if (live.count >= 18) { try { s.close(); } catch { /* ignore */ } live.count = 0; }
     try { if (!s.isOpen) await s.connect(); } catch { status('Bağlantı kurulamadı'); return; }
-    live.player.stop(); live.buf = ''; live.gen = true;
+    live.player.stop(); live.buf = ''; live.gen = true; live.count += 1;
     const url = grab(video, video.videoWidth, video.videoHeight, 768, 0.6);
-    s.sendVideo(url.split(',')[1]); s.sendText('[ÇEVİR]');
+    // kare ve ipucu AYNI turda → model kareyi görmeden cevap vermez
+    s.send({ clientContent: { turns: [{ role: 'user', parts: [{ inlineData: { mimeType: 'image/jpeg', data: url.split(',')[1] } }, { text: '[ÇEVİR]' }] }], turnComplete: true } });
     status('Çevriliyor…');
   }
   function liveFinish() {
