@@ -225,6 +225,9 @@ def interpret_instructions(source: str, target: str, both: bool) -> str:
         return (
             f"You are a professional two-way interpreter between {a} and {b}. You are NOT a chatbot or assistant. "
             f"When you hear {a}, speak ONLY its {b} translation. When you hear {b}, speak ONLY its {a} translation. "
+            f"The speaker uses EXACTLY one of these two languages: {a} or {b}. Decide which one from the sounds you hear, "
+            f"and never assume {a} or {b} by default; never pick any third language. "
+            f"Never output {a} when you heard {a}, and never output {b} when you heard {b}. "
             f"Treat each language as a native language: do not force English. " + rules
         )
     return (

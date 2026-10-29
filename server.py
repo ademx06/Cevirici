@@ -33,7 +33,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.10.30-v78.5"
+APP_VERSION = "2026.10.30-v79.0"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -3735,11 +3735,16 @@ class Handler(SimpleHTTPRequestHandler):
             return self.send_json_error(400, "Ses okunamadı")
         if len(data) < 2000 or len(data) > 6_000_000:
             return self.send_json_error(400, "Kayıt çok kısa")
+        pair = p.get("pair")
         try:
+            if isinstance(pair, list) and len(pair) == 2 and all(x in STT_LANG for x in pair) and pair[0] != pair[1]:
+                # Karşılıklı (eller serbest): iki dilden hangisi konuşuldu → metin + dil
+                text, from_lang = transcribe_dual(data, pair[0], pair[1], None)
+                return self._send_json({"ok": True, "text": text, "lang": from_lang})
             text, _ = transcribe_forced(data, lang)
         except Exception as e:
             return self.send_json_error(422, self.api_error_message(e))
-        self._send_json({"ok": True, "text": text})
+        self._send_json({"ok": True, "text": text, "lang": lang})
 
     def handle_camera_translate(self):
         """Kamera/fotoğraf: görseldeki yazıyı oku + istenen dile çevir (Gemini görsel)."""

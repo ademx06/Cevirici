@@ -452,16 +452,19 @@
     let o = 44; chunks.forEach((c) => { buf.set(c, o); o += c.length; });
     return b64FromBytes(buf);
   }
-  async function sttFallback(lang, chunks) {
+  async function sttFallback(lang, chunks, pair) {
+    const r = await sttFull(lang, chunks, pair); return r.text;
+  }
+  async function sttFull(lang, chunks, pair) {
     try {
       const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 9000);
-      const r = await fetch('/api/edu/stt', { method: 'POST', signal: ctrl.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lang, audio: wavB64(chunks) }) });
+      const r = await fetch('/api/edu/stt', { method: 'POST', signal: ctrl.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lang, pair: pair || undefined, audio: wavB64(chunks) }) });
       clearTimeout(to);
-      const j = await r.json(); return r.ok && j.text ? String(j.text) : '';
-    } catch { return ''; }
+      const j = await r.json(); return r.ok && j.text ? { text: String(j.text), lang: String(j.lang || lang || '') } : { text: '', lang: '' };
+    } catch { return { text: '', lang: '' }; }
   }
 
-  global.LiveAudio = { wavB64, sttFallback, unlock, audioCtx, micReady, micPermission, openMic, closeMic, warmIfGranted, Mic, Player, Session, Turn, b64FromBytes, bytesFromB64 };
+  global.LiveAudio = { wavB64, sttFallback, sttFull, unlock, audioCtx, micReady, micPermission, openMic, closeMic, warmIfGranted, Mic, Player, Session, Turn, b64FromBytes, bytesFromB64 };
   if (typeof document !== 'undefined' && navigator.mediaDevices) {
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', warmIfGranted);
     else warmIfGranted();

@@ -79,16 +79,35 @@
   const FOREIGN = /[\u0590-\u05FF\u0900-\u0E7F\u1000-\u109F\u3040-\u30FF\uAC00-\uD7AF]/; // Latin dışı, çiftte hiç olmayan alfabeler (Hintçe, Tayca…)
   const hfBuf = []; // el serbest: {t, u8} son ~40 sn gönderilen ses
   function hfPush(u8) { const n = performance.now(); hfBuf.push({ t: n, u8 }); while (hfBuf.length && n - hfBuf[0].t > 40000) hfBuf.shift(); }
+  // Her konuşmanın kaydı sunucuda (Whisper) yazıya dökülür: yazı HER ZAMAN konuşulan dilde ve konuşulan alfabede çıkar,
+  // eller serbestte konuşulan dil (iki dilden hangisi) kayıttan bulunur → etiket/yön doğru olur.
   async function fixOrig(b, chunks) {
     try {
       if (!chunks || !chunks.length) return;
       const pair = [prefs.my, prefs.other];
-      let src = '';
-      if (b._single) { const s = sourceOf(b.dir); if (SCRIPT[s] && !SCRIPT[s].test(b.orig)) src = s; }
-      else if (b.trans.trim()) src = pair.find((x) => SCRIPT[x] && !SCRIPT[x].test(b.orig) && !SCRIPT[x].test(b.trans)) || '';
-      if (!src) return;
-      const tx = await LiveAudio.sttFallback(src, chunks);
-      if (tx && SCRIPT[src].test(tx)) { b.orig = tx.replace(/\s+/g, ' '); lastSig = ''; renderSoon(); }
+      const both = !b._single;
+      const src0 = both ? '' : sourceOf(b.dir);
+      const r = await LiveAudio.sttFull(src0, chunks, both ? pair : null);
+      const tx = String(r.text || '').replace(/\s+/g, ' ').trim();
+      const from = both ? r.lang : src0;
+      if (!tx || !pair.includes(from)) return;
+      if (SCRIPT[from] && !SCRIPT[from].test(tx)) return;
+      if (FOREIGN.test(tx) && !pair.includes('ar')) return;
+      b.orig = tx; b._fixed = true;
+      if (both) {
+        const dir = from === prefs.my ? 'toOther' : 'toMine';
+        if (dir !== b.dir) { b.dir = dir; b.from = sourceOf(dir); b.to = targetOf(dir); }
+        // model yanlış dile çevirdiyse (çeviri hedef dilde değil kaynak dilde kaldıysa) çeviriyi düzelt
+        const tr = (b.trans || '').trim();
+        const wrong = tr && ((SCRIPT[b.from] && SCRIPT[b.from].test(tr) && !(SCRIPT[b.to] && SCRIPT[b.to].test(tr)))
+          || (score(tr, b.from) >= 2 && score(tr, b.from) > score(tr, b.to)));
+        if (wrong || !tr) {
+          const q = await fetch('/api/translate?' + new URLSearchParams({ q: tx.slice(0, 500), from: b.from, to: b.to, my: b.from, other: b.to }));
+          const d = await q.json();
+          if (d && d.text) { b.trans = d.text; b.okunus = ''; void loadPhonetic(b, false); if (wrong) void playTts(b.trans, b.to); }
+        }
+      }
+      lastSig = ''; renderSoon();
     } catch { /* ignore */ }
   }
 
@@ -170,6 +189,7 @@
     return b;
   }
   function retarget(b) {
+    if (b._fixed) return;
     const dir = guessDir(b.orig, b.trans);
     if (dir !== b.dir) { b.dir = dir; b.from = sourceOf(dir); b.to = targetOf(dir); lastSig = ''; }
   }
@@ -218,7 +238,7 @@
         if (d && d.text) { b.trans = d.text; lastSig = ''; renderSoon(); }
       } catch { /* ignore */ }
     }
-    if (b.orig.trim() || b.trans.trim()) {
+    if (b.orig.trim() || b.trans.trim() || hasAudio) {
       const chunks = b._pcm && b._pcm.length ? b._pcm : hfBuf.filter((x) => b._pt && x.t >= b._pt - 2500).map((x) => x.u8);
       void fixOrig(b, chunks);
     }
