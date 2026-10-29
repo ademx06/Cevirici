@@ -638,8 +638,11 @@ def annotate(lang: str, tutor_text: str, user_text: str = "", *, level: str = "A
         if lang in PINYIN_LANGS:
             return llm_okunus(text, lang)
         if lang in LLM_OKUNUS:
-            got = llm_okunus_batch([text], lang)[0]
-            return got if _okunus_ok(got, text, lang) else (ok.okunus(text, lang) if lang == "en" else "")
+            for _try in range(2):  # model bazen boş/uygunsuz döner → bir kez daha dene
+                got = llm_okunus_batch([text], lang)[0]
+                if got and _okunus_ok(got, text, lang):
+                    return got[:1].upper() + got[1:]
+            return ok.okunus(text, lang) if lang == "en" else ""
         return ok.okunus(text, lang)
 
     def do_okunus() -> str:
