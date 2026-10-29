@@ -33,7 +33,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.10.29-v77.15"
+APP_VERSION = "2026.10.29-v78.0"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -3194,6 +3194,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self.handle_live_session()
         if parsed.path == "/api/edu/annotate":
             return self.handle_edu_annotate()
+        if parsed.path == "/api/camera/translate":
+            return self.handle_camera_translate()
         if parsed.path == "/api/education/session-end":
             return self.handle_education_session_end(parse_qs(parsed.query))
         if parsed.path == "/api/builder/word":
@@ -3712,12 +3714,54 @@ class Handler(SimpleHTTPRequestHandler):
             vad=bool(p.get("vad")),
             source=safe_str(p.get("source") or "tr")[:8],
             both=bool(p.get("both")),
+            step=int(p.get("step") or 0) if str(p.get("step") or "0").isdigit() else 0,
             history=[{"role": "user" if (h or {}).get("role") == "user" else "model", "text": safe_str((h or {}).get("text"))[:300]}
                      for h in (p.get("history") if isinstance(p.get("history"), list) else [])[-12:] if isinstance(h, dict)],
         )
         if not res.get("ok") and p.get("model"):
             edu_live.mark_model_dead(safe_str(p.get("model")))
         self._send_json(res, 200 if res.get("ok") else 503)
+
+    def handle_camera_translate(self):
+        """Kamera/fotoğraf: görseldeki yazıyı oku + istenen dile çevir (Gemini görsel)."""
+        p = self._read_json_body()
+        img = safe_str(p.get("image"))
+        target = safe_str(p.get("target") or "tr").strip().lower()[:5]
+        if "," in img[:120]:
+            img = img.split(",", 1)[1]
+        if len(img) < 200 or len(img) > 7_000_000:
+            return self.send_json_error(400, "Resim okunamadı — tekrar dene")
+        names = {"tr": "Turkish", "en": "English", "de": "German", "fr": "French", "es": "Spanish", "it": "Italian",
+                 "ru": "Russian", "ar": "Arabic", "zh": "Simplified Chinese", "ka": "Georgian", "id": "Indonesian"}
+        tname = names.get(target, "Turkish")
+        prompt = (
+            "You are an OCR and translation engine for a camera app. Read ALL clearly legible text in the image "
+            "(signs, menus, labels, documents, screens, handwriting) in natural reading order, in any language or script. "
+            f"Translate each text block faithfully into {tname} (keep names, numbers, prices and units exact). "
+            "If a block is already in the target language, copy it as the translation. "
+            "Do NOT describe the image, do NOT invent or guess unreadable text, ignore tiny or blurry text. "
+            'Return ONLY JSON: {"blocks":[{"text":"<original>","translation":"<translation>"}]} with at most 25 blocks; '
+            'if there is no legible text return {"blocks":[]}.'
+        )
+        body = {
+            "contents": [{"role": "user", "parts": [{"text": prompt}, {"inlineData": {"mimeType": "image/jpeg", "data": img}}]}],
+            "generationConfig": {"responseMimeType": "application/json", "temperature": 0.1, "maxOutputTokens": 2000},
+        }
+        try:
+            raw = edu_tutor.ee._gemini_api_request(body, 2000, timeout_sec=22)
+        except Exception as e:
+            return self.send_json_error(500, f"Çeviri yapılamadı ({type(e).__name__})")
+        if not raw:
+            return self.send_json_error(503, "Çeviri servisi şu an yanıt vermiyor — birazdan tekrar dene")
+        parsed = edu_tutor.ee._parse_json_object(edu_tutor._strip_think(raw)) or {}
+        blocks = []
+        for b in (parsed.get("blocks") if isinstance(parsed.get("blocks"), list) else [])[:25]:
+            if not isinstance(b, dict):
+                continue
+            t, tr = safe_str(b.get("text")).strip()[:600], safe_str(b.get("translation")).strip()[:900]
+            if t and tr:
+                blocks.append({"text": t, "translation": tr})
+        self._send_json({"ok": True, "blocks": blocks, "target": target})
 
     def handle_edu_annotate(self):
         p = self._read_json_body()

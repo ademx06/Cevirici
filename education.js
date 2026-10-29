@@ -62,7 +62,7 @@
     const p = {
       lang: 'en', levels: {}, autoLevel: true, scenario: '', slow: false,
       showOkunus: true, showTr: true, autoSpeak: true, accents: {}, goalMin: 10,
-      days: {}, streak: 0, lastDay: '', ema: {}, sinceChange: {}, recent: {},
+      days: {}, streak: 0, lastDay: '', ema: {}, sinceChange: {}, recent: {}, prog: {},
       words: {}, mistakes: {}, turns: 0, correct: 0,
     };
     // eski sürümden seviye/dil taşı
@@ -75,7 +75,7 @@
     return p;
   }
   const P = Object.assign(defaultProfile(), safeGet(PROFILE_KEY, {}));
-  ['levels', 'accents', 'days', 'ema', 'sinceChange', 'recent', 'words', 'mistakes'].forEach((k) => {
+  ['levels', 'accents', 'days', 'ema', 'sinceChange', 'recent', 'words', 'mistakes', 'prog'].forEach((k) => {
     if (!P[k] || typeof P[k] !== 'object' || Array.isArray(P[k])) P[k] = {};
   });
   if (!LANGS.some((l) => l.code === P.lang)) P.lang = 'en';
@@ -655,8 +655,12 @@
   const L = { session: null, player: null, mic: null, pendingChunks: [], talking: false, userMsg: null, tutorMsg: null,
     started: false, failed: 0, turnTimer: null, mode: 'speak', sessionKey: '' };
 
+  // ders programı: seviye başına doğru söylenen her 3 cümlede bir sonraki adıma geçilir (telefonda saklanır)
+  const progKey = () => `${P.lang}|${level()}`;
+  const lessonStep = () => Math.floor((Number(P.prog[progKey()]) || 0) / 3);
+  function bumpProg() { const k = progKey(); P.prog[k] = (Number(P.prog[k]) || 0) + 1; }
   function liveBody() {
-    return { kind: 'tutor', vad: TUTOR_VAD, lang: P.lang, level: level(), scenario: P.scenario || null, weak: weakForApi(),
+    return { kind: 'tutor', vad: TUTOR_VAD, lang: P.lang, level: level(), step: lessonStep(), scenario: P.scenario || null, weak: weakForApi(),
       history: S.msgs.filter((m) => !m.pending).slice(-12).map((m) => (m.role === 'user'
         ? { role: 'user', text: m.text || '' }
         : { role: 'model', text: m.reply || (m.examples && m.examples[0] && m.examples[0].text) || '' })).filter((h) => h.text) };
@@ -846,7 +850,7 @@
         if (a && tutor._seq === seq) { tutor.fix = a.fix || null; tutor.words = a.words || []; tutor.checked = !!a.checked; tutor.unclear = !!a.unclear; }
         if (a && tutor.mode === 'speak' && user && user.text.trim() && !tutor.unclear) {
           P.turns = (P.turns || 0) + 1;
-          if (!tutor.fix) P.correct = (P.correct || 0) + 1;
+          if (!tutor.fix) { P.correct = (P.correct || 0) + 1; bumpProg(); }
           adaptLevel({ fix: tutor.fix, user_level: a.user_level });
           bumpDay(!tutor.fix);
         } else {

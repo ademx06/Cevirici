@@ -545,13 +545,6 @@ input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--accent);
 .fix .t-btn { background: var(--surface); }
 .fix .t-btn.playing, .t-btn.playing { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .ok-badge.is-unclear { background: var(--help-soft); color: var(--help-ink); }
-.chat-list { margin: 12px 0; display: grid; gap: 8px; }
-.chat-list[hidden] { display: none; }
-.chat-list-h { font-weight: 700; font-size: 13px; color: var(--ink-2); }
-.chat-item { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px; background: var(--surface-2); }
-.chat-info { flex: 1; min-width: 0; display: grid; }
-.chat-info small { color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chat-item .btn { padding: 6px 10px; min-height: 0; }
 .ok-badge { display: inline-flex; align-items: center; gap: 6px; margin-bottom: 10px; padding: 4px 10px; border-radius: 999px; background: var(--ok-soft); color: var(--ok); font-size: 12px; font-weight: 800; }
 .help-note { margin: 0 0 12px; padding: 10px 12px; border-radius: 12px; background: var(--help-soft); color: var(--help-ink); font-size: 14px; }
 .examples { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
@@ -886,3 +879,26 @@ body.shell .edu-meta, body.shell .edu-scenario-row { flex-shrink: 0; }
 .talk-toggle .mic-icon { isolation: isolate; }
 .talk-ring { position: absolute; inset: -7px; border-radius: 50%; background: rgba(255,255,255,.2); z-index: -1; transition: transform .08s linear; }
 .talk-toggle.recording { background: linear-gradient(140deg, #D84A3A, #B5321F); }
+.chat-list { margin: 12px 0; display: grid; gap: 8px; }
+.chat-list[hidden] { display: none; }
+.chat-list-h { font-weight: 700; font-size: 13px; color: var(--ink-2); }
+.chat-item { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px; background: var(--surface-2); }
+.chat-info { flex: 1; min-width: 0; display: grid; }
+.chat-info small { color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-item .btn { padding: 6px 10px; min-height: 0; }
+
+/* kamera çeviri */
+.tile-teal { background: #DDF1EE; } .tile-teal .tile-ic { background: linear-gradient(140deg, #2FB5A5, #1B8579); }
+.tile-wide { flex-direction: row; min-height: 64px; margin-top: 10px; gap: 12px; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .tile-teal { background: #12302C; } }
+.cam-box { position: relative; background: #000; border-radius: 16px; overflow: hidden; margin: 10px 0; aspect-ratio: 4 / 3; }
+.cam-box video, .cam-box img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cam-msg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 16px; color: #fff; background: rgba(0,0,0,.45); font-size: 14px; }
+.cam-msg[hidden] { display: none; }
+.cam-bar { display: flex; gap: 8px; flex-wrap: wrap; }
+.cam-bar .btn { flex: 1 1 auto; text-align: center; cursor: pointer; }
+.cam-out { display: grid; gap: 8px; margin: 10px 0 24px; }
+.cam-card { border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; background: var(--surface-2); }
+.cam-src { color: var(--ink-3); font-size: 13px; margin-bottom: 4px; word-break: break-word; }
+.cam-tr { font-size: 17px; font-weight: 600; word-break: break-word; }
+.cam-empty { color: var(--ink-3); text-align: center; padding: 12px; }

@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#F4F1EA" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#121311" media="(prefers-color-scheme: dark)">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="manifest" href="manifest.json">
+  <title>Kamera Çeviri — Sesli Çevirmen</title>
+  <link rel="stylesheet" href="styles.css?v=117">
+</head>
+<body class="shell">
+  <div class="app">
+    <header class="header">
+      <div class="header-left">
+        <a href="/" class="back-btn" aria-label="Ana menü">←</a>
+        <div>
+          <h1>Kamera</h1>
+          <p class="tagline">Yazıya tut, anında çevir</p>
+        </div>
+      </div>
+    </header>
+
+    <section class="lang-card">
+      <div class="lang-field" style="grid-column:1/-1">
+        <label for="camTarget">Şu dile çevir</label>
+        <select id="camTarget"></select>
+      </div>
+    </section>
+
+    <div class="cam-box">
+      <video id="camVideo" playsinline muted autoplay></video>
+      <img id="camShot" alt="" hidden>
+      <canvas id="camCanvas" hidden></canvas>
+      <div id="camMsg" class="cam-msg">Kamera açılıyor…</div>
+    </div>
+
+    <div class="cam-bar">
+      <button id="camSnap" class="btn" type="button">📷 Çevir</button>
+      <button id="camLive" class="btn" type="button" aria-pressed="false">Canlı: kapalı</button>
+      <label class="btn cam-file">Fotoğraf seç<input id="camFile" type="file" accept="image/*" hidden></label>
+    </div>
+
+    <div id="camStatus" class="status-bar"><span class="status-dot"></span><span id="camStatusText">Hazır</span></div>
+    <main id="camOut" class="cam-out"></main>
+  </div>
+  <script src="api-client.js?v=7"></script>
+  <script src="keepalive.js?v=2"></script>
+  <script src="camera.js?v=1"></script>
+</body>
+</html>

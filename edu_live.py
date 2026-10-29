@@ -39,11 +39,62 @@ LEVEL_STYLE = {
     "C2": "Speak fully natively, sophisticated and nuanced.",
 }
 
-A1_LADDER = ("1 hello/goodbye; 2 'my name is…' and 'what is your name?'; 3 'how are you?' and 'I am fine, thank you'; "
-             "4 'I am from Turkey' and 'where are you from?'; 5 numbers 1-10; 6 please, thank you, sorry, yes, no; "
-             "7 'I want/I would like…' with food and drink; 8 family: 'this is my…'; 9 'how much is it?'; 10 'where is…?'")
-A2_LADDER = ("1 daily routine; 2 past events ('yesterday I…'); 3 plans ('tomorrow I will…'); 4 shopping and prices; "
-             "5 travel and directions; 6 weather and seasons; 7 jobs and hobbies; 8 health and feelings; 9 restaurant ordering; 10 describing people and places")
+LADDERS = {
+    "A1": [
+        "hello / goodbye / good morning", "'my name is…' and 'what is your name?'", "'how are you?' and 'I am fine, thank you'",
+        "'I am from Turkey' and 'where are you from?'", "numbers 1-10 and 'I am … years old'", "please, thank you, sorry, yes, no, 'I do not understand'",
+        "'I want / I would like…' + food and drink", "'I like… / I do not like…'", "family: 'this is my…'", "'I have…' (a car, a brother, a dog)",
+        "'how much is it?' and numbers up to 100", "'where is…?' (toilet, station, hotel)", "days of the week and 'today / tomorrow'",
+        "colours and 'it is big / small / good'", "mini dialogue: ordering a coffee",
+    ],
+    "A2": [
+        "daily routine (I wake up, I work, I go home)", "past events: 'yesterday I…'", "plans: 'tomorrow I will… / I am going to…'",
+        "shopping, sizes and prices", "travel, tickets and directions", "weather and seasons", "jobs and hobbies", "health and feelings: 'I have a headache'",
+        "restaurant: ordering and asking for the bill", "describing people and places", "comparing: bigger, better, the best", "can / must / want to: abilities and rules",
+    ],
+    "B1": [
+        "talking about your life story with past tenses and time words", "experiences: 'have you ever…?' (perfect tenses)", "giving reasons: because, so, although",
+        "future plans and predictions", "advice and obligations: should, must, have to", "comparing and describing in detail",
+        "conditionals (real): 'if it rains, I will…'", "opinions: 'I think… / in my opinion…', agreeing and disagreeing", "telling a story in order (first, then, finally)",
+        "work, study and technology topics", "travel problems and complaints (polite requests)", "describing a process or a habit",
+    ],
+    "B2": [
+        "tenses in contrast: narrating past events with background and sequence", "hypothetical situations: 'if I were… I would…'", "arguing a point: for and against, concession",
+        "reported speech: 'he said that…'", "passive voice and describing processes", "news, society and environment: discussing issues",
+        "idioms and collocations for everyday life", "formal vs informal register: emails and phone calls", "regrets and wishes about the past",
+        "summarising an article or a film", "negotiating and persuading", "abstract topics: success, happiness, culture",
+    ],
+    "C1": [
+        "developing a long, well-structured argument", "nuance: hedging and softening ('it seems that…', 'I would tend to say…')", "advanced connectors and discourse markers",
+        "idiomatic and figurative language", "debating: counter-arguments and rebuttals", "summarising and paraphrasing complex ideas",
+        "register shifts: academic, professional, colloquial", "humour, irony and implication", "speculating about the past and present with precision", "storytelling with rhetorical effect",
+    ],
+    "C2": [
+        "precise, nuanced expression of subtle differences in meaning", "rhetoric, emphasis and inversion for effect", "rare idioms, proverbs and cultural references",
+        "abstract and philosophical discussion", "paraphrasing and re-registering the same idea three ways", "irony, understatement and wordplay",
+        "persuasive speech and structured improvisation", "native-like fluency: fillers, reformulation, ellipsis", "critical analysis of a text or an argument", "dialect, slang and regional variation (explained)",
+    ],
+}
+LANG_NOTES = {
+    "de": "GENDER: always teach every noun WITH its article (der/die/das) and say it that way.",
+    "fr": "GENDER: always teach every noun WITH its article (le/la/un/une).",
+    "es": "GENDER: teach nouns with their article (el/la) so the learner hears the gender.",
+    "it": "GENDER: teach nouns with their article (il/la/un/una) so the learner hears the gender.",
+    "ru": "Pronounce with correct stress; teach short whole phrases; Cyrillic is shown to the learner with a Turkish reading.",
+    "ar": "Use clear Modern Standard Arabic, fully vowelled in your pronunciation, simple and slow at A1-A2.",
+    "zh": "Say each phrase slowly with clear tones; teach whole phrases, never single characters out of context.",
+    "ka": "Say each phrase slowly with clear Georgian pronunciation (ejective consonants); teach whole phrases.",
+    "id": "Indonesian has no verb conjugation: teach simple patterns and affixes gradually.",
+    "en": "",
+}
+
+
+def _step(level: str, step: int) -> tuple[int, int, str]:
+    lad = LADDERS.get(level) or LADDERS["A1"]
+    i = max(0, int(step or 0)) % len(lad)
+    return i + 1, len(lad), lad[i]
+
+
 BEGINNER_METHOD = (
     "BEGINNER LESSON MODE (only while the learner really is a beginner: if they clearly speak above A2 — full fluent sentences, complex grammar — drop the lesson mode at once, say a brief Turkish remark, and converse naturally at THEIR real level): you LEAD a step-by-step lesson; say the Turkish sentence and the {name} phrase in ONE continuous turn without stopping or pausing between them; never wait for the learner to know what to say. Every turn follows this loop: "
     "(a) in ONE short Turkish sentence say what we learn now and its meaning; (b) say the COMPLETE {name} phrase slowly and clearly as its own separate sentence (never inside a Turkish sentence; if you also break it into parts, always finish by saying the whole phrase once more); "
@@ -52,24 +103,37 @@ BEGINNER_METHOD = (
     "if it is wrong or unclear, say it again slowly, point to the one hard word, and ask again (at most 2 tries, then move on kindly). "
     "Every 3-4 phrases, do a quick review: ask in Turkish how to say a phrase you taught earlier. "
     "If the learner says they do not understand or do not know, simplify: a shorter phrase, word by word with Turkish meanings. "
-    "LESSON LADDER (follow in order, continue from the last unfinished step, never restart): {ladder}. "
+    "BUILD TURN: every second phrase, do a BUILD turn: give a sentence frame with ONE new word (e.g. the frame you just taught + a new noun) and ask the learner to make their OWN new sentence with it; teach words only inside phrases, at most 2 new words per turn. "
+    "LESSON LADDER (follow in order, never restart; the app tracks progress): {ladder}. CURRENT STEP: {cur}. "
+)
+ADV_METHOD = (
+    "CEFR COURSE ({level}): you LEAD a structured course, not random chat. Current focus (step {n} of {m}): {focus}. "
+    "Every turn: (1) react in ONE short sentence to what the learner said; (2) teach or elicit ONE item of the focus (a structure, a connector or 2-3 useful words/collocations) "
+    "- say it in {name} first, add its Turkish meaning in a few Turkish words only if the learner struggles; "
+    "(3) ask ONE question that makes the learner PRODUCE that item in a full sentence (B1: 1-2 sentences; B2: 2-3 sentences with a reason; C1: a developed argument; C2: a precise, nuanced answer). "
+    "Never accept one-word answers: ask for a full sentence. When the learner has used the item correctly twice, say briefly that you move on and bring in the next focus naturally; "
+    "re-use earlier items so they stick. If the learner is clearly above this level, raise the complexity at once."
 )
 _DEAD_MODELS: dict[str, float] = {}
 _KEY_COOLDOWN: dict[str, float] = {}
 
 
 def tutor_instructions(lang: str, level: str, scenario: str | None = None, weak: list[str] | None = None,
-                       history: list[dict] | None = None) -> str:
+                       history: list[dict] | None = None, step: int = 0) -> str:
     name = LANG_NAMES.get(lang, "English")
     level = level if level in LEVEL_STYLE else "A1"
     beginner = level in ("A1", "A2") and not scenario
+    sn, sm, sf = _step(level, step)
     parts = [
         f"You are a warm, encouraging {name} conversation tutor talking by voice with a Turkish native speaker.",
         f"Learner level: CEFR {level}. {LEVEL_STYLE[level]}",
         (f"You are TEACHING a learner who may know ZERO {name}. Use Turkish for short explanations and {name} for the phrases being taught."
          if beginner else f"Speak {name} only, except very short Turkish explanations when the learner needs help."),
         "Keep every reply SHORT (max 3 sentences) so the dialogue flows, but make every turn TEACH something:",
-        (BEGINNER_METHOD.format(name=name, ladder=(A1_LADDER if level == "A1" else A2_LADDER)) if beginner else "") +
+        (BEGINNER_METHOD.format(name=name, ladder="; ".join(f"{k + 1} {v}" for k, v in enumerate(LADDERS[level])), cur=f"step {sn} of {sm}: {sf}") if beginner else "") +
+        ("" if beginner or scenario else ADV_METHOD.format(name=name, level=level, n=sn, m=sm, focus=sf) + " ") +
+        ("" if beginner or not scenario else (f"Keep your own lines at CEFR {level}; make the learner answer in full sentences (not single words); "
+                                             f"whenever natural, steer the role-play toward this course focus: {sf}. ")) +
         ("" if beginner else (f"TEACHING METHOD: (1) react briefly to what the learner said; (2) when it fits, introduce ONE useful new {name} word or "
         "phrase from your own sentence and give its Turkish meaning in a few Turkish words; (3) end with ONE easy question or a "
         "small task the learner can answer with the new phrase (but when you are correcting a mistake, follow the CORRECTION RULE instead and ask no new question). Vary the tasks (answer a question, say it another way, "
@@ -90,7 +154,8 @@ def tutor_instructions(lang: str, level: str, scenario: str | None = None, weak:
         "Do not correct pronunciation accents or tiny slips that don't change grammar.",
         f"If the learner speaks TURKISH, they need help: tell them in one short Turkish sentence how to say it, then say the {name} "
         f"sentence clearly, say it once more slowly, and invite them (in {name}) to repeat it.",
-        "Never read out emojis, lists or symbols. Never mention that you are an AI model.",
+        "Never read out emojis, lists or symbols. Never mention that you are an AI model."
+        + ((" " + LANG_NOTES.get(lang, "")) if LANG_NOTES.get(lang) else ""),
         f"PRONUNCIATION: speak every Turkish sentence with native Turkish pronunciation and every {name} sentence with native "
         f"{name} pronunciation — never read Turkish with a foreign accent or {name} with a Turkish accent.",
     ]
@@ -111,14 +176,14 @@ def tutor_instructions(lang: str, level: str, scenario: str | None = None, weak:
                      + "\n".join(lines))
         parts.append(
             ("When you receive the text '[BAŞLA]', welcome the learner back in ONE short Turkish sentence, quickly review the last phrase "
-             "you taught (ask them to say it), then continue the lesson ladder."
+             "you taught (ask them to say it), then continue the lesson at the CURRENT STEP of the ladder."
              if beginner else
              f"When you receive the text '[BAŞLA]', welcome the learner back in {name} in one short sentence and "
              "continue from where you left off with one question."))
     else:
         parts.append(
             ("When you receive the text '[BAŞLA]', greet the learner warmly in ONE short Turkish sentence, say you will teach from the very "
-             "beginning step by step, then teach the first phrase of the lesson ladder and ask them to repeat it."
+             "beginning step by step, then teach the first phrase of the CURRENT STEP of the lesson ladder and ask them to repeat it."
              if beginner else
              f"When you receive the text '[BAŞLA]', greet the learner warmly in {name} in one short sentence and ask one easy question.")
         )
@@ -126,14 +191,14 @@ def tutor_instructions(lang: str, level: str, scenario: str | None = None, weak:
 
 
 def tutor_setup(model: str, lang: str, level: str, scenario: str | None, weak: list[str] | None, voice: str = "",
-                vad: bool = False, history: list[dict] | None = None) -> dict:
+                vad: bool = False, history: list[dict] | None = None, step: int = 0) -> dict:
     gen: dict = {"responseModalities": ["AUDIO"], "temperature": 0.7}
     if voice:
         gen["speechConfig"] = {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice}}}
     return {
         "model": f"models/{model}",
         "generationConfig": gen,
-        "systemInstruction": {"parts": [{"text": tutor_instructions(lang, level, scenario, weak, history)}]},
+        "systemInstruction": {"parts": [{"text": tutor_instructions(lang, level, scenario, weak, history, step)}]},
         # vad=True: ses yalnızca basılıyken gönderilir, Google konuşmayı kendisi algılar → yazı konuşurken akar;
         #           bırakınca audioStreamEnd ile cevap hemen başlar. vad=False: activityStart/End elle.
         "realtimeInputConfig": ({"automaticActivityDetection": {
@@ -255,7 +320,7 @@ def create_token(setup: dict, minutes: int = 30) -> dict:
 def live_session(kind: str, *, lang: str = "en", level: str = "A1", scenario: str | None = None,
                  weak: list[str] | None = None, target: str = "en", voice: str = "", model: str = "",
                  variant: int = 0, vad: bool = False, source: str = "tr", both: bool = False,
-                 history: list[dict] | None = None) -> dict:
+                 history: list[dict] | None = None, step: int = 0) -> dict:
     """Jeton + kurulum mesajı + WebSocket adresi (istemci doğrudan Google'a bağlanır)."""
     if kind == "translate":
         models = [model] if model else TRANSLATE_MODELS
@@ -265,7 +330,7 @@ def live_session(kind: str, *, lang: str = "en", level: str = "A1", scenario: st
         build = lambda m: interpret_setup(m, source, target, both, vad)  # noqa: E731
     else:
         models = [model] if model else TUTOR_MODELS
-        build = lambda m: tutor_setup(m, lang, level, scenario, weak, voice, vad, history)  # noqa: E731
+        build = lambda m: tutor_setup(m, lang, level, scenario, weak, voice, vad, history, step)  # noqa: E731
     models = [m for m in models if _DEAD_MODELS.get(m, 0) < time.time()] or models
     m = models[0]
     setup = build(m)
