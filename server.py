@@ -33,7 +33,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.10.30-v79.2"
+APP_VERSION = "2026.10.30-v79.3"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -1506,6 +1506,7 @@ def _groq_stt_request(
     timeout_sec: int = 18,
     model: str | None = None,
     verbose: bool = False,
+    err: list | None = None,
 ) -> tuple[str, str, float] | None:
     from education_engine import groq_api_key_valid
 
@@ -1574,7 +1575,9 @@ def _groq_stt_request(
                     break
             detected = detected or "en"
         return text, detected, score_text(text, detected) + 52
-    except Exception:
+    except Exception as _e:
+        if err is not None:
+            err.append(repr(_e)[:300])
         return None
 
 
@@ -2825,7 +2828,8 @@ def transcribe_pair(data: bytes, a: str, b: str, dbg: dict | None = None) -> tup
         if not audio_has_speech(wav):
             raise ValueError("no speech")
         with ThreadPoolExecutor(max_workers=3) as pool:
-            f_auto = pool.submit(lambda: _groq_stt_request(wav, lang_code=None, prompt="", model="whisper-large-v3", verbose=True))
+            _aerr: list = []
+            f_auto = pool.submit(lambda: _groq_stt_request(wav, lang_code=None, prompt="", model="whisper-large-v3", verbose=True, err=_aerr))
             f_a = pool.submit(lambda: stt_for_bas_konus(wav, a))
             f_b = pool.submit(lambda: stt_for_bas_konus(wav, b))
             def get(f):
@@ -2838,7 +2842,7 @@ def transcribe_pair(data: bytes, a: str, b: str, dbg: dict | None = None) -> tup
         ta = clean_stt_text(ra[0]) if ra and ra[0] else ""
         tb = clean_stt_text(rb[0]) if rb and rb[0] else ""
         if dbg is not None:
-            dbg.update({"det": det, "auto": (auto[0] if auto else None), "ta": ta, "tb": tb})
+            dbg.update({"aerr": _aerr, "det": det, "auto": (auto[0] if auto else None), "ta": ta, "tb": tb})
         if det == a and ta:
             return ta, a
         if det == b and tb:
