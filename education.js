@@ -659,6 +659,27 @@
   const progKey = () => `${P.lang}|${level()}`;
   const lessonStep = () => Math.floor((Number(P.prog[progKey()]) || 0) / 3);
   function bumpProg() { const k = progKey(); P.prog[k] = (Number(P.prog[k]) || 0) + 1; }
+  // canlı döküm bazı dillerde (özellikle Gürcüce) yanlış dilde/alfabede gelir → o durumda kaydı sunucuda yazıya döküp ekrana onu koy
+  const SCRIPT_RE = { ka: /[\u10A0-\u10FF]/, ru: /[\u0400-\u04FF]/, ar: /[\u0600-\u06FF]/, zh: /[\u4e00-\u9fff]/ };
+  const scriptOk = (lang, text) => !SCRIPT_RE[lang] || SCRIPT_RE[lang].test(String(text || ''));
+  function wavB64(chunks) {
+    let n = 0; chunks.forEach((c) => { n += c.length; });
+    const buf = new Uint8Array(44 + n); const dv = new DataView(buf.buffer);
+    const w = (o, s) => { for (let i = 0; i < s.length; i += 1) dv.setUint8(o + i, s.charCodeAt(i)); };
+    w(0, 'RIFF'); dv.setUint32(4, 36 + n, true); w(8, 'WAVE'); w(12, 'fmt '); dv.setUint32(16, 16, true); dv.setUint16(20, 1, true);
+    dv.setUint16(22, 1, true); dv.setUint32(24, 16000, true); dv.setUint32(28, 32000, true); dv.setUint16(32, 2, true); dv.setUint16(34, 16, true);
+    w(36, 'data'); dv.setUint32(40, n, true);
+    let o = 44; chunks.forEach((c) => { buf.set(c, o); o += c.length; });
+    return LiveAudio.b64FromBytes(buf);
+  }
+  async function sttFallback(lang, chunks) {
+    try {
+      const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 9000);
+      const r = await fetch('/api/edu/stt', { method: 'POST', signal: ctrl.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lang, audio: wavB64(chunks) }) });
+      clearTimeout(to);
+      const j = await r.json(); return r.ok && j.text ? String(j.text) : '';
+    } catch { return ''; }
+  }
   function liveBody() {
     return { kind: 'tutor', vad: TUTOR_VAD, lang: P.lang, level: level(), step: lessonStep(), scenario: P.scenario || null, weak: weakForApi(),
       history: S.msgs.filter((m) => !m.pending).slice(-12).map((m) => (m.role === 'user'
@@ -699,10 +720,16 @@
         },
         onInput: (t) => {
           if (!L.userMsg && L.talking) { L.userMsg = { role: 'user', text: '', mode: L.mode, t: Date.now(), pending: true }; S.msgs.push(L.userMsg); renderSoon(); }
-          if (L.userMsg) { L.userMsg.text = (L.userMsg._final = (L.userMsg._final || '') + t).replace(/\s+/g, ' '); patchSoon(); }
+          if (L.userMsg) {
+            L.userMsg._final = (L.userMsg._final || '') + t;
+            // yanlış alfabede (ör. Gürcüce konuşurken Latin harfli) döküm gösterilmez; kayıt sunucuda yazıya dökülür
+            if (L.mode !== 'help' && !scriptOk(P.lang, L.userMsg._final)) { L.userMsg._raw = L.userMsg._final; L.userMsg.text = ''; }
+            else L.userMsg.text = L.userMsg._final.replace(/\s+/g, ' ');
+            patchSoon();
+          }
         },
         onInterim: (t) => {
-          if (L.userMsg && !L.userMsg._final) { L.userMsg.text = String(t).replace(/\s+/g, ' '); patchSoon(); }
+          if (L.userMsg && !L.userMsg._final && (L.mode === 'help' || scriptOk(P.lang, t))) { L.userMsg.text = String(t).replace(/\s+/g, ' '); patchSoon(); }
         },
         onOutput: (t) => {
           if (!L.tutorMsg) startTutorMsg();
@@ -803,8 +830,13 @@
   }
   async function finishLiveTurn() {
     clearTimeout(L.turnTimer); clearTimeout(L.genTimer); L.genTimer = null;
-    const user = L.userMsg; const tutor = L.tutorMsg;
+    const user = L.userMsg; const tutor = L.tutorMsg; const pcm = L.lastPcm; L.lastPcm = null;
     L.userMsg = null; L.tutorMsg = null; S.busy = false;
+    if (user && user.mode !== 'help' && !scriptOk(P.lang, user.text) && pcm && pcm.length) {
+      const tx = await sttFallback(P.lang, pcm);
+      if (tx && scriptOk(P.lang, tx)) { user.text = tx.replace(/\s+/g, ' '); user._final = user.text; }
+      else if (user._raw && !user.text) user.text = '';
+    }
     if (user && !user.text.trim()) {
       const i = S.msgs.indexOf(user);
       if (i >= 0) S.msgs.splice(i, 1);
@@ -908,6 +940,7 @@
     btn.classList.add('recording');
     setStatus(mode === 'help' ? 'Dinliyorum — Türkçe söyle' : `Dinliyorum — ${langOf(P.lang).tr} konuş`, true, true);
     L.userMsg = { role: 'user', text: '', mode, t: Date.now(), pending: true };
+    L.pcm = [];
     S.msgs.push(L.userMsg);
     renderSoon();
     L.turnReady = ensureLive();
@@ -916,7 +949,7 @@
     L.turnReady.catch((e) => { L.failed += 1; liveAbort(btn, e.message || 'Canlı bağlantı kurulamadı'); });
     L.mic = new LiveAudio.Mic({
       preroll: !wasPlaying, // öğretmenin sesi mikrofona karışmasın
-      onChunk: (u8) => t.chunk(u8),
+      onChunk: (u8) => { if (L.pcm) L.pcm.push(u8); t.chunk(u8); },
       onLevel: (lv) => {
         t.level(lv);
         btn.style.setProperty('--lv', Math.min(1, lv * 3).toFixed(2));
@@ -942,6 +975,7 @@
     btn.classList.remove('recording', 'arming');
     btn.style.removeProperty('--lv');
     const m = L.mic; L.mic = null;
+    L.lastPcm = L.pcm; L.pcm = null;
     S.busy = true;
     setStatus('Cevap geliyor…', true, true);
     patchSoon();

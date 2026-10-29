@@ -25,7 +25,7 @@
   function setSession(type) { try { if (navigator.audioSession) navigator.audioSession.type = type; } catch { /* ignore */ } }
 
   function unlock() {
-    if (!(eng.node && eng.stream && eng.stream.active)) setSession('playback'); // sessiz tuşu açıkken de çalsın (yazıyla sorulunca)
+    if (!eng.opening && !eng.stream && !eng.node) setSession('playback'); // sessiz tuşu açıkken de çalsın (yazıyla sorulunca)
     const c = audioCtx();
     if (c.state !== 'running') c.resume().catch(() => {});
     try {
@@ -144,7 +144,8 @@
       if (old) setTimeout(() => { try { old.close(); } catch { /* ignore */ } }, 4000);
       if (!workletUrl) workletUrl = URL.createObjectURL(new Blob([WORKLET], { type: 'application/javascript' }));
       await c.audioWorklet.addModule(workletUrl);
-      if (c.state !== 'running') await c.resume().catch(() => {});
+      if (c.state !== 'running') await Promise.race([c.resume().catch(() => {}), new Promise((r) => setTimeout(r, 800))]);
+      setSession('play-and-record');
       const src = c.createMediaStreamSource(stream);
       const node = new AudioWorkletNode(c, 'pcm16-gate');
       const mute = c.createGain(); mute.gain.value = 0;

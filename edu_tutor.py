@@ -623,6 +623,8 @@ def annotate(lang: str, tutor_text: str, user_text: str = "", *, level: str = "A
     Ses zaten çalmıştır; bu bilgiler bir an sonra karta eklenir (kullanıcıyı bekletmez).
     """
     from concurrent.futures import ThreadPoolExecutor
+    if len(re.findall(r"\w+", prev_tutor or "")) < 3:
+        prev_tutor = ""  # 'Nice' gibi tek kelimelik övgü beklenen ifade sayılmaz
     lang = (lang or "en").split("-")[0].lower()
     full_text = _clean_target(_s(tutor_text, 800))
     user_text = _clean_target(_s(user_text, 400))

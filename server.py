@@ -33,7 +33,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.10.29-v78.2"
+APP_VERSION = "2026.10.30-v78.3"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -3196,6 +3196,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self.handle_edu_annotate()
         if parsed.path == "/api/camera/translate":
             return self.handle_camera_translate()
+        if parsed.path == "/api/edu/stt":
+            return self.handle_edu_stt()
         if parsed.path == "/api/education/session-end":
             return self.handle_education_session_end(parse_qs(parsed.query))
         if parsed.path == "/api/builder/word":
@@ -3721,6 +3723,23 @@ class Handler(SimpleHTTPRequestHandler):
         if not res.get("ok") and p.get("model"):
             edu_live.mark_model_dead(safe_str(p.get("model")))
         self._send_json(res, 200 if res.get("ok") else 503)
+
+    def handle_edu_stt(self):
+        """Canlı dökümü güvenilmeyen diller (ör. Gürcüce) için: aynı kayıt Whisper ile yazıya dökülür."""
+        import base64
+        p = self._read_json_body()
+        lang = safe_str(p.get("lang") or "en").strip().lower()[:5]
+        try:
+            data = base64.b64decode(safe_str(p.get("audio")).split(",")[-1])
+        except Exception:
+            return self.send_json_error(400, "Ses okunamadı")
+        if len(data) < 2000 or len(data) > 6_000_000:
+            return self.send_json_error(400, "Kayıt çok kısa")
+        try:
+            text, _ = transcribe_forced(data, lang)
+        except Exception as e:
+            return self.send_json_error(422, self.api_error_message(e))
+        self._send_json({"ok": True, "text": text})
 
     def handle_camera_translate(self):
         """Kamera/fotoğraf: görseldeki yazıyı oku + istenen dile çevir (Gemini görsel)."""
