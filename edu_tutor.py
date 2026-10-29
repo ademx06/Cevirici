@@ -612,7 +612,7 @@ for _k, _v in _GREETING_OKUNUS.items():
 
 
 
-def annotate(lang: str, tutor_text: str, user_text: str = "", *, level: str = "A1", mode: str = "speak", prev_tutor: str = "",
+def annotate(lang: str, tutor_text: str, user_text: str = "", *, level: str = "A1", mode: str = "speak", prev_tutor: str = "", part: str = "all",
              translate_fn: Callable[[str, str, str], str] | None = None) -> dict:
     """Canlı (sesli) turdan sonra ekrana: öğretmen cümlesinin okunuşu + Türkçesi, öğrenci cümlesinin düzeltmesi.
 
@@ -679,13 +679,20 @@ def annotate(lang: str, tutor_text: str, user_text: str = "", *, level: str = "A
                               require="ok")
         return parsed
 
+    # part="fast": okunuş + Türkçe (hemen ekrana gelsin) · part="check": düzeltme/seviye (LLM, daha yavaş) · "all": ikisi
+    want_fast = part in ("all", "fast")
+    want_check = part in ("all", "check")
     with ThreadPoolExecutor(max_workers=4) as pool:
-        f_ok, f_tr, f_ck = pool.submit(do_okunus), pool.submit(do_tr), pool.submit(do_check)
-        f_uo = pool.submit(do_user_okunus)
-        out["okunus"] = f_ok.result() or ""
-        out["user_okunus"] = f_uo.result() or ""
-        out["tr"] = f_tr.result() or ""
-        ck = f_ck.result()
+        f_ok = pool.submit(do_okunus) if want_fast else None
+        f_tr = pool.submit(do_tr) if want_fast else None
+        f_uo = pool.submit(do_user_okunus) if want_fast else None
+        f_ck = pool.submit(do_check) if want_check else None
+        out["okunus"] = (f_ok.result() if f_ok else "") or ""
+        out["user_okunus"] = (f_uo.result() if f_uo else "") or ""
+        out["tr"] = (f_tr.result() if f_tr else "") or ""
+        ck = f_ck.result() if f_ck else None
+    if part == "fast":
+        return out
     garbled = bool(isinstance(ck, dict) and ck.get("garbled"))
     if user_target and lang in ("en", "de", "fr", "es", "it", "id"):
         # Sesli tanıma çöpü: ünlüsüz "kelime" (srg, ktb…) → doğru kabul etme

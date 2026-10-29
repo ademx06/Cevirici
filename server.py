@@ -33,7 +33,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.10.29-v77.9"
+APP_VERSION = "2026.10.29-v77.10"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -3725,7 +3725,7 @@ class Handler(SimpleHTTPRequestHandler):
             res = edu_tutor.annotate(
                 safe_str(p.get("lang") or "en")[:5], safe_str(p.get("tutor_text")), safe_str(p.get("user_text")),
                 level=safe_str(p.get("level") or "A1").upper()[:2],
-                mode="help" if p.get("mode") == "help" else "speak", prev_tutor=safe_str(p.get("prev_tutor"))[:600],
+                mode="help" if p.get("mode") == "help" else "speak", prev_tutor=safe_str(p.get("prev_tutor"))[:600], part=(safe_str(p.get("part")) if safe_str(p.get("part")) in ("fast", "check") else "all"),
                 translate_fn=translate_text,
             )
         except Exception as e:

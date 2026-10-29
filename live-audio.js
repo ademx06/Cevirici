@@ -25,6 +25,7 @@
   function setSession(type) { try { if (navigator.audioSession) navigator.audioSession.type = type; } catch { /* ignore */ } }
 
   function unlock() {
+    if (!(eng.node && eng.stream && eng.stream.active)) setSession('playback'); // sessiz tuşu açıkken de çalsın (yazıyla sorulunca)
     const c = audioCtx();
     if (c.state !== 'running') c.resume().catch(() => {});
     try {
@@ -171,7 +172,7 @@
     try { if (src) src.disconnect(); } catch { /* ignore */ }
     try { if (node) node.disconnect(); } catch { /* ignore */ }
     try { if (mute) mute.disconnect(); } catch { /* ignore */ }
-    if (stream) { stream.getTracks().forEach((t) => t.stop()); setSession('auto'); }
+    if (stream) { stream.getTracks().forEach((t) => t.stop()); setSession('playback'); }
   }
 
   async function warmIfGranted() {

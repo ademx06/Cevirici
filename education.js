@@ -804,20 +804,27 @@
     saveLiveAudio(tutor); setTimeout(() => saveLiveAudio(tutor), 1500);
     if (!L.player.playing) idleStatus();
     void (async () => {
+      // okunuş+Türkçe hızlı (kural/çeviri) ve düzeltme+seviye ayrı istek → okunuş düzeltmeyi beklemeden hemen gelir
+      const post = (part) => fetch('/api/edu/annotate', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lang: tutor.lang, tutor_text: tutor.reply, user_text: ut, mode: tutor.mode, level: level(), prev_tutor: prevTutor, part }) })
+        .then((r) => (r.ok ? r.json() : null)).catch(() => null);
+      const pFast = post('fast');
+      const pCheck = ut ? post('check') : Promise.resolve(null);
       try {
-        const r = await fetch('/api/edu/annotate', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ lang: tutor.lang, tutor_text: tutor.reply, user_text: ut, mode: tutor.mode, level: level(), prev_tutor: prevTutor }) });
-        const a = await r.json();
-        if (!r.ok) return;
-        if (tutor._seq === seq) {
-          tutor.okunus = a.okunus || ''; tutor.fix = a.fix || null; tutor.words = a.words || [];
-          tutor.segments = Array.isArray(a.segments) ? a.segments : [];
-          if (user && a.user_okunus) user.okunus = a.user_okunus;
-          tutor.reply_tr = a.tr || '';
-          if (a.hint_tr) { tutor.explain_tr = a.hint_tr; tutor.reply_target = a.target || ''; }
-          tutor.checked = !!a.checked; tutor.unclear = !!a.unclear;
+        const f = await pFast;
+        if (f && tutor._seq === seq) {
+          tutor.okunus = f.okunus || '';
+          tutor.segments = Array.isArray(f.segments) ? f.segments : [];
+          if (user && f.user_okunus) user.okunus = f.user_okunus;
+          tutor.reply_tr = f.tr || '';
+          if (f.hint_tr) { tutor.explain_tr = f.hint_tr; tutor.reply_target = f.target || ''; }
+          saveChat(); render();
+          // canlı ses gelmediyse (ör. yazıyla sorulunca) sessiz kalma: yedek seslendirme
+          if (P.autoSpeak && tutor.reply && !(tutor._audio && tutor._audio.length)) void speak(partItems(tutor, 'reply'));
         }
-        if (tutor.mode === 'speak' && user && user.text.trim() && !tutor.unclear) {
+        const a = await pCheck;
+        if (a && tutor._seq === seq) { tutor.fix = a.fix || null; tutor.words = a.words || []; tutor.checked = !!a.checked; tutor.unclear = !!a.unclear; }
+        if (a && tutor.mode === 'speak' && user && user.text.trim() && !tutor.unclear) {
           P.turns = (P.turns || 0) + 1;
           if (!tutor.fix) P.correct = (P.correct || 0) + 1;
           adaptLevel({ fix: tutor.fix, user_level: a.user_level });
