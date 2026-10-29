@@ -33,7 +33,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.10.30-v79.3"
+APP_VERSION = "2026.10.30-v79.4"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -2752,6 +2752,13 @@ def stt_for_bas_konus(wav: str, lang: str) -> tuple[str, str, float] | None:
         ok = _accept_forced(groq[0], float(groq[2]) + 20)
         if ok:
             return ok
+    if not groq:
+        # large-v3 bu anahtarda reddedilmiş olabilir (403) → turbo ile dene; Google STT'den önce
+        groq2 = _groq_stt_request(wav, lang_code=lang, prompt=prompt, model="whisper-large-v3-turbo", timeout_sec=18)
+        if groq2 and (groq2[0] or "").strip():
+            ok = _accept_forced(groq2[0], float(groq2[2]) + 20)
+            if ok:
+                return ok
 
     google = google_stt(wav, lang)
     if google and (google[0] or "").strip():
@@ -2829,7 +2836,7 @@ def transcribe_pair(data: bytes, a: str, b: str, dbg: dict | None = None) -> tup
             raise ValueError("no speech")
         with ThreadPoolExecutor(max_workers=3) as pool:
             _aerr: list = []
-            f_auto = pool.submit(lambda: _groq_stt_request(wav, lang_code=None, prompt="", model="whisper-large-v3", verbose=True, err=_aerr))
+            f_auto = pool.submit(lambda: _groq_stt_request(wav, lang_code=None, prompt="", model=None, verbose=True, err=_aerr))
             f_a = pool.submit(lambda: stt_for_bas_konus(wav, a))
             f_b = pool.submit(lambda: stt_for_bas_konus(wav, b))
             def get(f):
