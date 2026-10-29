@@ -36,6 +36,7 @@
 
   // ---------------------------------------------------------------- state
   let lastPlayEnd = 0;
+  let lastFinalT = 0;
   const player = new LiveAudio.Player({ onStart: () => setStatus('Çeviri seslendiriliyor…', true), onIdle: () => { lastPlayEnd = performance.now(); idle(); } });
   const sessions = {}; // key → Session   (translate: 'toOther' / 'toMine'; talk: 'both')
   const bubbles = []; // {dir, from, to, orig, trans, done, okunus, audio:[], rate, listening}
@@ -239,7 +240,10 @@
       } catch { /* ignore */ }
     }
     if (b.orig.trim() || b.trans.trim() || hasAudio) {
-      const chunks = b._pcm && b._pcm.length ? b._pcm : hfBuf.filter((x) => b._pt && x.t >= b._pt - 2500).map((x) => x.u8);
+      // eller serbest: bu konuşmanın sesi = önceki konuşmanın bitişinden bu ana kadar (kutucuk, konuşma bittikten sonra açılabilir)
+      const from0 = Math.max(lastFinalT - 400, performance.now() - 20000);
+      const chunks = b._pcm && b._pcm.length ? b._pcm : hfBuf.filter((x) => x.t >= from0).map((x) => x.u8);
+      lastFinalT = performance.now();
       void fixOrig(b, chunks);
     }
     void loadPhonetic(b, false);
