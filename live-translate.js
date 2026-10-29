@@ -82,6 +82,8 @@
   function hfPush(u8) { const n = performance.now(); hfBuf.push({ t: n, u8 }); while (hfBuf.length && n - hfBuf[0].t > 40000) hfBuf.shift(); }
   // Her konuşmanın kaydı sunucuda (Whisper) yazıya dökülür: yazı HER ZAMAN konuşulan dilde ve konuşulan alfabede çıkar,
   // eller serbestte konuşulan dil (iki dilden hangisi) kayıttan bulunur → etiket/yön doğru olur.
+  const grams = (t) => { const x = String(t || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ''); const g = new Set(); for (let i = 0; i < x.length - 1; i++) g.add(x.slice(i, i + 2)); return g; };
+  function sim(a, b) { const A = grams(a), B = grams(b); if (!A.size || !B.size) return 0; let n = 0; A.forEach((v) => { if (B.has(v)) n++; }); return n / (A.size + B.size - n); }
   async function fixOrig(b, chunks) {
     try {
       if (!chunks || !chunks.length) return;
@@ -94,6 +96,7 @@
       if (!tx || !pair.includes(from)) return;
       if (SCRIPT[from] && !SCRIPT[from].test(tx)) return;
       if (FOREIGN.test(tx) && !pair.includes('ar')) return;
+      const liveHeard = b.orig; // Live'ın duyduğu (yanlış olabilir)
       b.orig = tx; b._fixed = true;
       if (both) {
         const dir = from === prefs.my ? 'toOther' : 'toMine';
@@ -102,11 +105,16 @@
         const tr = (b.trans || '').trim();
         const wrong = tr && ((SCRIPT[b.from] && SCRIPT[b.from].test(tr) && !(SCRIPT[b.to] && SCRIPT[b.to].test(tr)))
           || (score(tr, b.from) >= 2 && score(tr, b.from) > score(tr, b.to)));
-        if (wrong || !tr) {
+        if (wrong || !tr || sim(liveHeard, tx) < 0.45) {
           const q = await fetch('/api/translate?' + new URLSearchParams({ q: tx.slice(0, 500), from: b.from, to: b.to, my: b.from, other: b.to }));
           const d = await q.json();
-          if (d && d.text) { b.trans = d.text; b.okunus = ''; void loadPhonetic(b, false); if (wrong) void playTts(b.trans, b.to); }
+          if (d && d.text) { b.trans = d.text; b.okunus = ''; void loadPhonetic(b, false); player.stop(); void playTts(b.trans, b.to); }
         }
+      }
+      if (!both && sim(liveHeard, tx) < 0.45) {
+        const q = await fetch('/api/translate?' + new URLSearchParams({ q: tx.slice(0, 500), from: b.from, to: b.to, my: b.from, other: b.to }));
+        const d = await q.json();
+        if (d && d.text) { b.trans = d.text; b.okunus = ''; void loadPhonetic(b, false); player.stop(); void playTts(b.trans, b.to); }
       }
       lastSig = ''; renderSoon();
     } catch { /* ignore */ }
