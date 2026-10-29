@@ -33,7 +33,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.10.29-v78.0"
+APP_VERSION = "2026.10.29-v78.1"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -3699,7 +3699,7 @@ class Handler(SimpleHTTPRequestHandler):
     def handle_live_session(self):
         """Gemini Live için kısa ömürlü jeton + kurulum mesajı (telefon doğrudan Google'a bağlanır)."""
         p = self._read_json_body()
-        kind = p.get("kind") if p.get("kind") in ("translate", "interpret") else "tutor"
+        kind = p.get("kind") if p.get("kind") in ("translate", "interpret", "camera") else "tutor"
         weak = p.get("weak") if isinstance(p.get("weak"), list) else []
         res = edu_live.live_session(
             kind,
@@ -3735,33 +3735,33 @@ class Handler(SimpleHTTPRequestHandler):
                  "ru": "Russian", "ar": "Arabic", "zh": "Simplified Chinese", "ka": "Georgian", "id": "Indonesian"}
         tname = names.get(target, "Turkish")
         prompt = (
-            "You are an OCR and translation engine for a camera app. Read ALL clearly legible text in the image "
-            "(signs, menus, labels, documents, screens, handwriting) in natural reading order, in any language or script. "
-            f"Translate each text block faithfully into {tname} (keep names, numbers, prices and units exact). "
-            "If a block is already in the target language, copy it as the translation. "
+            "You are a professional OCR and translation engine for a camera app. Read ALL clearly legible text in the image "
+            "(signs, menus, labels, documents, screens, subtitles, handwriting) in natural reading order, in any language or script, "
+            f"and translate it as ONE complete, fluent, accurate text into {tname}. Keep paragraphs and line structure (use \\n), names, numbers, prices and units exact. "
+            "Choose the natural reading of menus/signs (not word by word). If the text is already in the target language, copy it as the translation. "
             "Do NOT describe the image, do NOT invent or guess unreadable text, ignore tiny or blurry text. "
-            'Return ONLY JSON: {"blocks":[{"text":"<original>","translation":"<translation>"}]} with at most 25 blocks; '
-            'if there is no legible text return {"blocks":[]}.'
+            'Return ONLY JSON: {"lang":"<ISO code of the source language>","text":"<full original text>","translation":"<full translation>"}; '
+            'if there is no legible text return {"lang":"","text":"","translation":""}.'
         )
         body = {
             "contents": [{"role": "user", "parts": [{"text": prompt}, {"inlineData": {"mimeType": "image/jpeg", "data": img}}]}],
-            "generationConfig": {"responseMimeType": "application/json", "temperature": 0.1, "maxOutputTokens": 2000},
+            "generationConfig": {"responseMimeType": "application/json", "temperature": 0.1, "maxOutputTokens": 3000},
         }
         try:
-            raw = edu_tutor.ee._gemini_api_request(body, 2000, timeout_sec=22)
+            raw = edu_tutor.ee._gemini_api_request(body, 3000, timeout_sec=22)
         except Exception as e:
             return self.send_json_error(500, f"Çeviri yapılamadı ({type(e).__name__})")
         if not raw:
             return self.send_json_error(503, "Çeviri servisi şu an yanıt vermiyor — birazdan tekrar dene")
         parsed = edu_tutor.ee._parse_json_object(edu_tutor._strip_think(raw)) or {}
-        blocks = []
-        for b in (parsed.get("blocks") if isinstance(parsed.get("blocks"), list) else [])[:25]:
-            if not isinstance(b, dict):
-                continue
-            t, tr = safe_str(b.get("text")).strip()[:600], safe_str(b.get("translation")).strip()[:900]
-            if t and tr:
-                blocks.append({"text": t, "translation": tr})
-        self._send_json({"ok": True, "blocks": blocks, "target": target})
+        text = safe_str(parsed.get("text")).strip()[:4000]
+        translation = safe_str(parsed.get("translation")).strip()[:6000]
+        if not translation and isinstance(parsed.get("blocks"), list):
+            translation = "\n".join(safe_str((b or {}).get("translation")).strip() for b in parsed["blocks"] if isinstance(b, dict)).strip()
+        blocks = [{"text": text, "translation": translation}] if translation else []
+        self._send_json({"ok": True, "text": text, "translation": translation, "lang": safe_str(parsed.get("lang"))[:8],
+                         "blocks": blocks, "target": target})
+        return
 
     def handle_edu_annotate(self):
         p = self._read_json_body()

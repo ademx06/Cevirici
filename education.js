@@ -795,7 +795,7 @@
       const t = L.tutorMsg; if (!t || !t.reply.trim()) return;
       const u = L.userMsg; const ut = u ? (u.mode !== 'help' ? u.text : '') : '';
       L.pre = {};
-      ['oku', 'tr'].forEach((pt) => {
+      ['oku', 'tr'].concat(ut ? ['check'] : []).forEach((pt) => {
         const body = annBody(t, ut, pt);
         L.pre[pt] = { body, p: fetch('/api/edu/annotate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }).then((r) => (r.ok ? r.json() : null)).catch(() => null) };
       });

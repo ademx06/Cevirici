@@ -902,3 +902,19 @@ body.shell .edu-meta, body.shell .edu-scenario-row { flex-shrink: 0; }
 .cam-src { color: var(--ink-3); font-size: 13px; margin-bottom: 4px; word-break: break-word; }
 .cam-tr { font-size: 17px; font-weight: 600; word-break: break-word; }
 .cam-empty { color: var(--ink-3); text-align: center; padding: 12px; }
+.cam-sound { display: flex; align-items: center; gap: 6px; font-size: 13px; white-space: nowrap; }
+.cam-tabs { display: flex; gap: 6px; margin: 8px 0; }
+.cam-tab { flex: 1; padding: 9px 6px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface-2); color: var(--ink); font-size: 14px; }
+.cam-tab.is-on { background: var(--accent, #2C62C9); color: #fff; border-color: transparent; font-weight: 700; }
+.cam-bar[hidden], .cam-bar .btn[hidden] { display: none; }
+.cam-live { position: absolute; top: 8px; left: 8px; background: rgba(0,0,0,.55); color: #fff; font-size: 11px; padding: 3px 8px; border-radius: 999px; display: flex; align-items: center; gap: 5px; }
+.cam-live i { width: 8px; height: 8px; border-radius: 50%; background: #ff3b30; display: inline-block; animation: camblink 1s infinite; }
+@keyframes camblink { 50% { opacity: .25; } }
+.cam-main { border: 1px solid var(--line); border-radius: 16px; padding: 12px 14px; background: var(--surface-2); }
+.cam-main-h { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; font-size: 13px; color: var(--ink-3); }
+.cam-mini { margin-left: 6px; padding: 5px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font-size: 13px; }
+.cam-main-tr { font-size: 18px; line-height: 1.45; font-weight: 600; word-break: break-word; }
+.cam-orig { margin-top: 10px; font-size: 13px; color: var(--ink-3); }
+.cam-orig div { margin-top: 6px; word-break: break-word; }
+.cam-line { border-radius: 12px; padding: 8px 12px; background: var(--surface-2); border: 1px solid var(--line); font-size: 16px; opacity: .6; }
+.cam-line.is-new { opacity: 1; font-size: 19px; font-weight: 600; }

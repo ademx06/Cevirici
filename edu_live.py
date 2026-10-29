@@ -258,6 +258,30 @@ def interpret_setup(model: str, source: str, target: str, both: bool = False, va
     }
 
 
+def camera_instructions(target: str) -> str:
+    tgt = LANG_NAMES.get(target, "Turkish")
+    return (
+        f"You are a real-time camera translator. You receive camera frames and the cue text '[ÇEVİR]'. "
+        f"Every time you get '[ÇEVİR]', look at the LATEST camera frame, read ALL legible text in it (subtitles, captions, signs, screens, documents) "
+        f"and say ONLY its faithful translation into {tgt}, in natural spoken {tgt}, as fast as possible. "
+        "No greeting, no preface, no comment, no description of the image, never mention the frame. "
+        f"If the text is already in {tgt}, read it aloud unchanged. Keep names, numbers and prices exact. "
+        "If the visible text is the same as what you already translated, or nothing is legible, answer with a single dot and nothing else. "
+        "Never invent text that is not visible."
+    )
+
+
+def camera_setup(model: str, target: str) -> dict:
+    return {
+        "model": f"models/{model}",
+        "generationConfig": {"responseModalities": ["AUDIO"], "temperature": 0.2},
+        "systemInstruction": {"parts": [{"text": camera_instructions(target)}]},
+        "realtimeInputConfig": {"automaticActivityDetection": {"disabled": True}},
+        "outputAudioTranscription": {},
+        "sessionResumption": {},
+    }
+
+
 def translate_setup(model: str, target: str, variant: int = 0) -> dict:
     tc = {"targetLanguageCode": BCP47.get(target, target), "echoTargetLanguage": False}
     if variant == 1:  # dokümandaki biçim (canlıda reddedildi — yedek)
@@ -325,6 +349,9 @@ def live_session(kind: str, *, lang: str = "en", level: str = "A1", scenario: st
     if kind == "translate":
         models = [model] if model else TRANSLATE_MODELS
         build = lambda m: translate_setup(m, target, variant)  # noqa: E731
+    elif kind == "camera":
+        models = [model] if model else TUTOR_MODELS
+        build = lambda m: camera_setup(m, target)  # noqa: E731
     elif kind == "interpret":
         models = [model] if model else TUTOR_MODELS
         build = lambda m: interpret_setup(m, source, target, both, vad)  # noqa: E731
@@ -345,7 +372,7 @@ def live_session(kind: str, *, lang: str = "en", level: str = "A1", scenario: st
         "model": m,
         "fallback_models": models[1:],
         # Bazı sürümlerde jetonla gelen sistem talimatı yok sayılabiliyor → istemci ayrıca ilk mesajda gönderir
-        "instructions": setup.get("systemInstruction", {}).get("parts", [{}])[0].get("text", "") if kind == "tutor" else "",
+        "instructions": setup.get("systemInstruction", {}).get("parts", [{}])[0].get("text", "") if kind in ("tutor", "camera") else "",
     }
 
 

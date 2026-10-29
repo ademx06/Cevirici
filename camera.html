@@ -9,7 +9,7 @@
   <link rel="apple-touch-icon" href="icon-192.png">
   <link rel="manifest" href="manifest.json">
   <title>Kamera Çeviri — Sesli Çevirmen</title>
-  <link rel="stylesheet" href="styles.css?v=117">
+  <link rel="stylesheet" href="styles.css?v=118">
 </head>
 <body class="shell">
   <div class="app">
@@ -17,37 +17,49 @@
       <div class="header-left">
         <a href="/" class="back-btn" aria-label="Ana menü">←</a>
         <div>
-          <h1>Kamera</h1>
-          <p class="tagline">Yazıya tut, anında çevir</p>
+          <h1>Kamera çeviri</h1>
+          <p class="tagline" id="camTag">Yazıya tut, çevirsin ve okusun</p>
         </div>
       </div>
     </header>
 
     <section class="lang-card">
-      <div class="lang-field" style="grid-column:1/-1">
+      <div class="lang-field">
         <label for="camTarget">Şu dile çevir</label>
         <select id="camTarget"></select>
       </div>
+      <label class="cam-sound"><input id="camSound" type="checkbox" checked> Sesli oku</label>
     </section>
+
+    <div class="cam-tabs" role="tablist">
+      <button id="tabPhoto" class="cam-tab is-on" type="button" role="tab" aria-selected="true">📷 Fotoğraf / yazı</button>
+      <button id="tabLive" class="cam-tab" type="button" role="tab" aria-selected="false">⚡ Canlı altyazı</button>
+    </div>
 
     <div class="cam-box">
       <video id="camVideo" playsinline muted autoplay></video>
-      <img id="camShot" alt="" hidden>
+      <img id="camShot" alt="Çevrilen fotoğraf" hidden>
       <canvas id="camCanvas" hidden></canvas>
       <div id="camMsg" class="cam-msg">Kamera açılıyor…</div>
+      <div id="camLiveDot" class="cam-live" hidden><i></i> CANLI</div>
     </div>
 
-    <div class="cam-bar">
-      <button id="camSnap" class="btn" type="button">📷 Çevir</button>
-      <button id="camLive" class="btn" type="button" aria-pressed="false">Canlı: kapalı</button>
-      <label class="btn cam-file">Fotoğraf seç<input id="camFile" type="file" accept="image/*" hidden></label>
+    <div class="cam-bar" id="barPhoto">
+      <button id="camSnap" class="btn btn-primary" type="button">📷 Çevir</button>
+      <button id="camAgain" class="btn" type="button" hidden>↺ Yeniden</button>
+      <label class="btn cam-file">🖼 Fotoğraf seç<input id="camFile" type="file" accept="image/*" hidden></label>
+    </div>
+    <div class="cam-bar" id="barLive" hidden>
+      <button id="camLive" class="btn btn-primary" type="button">▶ Canlı çeviriyi başlat</button>
     </div>
 
     <div id="camStatus" class="status-bar"><span class="status-dot"></span><span id="camStatusText">Hazır</span></div>
-    <main id="camOut" class="cam-out"></main>
+
+    <main id="camOut" class="cam-out" aria-live="polite"></main>
   </div>
   <script src="api-client.js?v=7"></script>
   <script src="keepalive.js?v=2"></script>
-  <script src="camera.js?v=1"></script>
+  <script src="live-audio.js?v=12"></script>
+  <script src="camera.js?v=2"></script>
 </body>
 </html>

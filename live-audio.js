@@ -387,6 +387,7 @@
     activityEnd() { return this.send({ realtimeInput: { activityEnd: {} } }); }
     streamEnd() { return this.send({ realtimeInput: { audioStreamEnd: true } }); }
     sendText(text) { return this.send({ realtimeInput: { text } }); }
+    sendVideo(b64) { return this.send({ realtimeInput: { video: { data: b64, mimeType: 'image/jpeg' } } }); }
     seed(turns) {
       if (!turns || !turns.length) return false;
       return this.send({ clientContent: { turns, turnComplete: false } });
