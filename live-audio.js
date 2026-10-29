@@ -441,7 +441,27 @@
     }
   }
 
-  global.LiveAudio = { unlock, audioCtx, micReady, micPermission, openMic, closeMic, warmIfGranted, Mic, Player, Session, Turn, b64FromBytes, bytesFromB64 };
+  // 16 kHz PCM16 parçalarından WAV (base64) + sunucuda Whisper ile yazıya döküm (canlı döküm yanlış alfabede gelirse yedek)
+  function wavB64(chunks) {
+    let n = 0; chunks.forEach((c) => { n += c.length; });
+    const buf = new Uint8Array(44 + n); const dv = new DataView(buf.buffer);
+    const w = (o, s) => { for (let i = 0; i < s.length; i += 1) dv.setUint8(o + i, s.charCodeAt(i)); };
+    w(0, 'RIFF'); dv.setUint32(4, 36 + n, true); w(8, 'WAVE'); w(12, 'fmt '); dv.setUint32(16, 16, true); dv.setUint16(20, 1, true);
+    dv.setUint16(22, 1, true); dv.setUint32(24, 16000, true); dv.setUint32(28, 32000, true); dv.setUint16(32, 2, true); dv.setUint16(34, 16, true);
+    w(36, 'data'); dv.setUint32(40, n, true);
+    let o = 44; chunks.forEach((c) => { buf.set(c, o); o += c.length; });
+    return b64FromBytes(buf);
+  }
+  async function sttFallback(lang, chunks) {
+    try {
+      const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 9000);
+      const r = await fetch('/api/edu/stt', { method: 'POST', signal: ctrl.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lang, audio: wavB64(chunks) }) });
+      clearTimeout(to);
+      const j = await r.json(); return r.ok && j.text ? String(j.text) : '';
+    } catch { return ''; }
+  }
+
+  global.LiveAudio = { wavB64, sttFallback, unlock, audioCtx, micReady, micPermission, openMic, closeMic, warmIfGranted, Mic, Player, Session, Turn, b64FromBytes, bytesFromB64 };
   if (typeof document !== 'undefined' && navigator.mediaDevices) {
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', warmIfGranted);
     else warmIfGranted();

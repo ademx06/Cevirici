@@ -74,6 +74,24 @@
     return d >= 0 ? 'toOther' : 'toMine';
   }
 
+  // Canlı döküm bazı dillerde (özellikle Gürcüce) yanlış alfabede gelir → o konuşmanın kaydı sunucuda yazıya dökülüp orijinal metin düzeltilir
+  const SCRIPT = { ka: /[\u10A0-\u10FF]/, ru: /[\u0400-\u04FF]/, ar: /[\u0600-\u06FF]/, zh: /[\u4e00-\u9fff]/ };
+  const FOREIGN = /[\u0590-\u05FF\u0900-\u0E7F\u1000-\u109F\u3040-\u30FF\uAC00-\uD7AF]/; // Latin dışı, çiftte hiç olmayan alfabeler (Hintçe, Tayca…)
+  const hfBuf = []; // el serbest: {t, u8} son ~40 sn gönderilen ses
+  function hfPush(u8) { const n = performance.now(); hfBuf.push({ t: n, u8 }); while (hfBuf.length && n - hfBuf[0].t > 40000) hfBuf.shift(); }
+  async function fixOrig(b, chunks) {
+    try {
+      if (!chunks || !chunks.length) return;
+      const pair = [prefs.my, prefs.other];
+      let src = '';
+      if (b._single) { const s = sourceOf(b.dir); if (SCRIPT[s] && !SCRIPT[s].test(b.orig)) src = s; }
+      else if (b.trans.trim()) src = pair.find((x) => SCRIPT[x] && !SCRIPT[x].test(b.orig) && !SCRIPT[x].test(b.trans)) || '';
+      if (!src) return;
+      const tx = await LiveAudio.sttFallback(src, chunks);
+      if (tx && SCRIPT[src].test(tx)) { b.orig = tx.replace(/\s+/g, ' '); lastSig = ''; renderSoon(); }
+    } catch { /* ignore */ }
+  }
+
   function isFiller(t) {
     const s = String(t || '').trim();
     if (!s) return true;
@@ -90,10 +108,13 @@
     const s = new LiveAudio.Session({
       body,
       onInput: (t) => {
-        const chunk = String(t || '');
+        let chunk = String(t || '');
+        if (FOREIGN.test(chunk) && ![prefs.my, prefs.other].includes('ar')) chunk = chunk.replace(new RegExp(FOREIGN.source, 'g'), '');
         let b = cur[key];
         if (key === 'both' && (!b || b.trans)) b = newBubble('both', 'toOther');
         if (!b) return;
+        if (key !== 'both') b._single = true;
+        if (!chunk.trim() && !/\s/.test(chunk)) { b._heard = true; return; }
         const next = (b.orig + chunk).replace(/\s+/g, ' ');
         // Tek başına dolgu (¿Qué?) yazma — uydurma metin gösterme
         if (!b.orig.trim() && isFiller(next)) return;
@@ -142,7 +163,7 @@
 
   function newBubble(key, dir) {
     if (cur[key]) finalize(key);
-    const b = { dir, from: sourceOf(dir), to: targetOf(dir), orig: '', trans: '', done: false, okunus: '', audio: [], rate: 24000, listening: false, t: Date.now() };
+    const b = { dir, from: sourceOf(dir), to: targetOf(dir), orig: '', trans: '', done: false, okunus: '', audio: [], rate: 24000, listening: false, t: Date.now(), _pt: performance.now() };
     bubbles.push(b);
     cur[key] = b;
     renderSoon();
@@ -196,6 +217,10 @@
         const d = await r.json();
         if (d && d.text) { b.trans = d.text; lastSig = ''; renderSoon(); }
       } catch { /* ignore */ }
+    }
+    if (b.orig.trim() || b.trans.trim()) {
+      const chunks = b._pcm && b._pcm.length ? b._pcm : hfBuf.filter((x) => b._pt && x.t >= b._pt - 2500).map((x) => x.u8);
+      void fixOrig(b, chunks);
     }
     void loadPhonetic(b, false);
     // Model bu dilde ses üretmediyse (yalnızca yazı geldiyse) çeviriyi sunucu sesiyle oku → her dilde ses var
@@ -326,7 +351,7 @@
     player.stop();
     btn.classList.add('recording');
     setStatus(`Dinliyorum — ${lang(sourceOf(dir)).name} konuş`, true);
-    const b = newBubble(dir, dir); b.listening = true; b._heard = false; renderSoon();
+    const b = newBubble(dir, dir); b.listening = true; b._heard = false; b._single = true; b._pcm = []; renderSoon();
     const s = session(dir);
     s._activity = false;
     turn = new LiveAudio.Turn(s, s.connect());
@@ -334,7 +359,7 @@
     const t = turn;
     mic = new LiveAudio.Mic({
       preroll: !wasPlaying,
-      onChunk: (u8) => t.chunk(u8),
+      onChunk: (u8) => { b._pcm.push(u8); t.chunk(u8); },
       onLevel: (lv) => {
         t.level(lv);
         btn.style.setProperty('--lv', Math.min(1, lv * 3).toFixed(2));
@@ -424,8 +449,8 @@
           const open = now < openUntil;
           if (player.playing || now - lastPlayEnd < 700) { pre.length = 0; wasOpen = false; s.sendAudio(SILENCE); return; }
           if (open) {
-            if (!wasOpen) { pre.forEach((c) => s.sendAudio(c)); pre.length = 0; }
-            wasOpen = true; s.sendAudio(u8);
+            if (!wasOpen) { pre.forEach((c) => { s.sendAudio(c); hfPush(c); }); pre.length = 0; }
+            wasOpen = true; s.sendAudio(u8); hfPush(u8);
           } else {
             wasOpen = false; pre.push(u8); if (pre.length > 3) pre.shift();
             s.sendAudio(SILENCE);
