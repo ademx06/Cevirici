@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Sesli Çevirmen">
+  <meta name="theme-color" content="#F4F1EA" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#121311" media="(prefers-color-scheme: dark)">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="manifest" href="manifest.json">
+  <title>Eğitim — Sesli Çevirmen</title>
+  <link rel="stylesheet" href="styles.css?v=116">
+</head>
+<body class="edu shell">
+  <div class="app">
+    <header class="header">
+      <div class="header-left">
+        <a href="/" class="back-btn" aria-label="Ana menü">←</a>
+        <button id="langBtn" class="edu-lang-btn" type="button" aria-label="Dil ve ayarlar">
+          <span id="langLabel">🇬🇧 English</span>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5"/></svg>
+        </button>
+      </div>
+      <div class="header-left">
+        <button id="levelBtn" class="level-pill" type="button" title="Seviyen">A1</button>
+        <button id="progressBtn" class="icon-btn" type="button" aria-label="İlerleme">
+          <svg viewBox="0 0 24 24"><path d="M5 20V12M12 20V5M19 20v-8"/></svg>
+        </button>
+        <button id="settingsBtn" class="icon-btn" type="button" aria-label="Ayarlar">
+          <svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="edu-meta">
+      <span>Bugün <b id="todayMin">0</b>/<span id="goalMin">10</span> dk</span>
+      <div class="bar" aria-hidden="true"><i id="goalBar"></i></div>
+      <span><b id="streak">0</b> gün seri</span>
+    </div>
+    <div>
+      <button id="scenarioBtn" class="edu-scenario" type="button">Serbest sohbet</button>
+    </div>
+
+    <div id="aiNotice" class="notice notice-warn hidden"></div>
+
+    <main id="feed" class="edu-feed scroll" aria-live="polite"></main>
+
+    <section class="dock edu-dock">
+      <div id="eduStatus" class="edu-status"><span id="statusDot" class="status-dot"></span><span id="statusText">Hazır</span></div>
+      <div class="composer">
+        <input id="textInput" type="text" enterkeyhint="send" autocomplete="off" autocapitalize="sentences"
+               maxlength="400" placeholder="Yaz ya da basılı tutup konuş…">
+        <button id="sendBtn" class="send-btn" type="button" aria-label="Gönder">➤</button>
+      </div>
+      <div class="mic-row">
+        <button id="micBtn" class="mic-btn" type="button">
+          <span class="mic-icon"></span>
+          <span class="mic-text"><strong id="micTitle">Konuş</strong><small id="micSub">English</small></span>
+        </button>
+        <button id="helpBtn" class="mic-btn help-mic" type="button">
+          <span class="mic-icon"></span>
+          <span class="mic-text"><strong>Yardım</strong><small>Türkçe sor</small></span>
+        </button>
+      </div>
+    </section>
+  </div>
+
+  <!-- Ayarlar -->
+  <div id="settingsSheet" class="sheet hidden" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+    <div class="sheet-backdrop" data-close></div>
+    <div class="sheet-card">
+      <div class="sheet-handle"></div>
+      <h2 id="settingsTitle">Ders ayarları</h2>
+
+      <h3>Öğrendiğim dil</h3>
+      <div id="langGrid" class="lang-grid"></div>
+
+      <h3>Seviye</h3>
+      <div id="levelGrid" class="level-grid"></div>
+      <label class="switch-row">
+        <span>Seviyemi otomatik ayarla<small>Konuşmana göre yükselir ya da düşer</small></span>
+        <span class="switch"><input id="autoLevel" type="checkbox" checked><span></span></span>
+      </label>
+
+      <h3>Senaryo</h3>
+      <div class="field">
+        <select id="scenarioSelect" aria-label="Senaryo"></select>
+        <p class="hint">Senaryoda öğretmen o rolü oynar (garson, resepsiyonist…), sen de doğal cevap verirsin.</p>
+      </div>
+
+      <h3>Ses ve görünüm</h3>
+      <div class="field" id="accentField">
+        <label for="accentSelect">Aksan</label>
+        <select id="accentSelect"></select>
+      </div>
+      <label class="switch-row"><span>Otomatik seslendir</span><span class="switch"><input id="optAutoSpeak" type="checkbox" checked><span></span></span></label>
+      <label class="switch-row"><span>Yavaş konuş</span><span class="switch"><input id="optSlow" type="checkbox"><span></span></span></label>
+      <label class="switch-row"><span>Okunuşu göster<small>Türkçe harflerle nasıl okunur</small></span><span class="switch"><input id="optOkunus" type="checkbox" checked><span></span></span></label>
+      <label class="switch-row"><span>Türkçesini göster</span><span class="switch"><input id="optTr" type="checkbox" checked><span></span></span></label>
+
+      <div id="chatList" class="chat-list" hidden></div>
+
+      <div class="btn-row">
+        <button id="newChatBtn" class="btn" type="button">Yeni sohbet</button>
+        <button id="closeSettings" class="btn btn-primary" type="button">Tamam</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- İlerleme -->
+  <div id="progressSheet" class="sheet hidden" role="dialog" aria-modal="true" aria-labelledby="progressTitle">
+    <div class="sheet-backdrop" data-close></div>
+    <div class="sheet-card">
+      <div class="sheet-handle"></div>
+      <h2 id="progressTitle">İlerlemen</h2>
+      <div id="progressBody"></div>
+      <div class="btn-row">
+        <button id="resetBtn" class="btn btn-danger" type="button">Bu dilin verisini sil</button>
+        <button id="closeProgress" class="btn btn-primary" type="button">Kapat</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="api-client.js?v=7"></script>
+  <script src="keepalive.js?v=2"></script>
+  <script src="mic-hold.js?v=5"></script>
+  <script src="live-audio.js?v=11"></script>
+  <script src="app-version.js?v=3"></script>
+  <script src="education.js?v=135"></script>
+</body>
+</html>
