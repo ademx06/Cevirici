@@ -672,7 +672,7 @@ def annotate(lang: str, tutor_text: str, user_text: str = "", *, level: str = "A
             '"fixed_tr": "<Turkish meaning>", "how_tr": "<how to BUILD this sentence like a teacher: the pieces in order joined by ' + ', each with a Turkish label and its target-language words, e.g. Özne (Ich) + fiil (gehe) + yer (zur Schule)>", "explain_tr": "<2 short Turkish sentences: the rule, then one more correct example in the target language with its Turkish meaning in parentheses>", '
             '"user_level": "A1|A2|B1|B2|C1|C2", "words": [{"word": "<useful word from the tutor reply>", "tr": "<Turkish>"}]}'
         )
-        parsed, _ = _call_llm(system, f"Previous tutor turn (what the learner was answering): {prev_tutor[:500]}\nTutor said: {tutor_text}\nLearner sentence: {user_text}", max_tokens=320,
+        parsed, _ = _call_llm(system, f"PREVIOUS tutor turn (what the learner was answering; the ONLY source of the expected phrase): {prev_tutor[:500] or '(none)'}\nLEARNER sentence: {user_text}\nTutor's NEXT reply (spoken AFTER the learner answered; use it only for the words field, NEVER as the expected phrase): {tutor_text}", max_tokens=320,
                               require="ok")
         return parsed
 
@@ -706,7 +706,9 @@ def annotate(lang: str, tutor_text: str, user_text: str = "", *, level: str = "A
                     fixed = _clean_target(g)
             except Exception:
                 pass
-        if ck.get("ok") is False and fixed and not _same(fixed, user_text):
+        _nz = lambda s: " " + re.sub(r"[\W_]+", " ", (s or "").lower()).strip() + " "  # noqa: E731
+        echoed = bool(prev_tutor) and len(_nz(user_text).strip()) > 1 and _nz(user_text) in _nz(prev_tutor)
+        if ck.get("ok") is False and fixed and not echoed and not _same(fixed, user_text):
             out["fix"] = {"status": "fix", "fixed": fixed, "fixed_tr": _s(ck.get("fixed_tr"), 400),
                           "okunus": ok.okunus(fixed, lang) if lang in RULE_LANGS_LOCAL else "",
                           "explain_tr": _s(ck.get("explain_tr"), 400), "how_tr": _s(ck.get("how_tr"), 220)}
