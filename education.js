@@ -112,7 +112,30 @@
   }
   const loadChat = () => { const c = safeGet(chatKey(P.lang), []); return Array.isArray(c) ? c.map(cleanMsg).filter(Boolean).slice(-60) : []; };
   try { ['edu_chat_v3', 'edu_history_v2'].forEach((k) => localStorage.removeItem(k)); } catch { /* ignore */ }
-  const saveChat = () => safeSet(chatKey(P.lang), S.msgs.slice(-60).map((m) => {
+  // sohbetin seviyesi/senaryosu: arşivde sohbetin kendi seviyesi görünsün (sonradan seçilen seviye değil)
+  const saveChat = () => {
+    try { if (S.msgs.some((m) => m.role === 'user' && m.text)) safeSet(`edu_v3_meta_${P.lang}`, { level: level(), scenario: P.scenario || '' }); } catch { /* ignore */ }
+    saveChat0();
+  };
+  // canlı öğretmen sesi kalıcı (IndexedDB): sohbet değişince/yenilenince "Dinle" aynı sesle çalar
+  const audDb = () => new Promise((res, rej) => { const q = indexedDB.open('edu_v3_audio', 1); q.onupgradeneeded = () => q.result.createObjectStore('a'); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); });
+  async function audPut(key, val) { try { const db = await audDb(); db.transaction('a', 'readwrite').objectStore('a').put(val, key); } catch { /* ignore */ } }
+  async function audGet(key) { try { const db = await audDb(); return await new Promise((r) => { const q = db.transaction('a').objectStore('a').get(key); q.onsuccess = () => r(q.result || null); q.onerror = () => r(null); }); } catch { return null; } }
+  function saveLiveAudio(m) { try { if (m && m.t && m._audio && m._audio.length) void audPut(m.t, { rate: m._rate || 24000, blob: new Blob(m._audio) }); } catch { /* ignore */ } }
+  async function audGc() {
+    try {
+      const keep = new Set();
+      for (let i = 0; i < localStorage.length; i += 1) {
+        const k = localStorage.key(i); if (!/^edu_v3_(chat|archive)_/.test(k)) continue;
+        const v = JSON.parse(localStorage.getItem(k) || '[]');
+        (Array.isArray(v) ? v : []).forEach((x) => { if (x && x.msgs) x.msgs.forEach((mm) => keep.add(mm.t)); else if (x) keep.add(x.t); });
+      }
+      const db = await audDb(); const os = db.transaction('a', 'readwrite').objectStore('a');
+      os.openCursor().onsuccess = (e) => { const c = e.target.result; if (!c) return; if (!keep.has(c.key)) c.delete(); c.continue(); };
+    } catch { /* ignore */ }
+  }
+  setTimeout(audGc, 8000);
+  const saveChat0 = () => safeSet(chatKey(P.lang), S.msgs.slice(-60).map((m) => {
     const { _audio, _rate, _final, pending, live, ...rest } = m; // eslint-disable-line no-unused-vars
     return rest;
   }));
@@ -125,7 +148,8 @@
       if (!S.msgs.some((m) => m.role === 'user' && m.text && m.text.trim())) return;
       const msgs = S.msgs.slice(-60).filter((m) => !m.pending).map((m) => { const { _audio, _rate, _final, pending, live, ...rest } = m; return rest; }); // eslint-disable-line no-unused-vars
       const a = loadArch();
-      a.unshift({ id: Date.now(), ts: Date.now(), scenario: scn === undefined ? (P.scenario || '') : (scn || ''), level: level(), msgs });
+      const mt = safeGet(`edu_v3_meta_${P.lang}`, null) || {};
+      a.unshift({ id: Date.now(), ts: Date.now(), scenario: mt.scenario !== undefined ? mt.scenario : (scn === undefined ? (P.scenario || '') : (scn || '')), level: LEVELS.includes(mt.level) ? mt.level : level(), msgs });
       safeSet(archKey(P.lang), a.slice(0, 20));
     } catch { /* ignore */ }
   }
@@ -347,6 +371,14 @@
       const slow = b.dataset.slow === '1';
       if (m && m._audio && m._audio.length && b.dataset.part === 'reply' && !slow && L.player) {
         stopAudio(); LiveAudio.unlock(); L.player.replay(m._audio, m._rate || 24000);
+        return;
+      }
+      if (m && m.provider === 'live' && m.t && !slow && b.dataset.part === 'reply' && L.player) {
+        stopAudio(); LiveAudio.unlock();
+        void audGet(m.t).then((rec) => {
+          if (rec && rec.blob) rec.blob.arrayBuffer().then((ab) => L.player.replay([new Uint8Array(ab)], rec.rate || 24000));
+          else void speak(partItems(m, b.dataset.part), { slow: P.slow, btn: b });
+        });
         return;
       }
       void speak(partItems(m, b.dataset.part), { slow: slow || P.slow, btn: b });
@@ -755,6 +787,7 @@
     // Cevap + ses hemen bitsin; okunuş/TR arka planda gelsin (takılma azalır)
     tutor.pending = false;
     render(); saveChat();
+    saveLiveAudio(tutor); setTimeout(() => saveLiveAudio(tutor), 1500);
     if (!L.player.playing) idleStatus();
     void (async () => {
       try {
