@@ -680,18 +680,19 @@ def annotate(lang: str, tutor_text: str, user_text: str = "", *, level: str = "A
         return parsed
 
     # part="fast": okunuş + Türkçe (hemen ekrana gelsin) · part="check": düzeltme/seviye (LLM, daha yavaş) · "all": ikisi
-    want_fast = part in ("all", "fast")
+    want_fast = part in ("all", "fast", "oku")
+    want_tr = part in ("all", "fast", "tr")
     want_check = part in ("all", "check")
     with ThreadPoolExecutor(max_workers=4) as pool:
         f_ok = pool.submit(do_okunus) if want_fast else None
-        f_tr = pool.submit(do_tr) if want_fast else None
+        f_tr = pool.submit(do_tr) if want_tr else None
         f_uo = pool.submit(do_user_okunus) if want_fast else None
         f_ck = pool.submit(do_check) if want_check else None
         out["okunus"] = (f_ok.result() if f_ok else "") or ""
         out["user_okunus"] = (f_uo.result() if f_uo else "") or ""
         out["tr"] = (f_tr.result() if f_tr else "") or ""
         ck = f_ck.result() if f_ck else None
-    if part == "fast":
+    if part in ("fast", "oku", "tr"):
         return out
     garbled = bool(isinstance(ck, dict) and ck.get("garbled"))
     if user_target and lang in ("en", "de", "fr", "es", "it", "id"):

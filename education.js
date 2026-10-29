@@ -790,8 +790,11 @@
     try {
       const t = L.tutorMsg; if (!t || !t.reply.trim()) return;
       const u = L.userMsg; const ut = u ? (u.mode !== 'help' ? u.text : '') : '';
-      const body = annBody(t, ut, 'fast');
-      L.pre = { body, p: fetch('/api/edu/annotate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }).then((r) => (r.ok ? r.json() : null)).catch(() => null) };
+      L.pre = {};
+      ['oku', 'tr'].forEach((pt) => {
+        const body = annBody(t, ut, pt);
+        L.pre[pt] = { body, p: fetch('/api/edu/annotate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }).then((r) => (r.ok ? r.json() : null)).catch(() => null) };
+      });
     } catch { /* ignore */ }
   }
   async function finishLiveTurn() {
@@ -820,11 +823,13 @@
       // okunuş+Türkçe hızlı (kural/çeviri) ve düzeltme+seviye ayrı istek → okunuş düzeltmeyi beklemeden hemen gelir
       const post = (part) => {
         const body = annBody(tutor, ut, part);
-        if (part === 'fast' && L.pre && L.pre.body === body) { const p = L.pre.p; L.pre = null; return p; }
+        if (L.pre && L.pre[part] && L.pre[part].body === body) { const p = L.pre[part].p; L.pre[part] = null; return p; }
         return fetch('/api/edu/annotate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })
           .then((r) => (r.ok ? r.json() : null)).catch(() => null);
       };
-      const pFast = post('fast');
+      const pFast = post('oku');
+      const pTr = post('tr');
+      pTr.then((g) => { if (g && tutor._seq === seq && g.tr) { tutor.reply_tr = g.tr; saveChat(); render(); } });
       const pCheck = ut ? post('check') : Promise.resolve(null);
       try {
         const f = await pFast;
@@ -832,7 +837,6 @@
           tutor.okunus = f.okunus || '';
           tutor.segments = Array.isArray(f.segments) ? f.segments : [];
           if (user && f.user_okunus) user.okunus = f.user_okunus;
-          tutor.reply_tr = f.tr || '';
           if (f.hint_tr) { tutor.explain_tr = f.hint_tr; tutor.reply_target = f.target || ''; }
           saveChat(); render();
           // canlı ses gelmediyse (ör. yazıyla sorulunca) sessiz kalma: yedek seslendirme
