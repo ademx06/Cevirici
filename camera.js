@@ -117,7 +117,7 @@
   }
   async function trigger() {
     const s = live.session; if (!s || !stream || !video.videoWidth) return;
-    live.lastSend = Date.now(); live.sent = live.sig; live.pending = false;
+    live.lastSend = Date.now(); live.act = 0; live.sent = live.sig; live.pending = false;
     // her ~18 çeviride oturumu yenile (bağlam şişmesin, gecikme artmasın)
     if (live.count >= 18) { try { s.close(); } catch { /* ignore */ } live.count = 0; }
     try { if (!s.isOpen) await s.connect(); } catch { status('Bağlantı kurulamadı'); return; }
@@ -137,7 +137,11 @@
   function loop() {
     if (!live.on) return;
     live.timer = setTimeout(loop, 300);
-    if (live.gen && Date.now() - live.lastSend > 9000) { live.gen = false; live.buf = ''; } // yanıt gelmediyse takılı kalma
+    // yanıt "bitti" sinyali gelmezse takılı kalma: sessizlik 2.5 sn ya da toplam 7 sn → bitmiş say
+    if (live.gen) {
+      const now = Date.now();
+      if ((live.act && now - live.act > 2500) || now - live.lastSend > 7000) liveFinish();
+    }
     if (!stream || !video.videoWidth) return;
     const sig = sigOf(); const moving = dist(sig, live.sig) > 12; live.sig = sig;
     live.stable = moving ? 0 : live.stable + 1;
@@ -157,10 +161,10 @@
     live.player = new LiveAudio.Player({});
     live.session = new LiveAudio.Session({
       body: () => ({ kind: 'camera', target: sel.value }),
-      onAudio: (u8, rate) => { if ($('camSound').checked) live.player.enqueue(u8, rate); },
-      onOutput: (t) => { live.buf += t; },
+      onAudio: (u8, rate) => { live.act = Date.now(); if ($('camSound').checked) live.player.enqueue(u8, rate); },
+      onOutput: (t) => { live.act = Date.now(); live.buf += t; },
       onTurnComplete: liveFinish,
-      onGenerationComplete: () => {},
+      onGenerationComplete: () => { if (live.gen) setTimeout(() => { if (live.gen && Date.now() - (live.act || 0) > 600) liveFinish(); }, 700); },
       onInterrupted: () => {},
       onState: (st) => { if (st === 'error') status('Bağlantı hatası — tekrar dene'); },
     });
