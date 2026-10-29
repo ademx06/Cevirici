@@ -33,7 +33,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.10.30-v79.5"
+APP_VERSION = "2026.10.30-v79.6"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -2881,6 +2881,13 @@ def transcribe_pair(data: bytes, a: str, b: str, dbg: dict | None = None) -> tup
             dbg["gem"] = g
             dbg["gerr"] = _gerr
         if g:
+            if g[1] == "ka":  # Gürcüce yazıda kilitli (Google/Whisper) STT Gemini'den daha doğru
+                try:
+                    kr = stt_for_bas_konus(wav, "ka")
+                    if kr and (kr[0] or "").strip():
+                        return clean_stt_text(kr[0]), "ka"
+                except Exception:
+                    pass
             return g
         with ThreadPoolExecutor(max_workers=3) as pool:
             _aerr: list = []
