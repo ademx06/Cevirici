@@ -354,7 +354,9 @@
       const sc = m.serverContent;
       if (!sc) return;
       if (sc.interrupted && this.o.onInterrupted) this.o.onInterrupted();
-      if (sc.inputTranscription && sc.inputTranscription.text && this.o.onInput) this.o.onInput(sc.inputTranscription.text);
+      // bazen "<speaker:Who>" gibi etiketler yazıya sızıyor → temizle
+      const stripTag = (s) => String(s).replace(/<\/?[A-Za-z_]{2,20}(?::[^<>\s]{0,30})?>/g, '');
+      if (sc.inputTranscription && sc.inputTranscription.text && this.o.onInput) { const tx = stripTag(sc.inputTranscription.text); if (tx.trim() || /\s/.test(tx)) this.o.onInput(tx); }
       if (sc.modelTurn && sc.modelTurn.parts) {
         for (const p of sc.modelTurn.parts) {
           if (p.inlineData && p.inlineData.data && this.o.onAudio) {
@@ -363,7 +365,7 @@
           }
         }
       }
-      if (sc.outputTranscription && sc.outputTranscription.text && this.o.onOutput) this.o.onOutput(sc.outputTranscription.text);
+      if (sc.outputTranscription && sc.outputTranscription.text && this.o.onOutput) { const tx = stripTag(sc.outputTranscription.text); if (tx.trim() || /\s/.test(tx)) this.o.onOutput(tx); }
       if (sc.generationComplete && this.o.onGenerationComplete) this.o.onGenerationComplete();
       if (sc.turnComplete && this.o.onTurnComplete) this.o.onTurnComplete();
     }

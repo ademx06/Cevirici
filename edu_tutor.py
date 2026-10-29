@@ -309,7 +309,8 @@ def _s(v: Any, n: int = 600) -> str:
 
 
 def _clean_target(text: str) -> str:
-    text = re.sub(r"[\U0001F300-\U0001FAFF☀-➿️]", "", text or "")
+    text = re.sub(r"<\s*/?\s*[A-Za-z_]{2,20}(?::[^<>\s]{0,30})?\s*>", "", text or "")  # <speaker:Who> gibi sızan etiketler
+    text = re.sub(r"[\U0001F300-\U0001FAFF☀-➿️]", "", text)
     return re.sub(r"\s+", " ", text).strip()
 
 
@@ -620,7 +621,7 @@ def annotate(lang: str, tutor_text: str, user_text: str = "", *, level: str = "A
     from concurrent.futures import ThreadPoolExecutor
     lang = (lang or "en").split("-")[0].lower()
     full_text = _clean_target(_s(tutor_text, 800))
-    user_text = _s(user_text, 400)
+    user_text = _clean_target(_s(user_text, 400))
     target_parts, tr_parts = split_turkish(full_text, lang)
     tutor_text = " ".join(target_parts).strip()
     hint_tr = " ".join(tr_parts).strip()
@@ -690,6 +691,17 @@ def annotate(lang: str, tutor_text: str, user_text: str = "", *, level: str = "A
             if not re.search(r"[aeiouyáàâäéèêëíìîïóòôöúùûüœ]", tok.lower()):
                 garbled = True
                 break
+    if user_target and lang in ("ru", "ka"):
+        vow = "аеёиоуыэюяАЕЁИОУЫЭЮЯ" if lang == "ru" else "აეიოუ"
+        for tok in re.findall(r"[^\W\d_]{3,}", user_target, re.U):
+            if not any(ch in vow for ch in tok):
+                garbled = True
+                break
+    rng = {"ru": "\u0400-\u04FF", "ka": "\u10A0-\u10FF", "ar": "\u0600-\u06FF", "zh": "\u4E00-\u9FFF"}.get(lang)
+    if user_target and rng:
+        letters = re.findall(r"[^\W\d_]", user_target, re.U)
+        if letters and sum(1 for c in letters if re.match("[" + rng + "]", c)) / len(letters) < 0.5:
+            garbled = True  # beklenen yazıda değil → yanlış tanıma
     if garbled:
         out["unclear"] = True
         ck = None

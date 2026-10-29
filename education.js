@@ -1002,8 +1002,20 @@
     ['micBtn', 'helpBtn'].forEach((id) => { $(id).disabled = true; });
   }
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden' && L.session) { L.player && L.player.stop(); }
-    if (document.visibilityState === 'visible') { warmFails = 0; setTimeout(warmLive, 300); }
+    if (document.visibilityState === 'hidden') { L.hiddenAt = Date.now(); if (L.session) { L.player && L.player.stop(); } }
+    if (document.visibilityState === 'visible') {
+      warmFails = 0;
+      if (L.hiddenAt && Date.now() - L.hiddenAt > 4000) {
+        // arka plandan dönüş: takılı kalan durumu temizle, bağlantıyı tazele
+        if (L.tutorMsg || L.userMsg) void finishLiveTurn();
+        L.talking = false; S.busy = false;
+        try { if (L.session) L.session.close(); } catch { /* ignore */ }
+        L.session = null;
+        idleStatus();
+      }
+      L.hiddenAt = 0;
+      setTimeout(warmLive, 300);
+    }
   });
 
   // ------------------------------------------------------------------ sheets

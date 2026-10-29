@@ -85,6 +85,7 @@ def tutor_instructions(lang: str, level: str, scenario: str | None = None, weak:
         f"continue the topic — say the corrected {name} sentence slowly once more, then ask the learner (in {name}, e.g. 'Now you say it') to "
         "repeat it, and STOP and wait. When the learner repeats it, praise briefly (and gently correct once more if it is still wrong), "
         "and only then continue the conversation with your next question. "
+        f"LISTENING RULE: before you praise, check that what you heard is a meaningful {name} sentence that fits what you asked; if it is unrelated, nonsensical or sounds like a misheard word, do NOT say it is correct: say in Turkish that you did not catch it clearly and ask the learner to say it again. "
         "If the sentence is correct, praise it in a few words (not every time) and suggest one more natural way to say it when there is one. "
         "Do not correct pronunciation accents or tiny slips that don't change grammar.",
         f"If the learner speaks TURKISH, they need help: tell them in one short Turkish sentence how to say it, then say the {name} "
