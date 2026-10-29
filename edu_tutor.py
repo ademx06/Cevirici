@@ -710,6 +710,8 @@ def annotate(lang: str, tutor_text: str, user_text: str = "", *, level: str = "A
             out["fix"] = {"status": "fix", "fixed": fixed, "fixed_tr": _s(ck.get("fixed_tr"), 400),
                           "okunus": ok.okunus(fixed, lang) if lang in RULE_LANGS_LOCAL else "",
                           "explain_tr": _s(ck.get("explain_tr"), 400), "how_tr": _s(ck.get("how_tr"), 220)}
+            if len(fixed.split()) < 4 or re.search(r"[.!?]", fixed.strip().rstrip(".!?… ")):
+                out["fix"]["how_tr"] = ""  # tek kelime / çok cümle için "nasıl kurulur" saçma olur
         for w in (ck.get("words") or [])[:2]:
             if isinstance(w, dict) and _s(w.get("word"), 40):
                 out["words"].append({"word": _clean_target(_s(w.get("word"), 40)), "tr": _s(w.get("tr"), 60)})

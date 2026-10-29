@@ -703,11 +703,13 @@
         onOutput: (t) => {
           if (!L.tutorMsg) startTutorMsg();
           L.tutorMsg.reply = (L.tutorMsg.reply + t).replace(/\s+/g, ' ');
+          if (L.genTimer) { clearTimeout(L.genTimer); L.genTimer = setTimeout(() => { if (L.tutorMsg) finishLiveTurn(); }, 1800); }
           patchSoon();
         },
         onInterrupted: () => { if (L.talking) L.player.stop(); },
         // metin bitince (ses hâlâ çalarken) okunuş/çeviri istenir → ekranda bekleme olmaz
-        onGenerationComplete: () => { if (L.tutorMsg) finishLiveTurn(); },
+        // yazıya dökme sesten/metinden sonra gelebilir → hemen bitirme, son parçadan sonra kısa süre bekle (cümle ikiye bölünmesin)
+        onGenerationComplete: () => { if (L.tutorMsg) { clearTimeout(L.genTimer); L.genTimer = setTimeout(() => { if (L.tutorMsg) finishLiveTurn(); }, 1800); } },
         onTurnComplete: () => { if (L.tutorMsg || L.userMsg) finishLiveTurn(); },
         onState: (st) => {
           if (st === 'closed' || st === 'goaway') {
@@ -728,6 +730,13 @@
 
   function startTutorMsg() {
     S.busy = false;
+    // bitmiş öğretmen mesajının geç gelen son parçası: yeni balon açma, aynı mesaja ekle
+    const lastMsg = S.msgs[S.msgs.length - 1];
+    if (L.lastTutor && lastMsg === L.lastTutor && Date.now() - (L.lastDone || 0) < 6000 && !L.userMsg && !L.talking) {
+      L.tutorMsg = L.lastTutor; L.tutorMsg.pending = true; L.tutorMsg._reopen = true;
+      renderSoon();
+      return;
+    }
     L.tutorMsg = { role: 'tutor', lang: P.lang, mode: L.mode, you: L.mode === 'speak' && L.userMsg ? L.userMsg.text : '',
       reply: '', reply_tr: '', okunus: '', fix: null, examples: [], explain_tr: '', words: [], provider: 'live', live: true,
       pending: true, t: Date.now(), _audio: [], _rate: 24000 };
@@ -773,7 +782,7 @@
   }
 
   async function finishLiveTurn() {
-    clearTimeout(L.turnTimer);
+    clearTimeout(L.turnTimer); clearTimeout(L.genTimer); L.genTimer = null;
     const user = L.userMsg; const tutor = L.tutorMsg;
     L.userMsg = null; L.tutorMsg = null; S.busy = false;
     if (user && !user.text.trim()) {
@@ -783,7 +792,10 @@
     if (user) user.pending = false;
     if (!tutor) { render(); idleStatus(); return; }
     tutor.reply = tutor.reply.trim();
-    tutor.you = tutor.mode === 'speak' && user ? user.text.trim() : '';
+    tutor.you = tutor.mode === 'speak' ? (user ? user.text.trim() : (tutor._reopen ? tutor.you : '')) : '';
+    L.lastTutor = tutor; L.lastDone = Date.now();
+    const seq = (tutor._seq = (tutor._seq || 0) + 1);
+    const ut = user ? (user.mode !== 'help' ? user.text : '') : (tutor._reopen && tutor.mode !== 'help' ? tutor.you : '');
     // Cevap + ses hemen bitsin; okunuş/TR arka planda gelsin (takılma azalır)
     tutor.pending = false;
     const prevT = [...S.msgs].reverse().find((m) => m !== tutor && m.role === 'tutor' && m.reply && !m.pending);
@@ -794,15 +806,17 @@
     void (async () => {
       try {
         const r = await fetch('/api/edu/annotate', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ lang: tutor.lang, tutor_text: tutor.reply, user_text: user && user.mode !== 'help' ? user.text : '', mode: tutor.mode, level: level(), prev_tutor: prevTutor }) });
+          body: JSON.stringify({ lang: tutor.lang, tutor_text: tutor.reply, user_text: ut, mode: tutor.mode, level: level(), prev_tutor: prevTutor }) });
         const a = await r.json();
         if (!r.ok) return;
-        tutor.okunus = a.okunus || ''; tutor.fix = a.fix || null; tutor.words = a.words || [];
-        tutor.segments = Array.isArray(a.segments) ? a.segments : [];
-        if (user && a.user_okunus) user.okunus = a.user_okunus;
-        tutor.reply_tr = a.tr || '';
-        if (a.hint_tr) { tutor.explain_tr = a.hint_tr; tutor.reply_target = a.target || ''; }
-        tutor.checked = !!a.checked; tutor.unclear = !!a.unclear;
+        if (tutor._seq === seq) {
+          tutor.okunus = a.okunus || ''; tutor.fix = a.fix || null; tutor.words = a.words || [];
+          tutor.segments = Array.isArray(a.segments) ? a.segments : [];
+          if (user && a.user_okunus) user.okunus = a.user_okunus;
+          tutor.reply_tr = a.tr || '';
+          if (a.hint_tr) { tutor.explain_tr = a.hint_tr; tutor.reply_target = a.target || ''; }
+          tutor.checked = !!a.checked; tutor.unclear = !!a.unclear;
+        }
         if (tutor.mode === 'speak' && user && user.text.trim() && !tutor.unclear) {
           P.turns = (P.turns || 0) + 1;
           if (!tutor.fix) P.correct = (P.correct || 0) + 1;
