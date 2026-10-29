@@ -142,7 +142,7 @@
     // yanıt "bitti" sinyali gelmezse takılı kalma: sessizlik 2.5 sn ya da toplam 7 sn → bitmiş say
     if (live.gen) {
       const now = Date.now();
-      if ((live.act && now - live.act > 2500) || now - live.lastSend > 7000) liveFinish();
+      if ((live.act && now - live.act > 3000) || now - live.lastSend > 7000) liveFinish();
     }
     if (!stream || !video.videoWidth) return;
     const sig = sigOf(); const moving = dist(sig, live.sig) > 0.12; live.sig = sig;
@@ -166,7 +166,7 @@
       onAudio: (u8, rate) => { live.act = Date.now(); if ($('camSound').checked) live.player.enqueue(u8, rate); },
       onOutput: (t) => { live.act = Date.now(); live.buf += t; },
       onTurnComplete: liveFinish,
-      onGenerationComplete: () => { if (live.gen) setTimeout(() => { if (live.gen && Date.now() - (live.act || 0) > 600) liveFinish(); }, 700); },
+      onGenerationComplete: () => {},
       onInterrupted: () => {},
       onState: (st) => { if (st === 'error') status('Bağlantı hatası — tekrar dene'); },
     });
