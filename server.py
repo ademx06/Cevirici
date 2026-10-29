@@ -33,7 +33,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.10.30-v79.0"
+APP_VERSION = "2026.10.30-v79.1"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -1505,6 +1505,7 @@ def _groq_stt_request(
     prompt: str,
     timeout_sec: int = 18,
     model: str | None = None,
+    verbose: bool = False,
 ) -> tuple[str, str, float] | None:
     from education_engine import groq_api_key_valid
 
@@ -1513,7 +1514,7 @@ def _groq_stt_request(
         return None
     short = lang_code if lang_code in STT_LANG else None
     # json yeterli — dil metinden + (varsa) language alanından
-    response_format = "json"
+    response_format = "verbose_json" if verbose else "json"
     try:
         import uuid
 
@@ -1563,6 +1564,9 @@ def _groq_stt_request(
         if len(text) < 2 or is_hallucination(text):
             return None
         detected = short or normalize_whisper_lang(payload.get("language"))
+        if verbose and not short:
+            # Whisper'ın kendi dil kararı (dil çifti dışı olabilir → çağıran karar verir)
+            return text, detected or "", 0.0
         if not detected:
             for candidate in STT_LANG:
                 if looks_like_lang(text, candidate):
@@ -2813,6 +2817,49 @@ def transcribe_forced(
             os.unlink(wav)
 
 
+def transcribe_pair(data: bytes, a: str, b: str) -> tuple[str, str]:
+    """Eller serbest: konuşulan dil a mı b mi? Whisper'ın dil kararı + her iki dilde kilitli STT paralel;
+    yanlış dil kilitlenince çıkan çöp (komşu dilde uydurma) reddedilir. Türkçe'ye kayırma YOK."""
+    wav = prepare_wav_bas_konus(data)
+    try:
+        if not audio_has_speech(wav):
+            raise ValueError("no speech")
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            f_auto = pool.submit(lambda: _groq_stt_request(wav, lang_code=None, prompt="", model="whisper-large-v3", verbose=True))
+            f_a = pool.submit(lambda: stt_for_bas_konus(wav, a))
+            f_b = pool.submit(lambda: stt_for_bas_konus(wav, b))
+            def get(f):
+                try:
+                    return f.result(timeout=24)
+                except Exception:
+                    return None
+            auto, ra, rb = get(f_auto), get(f_a), get(f_b)
+        det = (auto[1] if auto else "") or ""
+        ta = clean_stt_text(ra[0]) if ra and ra[0] else ""
+        tb = clean_stt_text(rb[0]) if rb and rb[0] else ""
+        if det == a and ta:
+            return ta, a
+        if det == b and tb:
+            return tb, b
+        if det in (a, b):  # kilitli sonuç yok ama Whisper dili biliyor → kendi metni
+            t = clean_stt_text(auto[0]) if auto and auto[0] else ""
+            if t and _script_matches_lang(t, det):
+                return t, det
+        # Whisper çift dışı bir şey dedi: yalnız biri makul çıktıysa onu al
+        if ta and not tb:
+            return ta, a
+        if tb and not ta:
+            return tb, b
+        if ta and tb:
+            def fit(t, l):
+                return (2 if looks_like_lang(t, l) else 0) + (1 if _script_matches_lang(t, l) else 0)
+            return (ta, a) if fit(ta, a) >= fit(tb, b) else (tb, b)
+        raise ValueError("speech not recognized")
+    finally:
+        if os.path.exists(wav):
+            os.unlink(wav)
+
+
 def process_speech_segment(
     data: bytes,
     my: str,
@@ -3739,7 +3786,7 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             if isinstance(pair, list) and len(pair) == 2 and all(x in STT_LANG for x in pair) and pair[0] != pair[1]:
                 # Karşılıklı (eller serbest): iki dilden hangisi konuşuldu → metin + dil
-                text, from_lang = transcribe_dual(data, pair[0], pair[1], None)
+                text, from_lang = transcribe_pair(data, pair[0], pair[1])
                 return self._send_json({"ok": True, "text": text, "lang": from_lang})
             text, _ = transcribe_forced(data, lang)
         except Exception as e:
