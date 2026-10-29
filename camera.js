@@ -122,7 +122,7 @@
     if (live.count >= 18) { try { s.close(); } catch { /* ignore */ } live.count = 0; }
     try { if (!s.isOpen) await s.connect(); } catch { status('Bağlantı kurulamadı'); return; }
     live.player.stop(); live.buf = ''; live.gen = true; live.count += 1;
-    const url = grab(video, video.videoWidth, video.videoHeight, 768, 0.6);
+    const url = grab(video, video.videoWidth, video.videoHeight, 1024, 0.72);
     // kare ve ipucu AYNI turda → model kareyi görmeden cevap vermez
     s.send({ clientContent: { turns: [{ role: 'user', parts: [{ inlineData: { mimeType: 'image/jpeg', data: url.split(',')[1] } }, { text: '[ÇEVİR]' }] }], turnComplete: true } });
     status('Çevriliyor…');
@@ -137,12 +137,17 @@
   function loop() {
     if (!live.on) return;
     live.timer = setTimeout(loop, 300);
+    if (live.gen && Date.now() - live.lastSend > 9000) { live.gen = false; live.buf = ''; } // yanıt gelmediyse takılı kalma
     if (!stream || !video.videoWidth) return;
-    const sig = sigOf(); const moving = dist(sig, live.sig) > 6; live.sig = sig;
+    const sig = sigOf(); const moving = dist(sig, live.sig) > 12; live.sig = sig;
     live.stable = moving ? 0 : live.stable + 1;
-    if (live.stable < 2 || dist(sig, live.sent) <= 9) return; // sahne oturdu ve son gönderilenden farklı
+    const since = Date.now() - live.lastSend;
+    const changed = dist(sig, live.sent);
+    // elde tutarken görüntü hiç "oturmayabilir": oturduysa hemen, oturmadıysa en geç 2 sn'de bir (değişiklik varsa) gönder
+    const go = !live.sent || (live.stable >= 2 && changed > 7) || (since > 2000 && changed > 5);
+    if (!go) return;
     if (live.gen) { live.pending = true; return; }
-    if (Date.now() - live.lastSend < 700) return;
+    if (since < 700) return;
     trigger();
   }
   async function liveStart() {
