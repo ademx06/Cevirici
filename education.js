@@ -703,13 +703,13 @@
         onOutput: (t) => {
           if (!L.tutorMsg) startTutorMsg();
           L.tutorMsg.reply = (L.tutorMsg.reply + t).replace(/\s+/g, ' ');
-          if (L.genTimer) { clearTimeout(L.genTimer); L.genTimer = setTimeout(() => { if (L.tutorMsg) finishLiveTurn(); }, 1800); }
+          if (L.genTimer) { clearTimeout(L.genTimer); L.genTimer = setTimeout(() => { if (L.tutorMsg) finishLiveTurn(); }, 700); }
           patchSoon();
         },
         onInterrupted: () => { if (L.talking) L.player.stop(); },
         // metin bitince (ses hâlâ çalarken) okunuş/çeviri istenir → ekranda bekleme olmaz
         // yazıya dökme sesten/metinden sonra gelebilir → hemen bitirme, son parçadan sonra kısa süre bekle (cümle ikiye bölünmesin)
-        onGenerationComplete: () => { if (L.tutorMsg) { clearTimeout(L.genTimer); L.genTimer = setTimeout(() => { if (L.tutorMsg) finishLiveTurn(); }, 1800); } },
+        onGenerationComplete: () => { if (L.tutorMsg) { clearTimeout(L.genTimer); L.genTimer = setTimeout(() => { if (L.tutorMsg) finishLiveTurn(); }, 700); prefetchFast(); } },
         onTurnComplete: () => { if (L.tutorMsg || L.userMsg) finishLiveTurn(); },
         onState: (st) => {
           if (st === 'closed' || st === 'goaway') {
@@ -781,6 +781,19 @@
     requestAnimationFrame(() => { renderPending = false; render(); });
   }
 
+  /** metin bitince okunuş/TR isteği hemen gider; finishLiveTurn aynı içerikse bu sonucu kullanır (bekleme yok) */
+  function annBody(tutor, ut, part) {
+    const prevT = [...S.msgs].reverse().find((m) => m !== tutor && m.role === 'tutor' && m.reply && !m.pending);
+    return JSON.stringify({ lang: tutor.lang, tutor_text: tutor.reply.trim(), user_text: ut, mode: tutor.mode, level: level(), prev_tutor: prevT ? String(prevT.reply).slice(0, 500) : '', part });
+  }
+  function prefetchFast() {
+    try {
+      const t = L.tutorMsg; if (!t || !t.reply.trim()) return;
+      const u = L.userMsg; const ut = u ? (u.mode !== 'help' ? u.text : '') : '';
+      const body = annBody(t, ut, 'fast');
+      L.pre = { body, p: fetch('/api/edu/annotate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }).then((r) => (r.ok ? r.json() : null)).catch(() => null) };
+    } catch { /* ignore */ }
+  }
   async function finishLiveTurn() {
     clearTimeout(L.turnTimer); clearTimeout(L.genTimer); L.genTimer = null;
     const user = L.userMsg; const tutor = L.tutorMsg;
@@ -805,9 +818,12 @@
     if (!L.player.playing) idleStatus();
     void (async () => {
       // okunuş+Türkçe hızlı (kural/çeviri) ve düzeltme+seviye ayrı istek → okunuş düzeltmeyi beklemeden hemen gelir
-      const post = (part) => fetch('/api/edu/annotate', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lang: tutor.lang, tutor_text: tutor.reply, user_text: ut, mode: tutor.mode, level: level(), prev_tutor: prevTutor, part }) })
-        .then((r) => (r.ok ? r.json() : null)).catch(() => null);
+      const post = (part) => {
+        const body = annBody(tutor, ut, part);
+        if (part === 'fast' && L.pre && L.pre.body === body) { const p = L.pre.p; L.pre = null; return p; }
+        return fetch('/api/edu/annotate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })
+          .then((r) => (r.ok ? r.json() : null)).catch(() => null);
+      };
       const pFast = post('fast');
       const pCheck = ut ? post('check') : Promise.resolve(null);
       try {
