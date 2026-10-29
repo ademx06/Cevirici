@@ -117,6 +117,53 @@
     return rest;
   }));
 
+  // ---- sohbet arşivi: yeni sohbet / senaryo değişiminde eski sohbet kaybolmaz, listeden açılır/silinir
+  const archKey = (lang) => `edu_v3_archive_${lang}`;
+  const loadArch = () => { const a = safeGet(archKey(P.lang), []); return Array.isArray(a) ? a : []; };
+  function archiveCurrent(scn) {
+    try {
+      if (!S.msgs.some((m) => m.role === 'user' && m.text && m.text.trim())) return;
+      const msgs = S.msgs.slice(-60).filter((m) => !m.pending).map((m) => { const { _audio, _rate, _final, pending, live, ...rest } = m; return rest; }); // eslint-disable-line no-unused-vars
+      const a = loadArch();
+      a.unshift({ id: Date.now(), ts: Date.now(), scenario: scn === undefined ? (P.scenario || '') : (scn || ''), level: level(), msgs });
+      safeSet(archKey(P.lang), a.slice(0, 20));
+    } catch { /* ignore */ }
+  }
+  function renderChatList() {
+    const box = $('chatList'); if (!box) return;
+    const a = loadArch();
+    box.textContent = '';
+    if (!a.length) { box.hidden = true; return; }
+    box.hidden = false;
+    const h = document.createElement('div'); h.className = 'chat-list-h'; h.textContent = 'Önceki sohbetler'; box.appendChild(h);
+    a.forEach((c) => {
+      const row = document.createElement('div'); row.className = 'chat-item';
+      const info = document.createElement('div'); info.className = 'chat-info';
+      const first = (c.msgs.find((m) => m.role === 'user' && m.text) || {}).text || '';
+      const when = new Date(c.ts).toLocaleString('tr-TR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+      const t1 = document.createElement('b'); t1.textContent = `${SCENARIO_NAME[c.scenario] || 'Serbest sohbet'} · ${c.level || ''}`;
+      const t2 = document.createElement('small'); t2.textContent = `${when} · ${first.slice(0, 40)}`;
+      info.append(t1, t2);
+      const open = document.createElement('button'); open.type = 'button'; open.className = 'btn'; open.textContent = 'Aç';
+      open.addEventListener('click', () => openArchived(c.id));
+      const del = document.createElement('button'); del.type = 'button'; del.className = 'btn btn-danger'; del.textContent = 'Sil';
+      del.addEventListener('click', () => { if (!window.confirm('Bu sohbet silinsin mi?')) return; safeSet(archKey(P.lang), loadArch().filter((x) => x.id !== c.id)); renderChatList(); });
+      row.append(info, open, del); box.appendChild(row);
+    });
+  }
+  function openArchived(id) {
+    const a = loadArch(); const c = a.find((x) => x.id === id); if (!c) return;
+    archiveCurrent();
+    safeSet(archKey(P.lang), loadArch().filter((x) => x.id !== id));
+    P.scenario = c.scenario || '';
+    if (LEVELS.includes(c.level)) { P.levels[P.lang] = c.level; P.sinceChange[P.lang] = 0; P.ema[P.lang] = LEVELS.indexOf(c.level) + 1; }
+    saveProfile();
+    S.msgs = (c.msgs || []).map(cleanMsg).filter(Boolean);
+    saveChat();
+    closeSheet('settingsSheet');
+    switchConversation();
+  }
+
   // ------------------------------------------------------------------ status
   let statusTimer = null;
   function setStatus(text, live = false, sticky = false) {
@@ -967,6 +1014,7 @@
   });
   $('autoLevel').addEventListener('change', (e) => { P.autoLevel = e.target.checked; saveProfile(); });
   $('scenarioSelect').addEventListener('change', (e) => {
+    archiveCurrent();
     P.scenario = e.target.value || '';
     saveProfile();
     S.msgs = [];
@@ -986,13 +1034,14 @@
   bindOpt('optOkunus', 'showOkunus');
   bindOpt('optTr', 'showTr');
   $('newChatBtn').addEventListener('click', () => {
+    archiveCurrent();
     S.msgs = [];
     saveChat();
     closeSheet('settingsSheet');
     switchConversation();
   });
   $('closeSettings').addEventListener('click', () => closeSheet('settingsSheet'));
-  const openSettings = () => { buildSettings(); openSheet('settingsSheet'); };
+  const openSettings = () => { buildSettings(); renderChatList(); openSheet('settingsSheet'); };
   $('settingsBtn').addEventListener('click', openSettings);
   $('langBtn').addEventListener('click', openSettings);
   $('levelBtn').addEventListener('click', openSettings);
@@ -1040,6 +1089,7 @@
     if (!window.confirm(`${lg.tr} için sohbet, kelime ve düzeltme kayıtları silinsin mi?`)) return;
     delete P.words[P.lang]; delete P.mistakes[P.lang]; delete P.recent[P.lang]; delete P.ema[P.lang];
     delete P.sinceChange[P.lang];
+    try { localStorage.removeItem(archKey(P.lang)); } catch { /* ignore */ }
     saveProfile();
     S.msgs = [];
     saveChat();
