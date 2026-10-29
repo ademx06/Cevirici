@@ -280,7 +280,9 @@ def llm_okunus_batch(texts: list[str], lang: str) -> list[str]:
         arr = [arr]
     if not isinstance(arr, list):
         return [""] * len(texts)
-    out = [ok.normalize_okunus(re.sub(r"^\s*\d+[.)]\s*", "", _s(x, 900))) for x in arr[: len(texts)]]
+    def _fixl(s: str) -> str:  # model q/w/x yazarsa reddetme, Türk harfine çevir
+        return s.replace("W", "V").replace("w", "v").replace("Q", "K").replace("q", "k").replace("X", "Ks").replace("x", "ks")
+    out = [ok.normalize_okunus(_fixl(re.sub(r"^\s*\d+[.)]\s*", "", _s(x, 900)))) for x in arr[: len(texts)]]
     return out + [""] * (len(texts) - len(out))
 
 
