@@ -698,6 +698,13 @@ def annotate(lang: str, tutor_text: str, user_text: str = "", *, level: str = "A
         lv = _s(ck.get("user_level"), 4).upper()
         out["user_level"] = lv if lv in LEVELS else ""
         fixed = _clean_target(_s(ck.get("fixed"), 400))
+        if fixed:
+            # düzeltme yalnızca hedef dilde olmalı: Türkçe giriş/ipucu cümlelerini ayıkla
+            _ft, _fr = split_turkish(fixed, lang)
+            if _fr:
+                fixed = " ".join(_ft) if _ft != [fixed] else ""
+            elif _is_turkish_sentence(fixed, lang):
+                fixed = ""
         if lang == "ka" and ck.get("ok") is False and translate_fn and _s(ck.get("fixed_tr"), 300):
             # Gürcüce: modelin yazdığı cümle sık hatalı → Türkçe anlamı güvenilir çeviri hattından (yerel Gürcüce) geçir
             try:
