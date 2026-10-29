@@ -456,12 +456,18 @@
     const r = await sttFull(lang, chunks, pair); return r.text;
   }
   async function sttFull(lang, chunks, pair) {
-    try {
-      const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 9000);
-      const r = await fetch('/api/edu/stt', { method: 'POST', signal: ctrl.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lang, pair: pair || undefined, audio: wavB64(chunks) }) });
-      clearTimeout(to);
-      const j = await r.json(); return r.ok && j.text ? { text: String(j.text), lang: String(j.lang || lang || '') } : { text: '', lang: '' };
-    } catch { return { text: '', lang: '' }; }
+    const audio = wavB64(chunks);
+    for (let k = 0; k < 2; k++) { // soğuk sunucu / anlık hata → bir kez daha dene
+      try {
+        const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 16000);
+        const r = await fetch('/api/edu/stt', { method: 'POST', signal: ctrl.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lang, pair: pair || undefined, audio }) });
+        clearTimeout(to);
+        const j = await r.json();
+        if (r.ok && j.text) return { text: String(j.text), lang: String(j.lang || lang || '') };
+        if (r.status === 400 || r.status === 422) break; // ses yok / çok kısa: tekrar denemenin anlamı yok
+      } catch { /* yeniden dene */ }
+    }
+    return { text: '', lang: '' };
   }
 
   global.LiveAudio = { wavB64, sttFallback, sttFull, unlock, audioCtx, micReady, micPermission, openMic, closeMic, warmIfGranted, Mic, Player, Session, Turn, b64FromBytes, bytesFromB64 };
