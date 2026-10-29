@@ -101,14 +101,16 @@
 
   // ------------------------------------------------------------ canlı altyazı (Gemini Live: kare + ipucu → anında sesli çeviri)
   const live = { on: false, session: null, player: null, gen: false, pending: false, timer: null, sig: null, sent: null, stable: 0, buf: '', lastSend: 0, lines: [], count: 0 };
+  // 48x36 ızgara, ortalaması çıkarılmış parlaklık: ince yazı/altyazı değişimi de yakalanır, pozlama kayması etkilemez
   const sigOf = () => {
-    const c = document.createElement('canvas'); c.width = 24; c.height = 24;
-    const x = c.getContext('2d'); x.drawImage(video, 0, 0, 24, 24);
-    const d = x.getImageData(0, 0, 24, 24).data; const s = [];
-    for (let i = 0; i < d.length; i += 4) s.push((d[i] + d[i + 1] + d[i + 2]) / 3);
-    return s;
+    const c = document.createElement('canvas'); c.width = 48; c.height = 36;
+    const x = c.getContext('2d'); x.drawImage(video, 0, 0, 48, 36);
+    const d = x.getImageData(0, 0, 48, 36).data; const s = []; let m = 0;
+    for (let i = 0; i < d.length; i += 4) { const v = (d[i] + d[i + 1] + d[i + 2]) / 3; s.push(v); m += v; }
+    m /= s.length; return s.map((v) => v - m);
   };
-  const dist = (a, b) => (!a || !b ? 99 : a.reduce((n, v, i) => n + Math.abs(v - b[i]), 0) / a.length);
+  // iki imza arasında belirgin değişen hücre oranı
+  const dist = (a, b) => (!a || !b ? 1 : a.reduce((n, v, i) => n + (Math.abs(v - b[i]) > 28 ? 1 : 0), 0) / a.length);
 
   function liveLines() {
     out.innerHTML = live.lines.length
@@ -143,12 +145,12 @@
       if ((live.act && now - live.act > 2500) || now - live.lastSend > 7000) liveFinish();
     }
     if (!stream || !video.videoWidth) return;
-    const sig = sigOf(); const moving = dist(sig, live.sig) > 12; live.sig = sig;
+    const sig = sigOf(); const moving = dist(sig, live.sig) > 0.12; live.sig = sig;
     live.stable = moving ? 0 : live.stable + 1;
     const since = Date.now() - live.lastSend;
     const changed = dist(sig, live.sent);
     // elde tutarken görüntü hiç "oturmayabilir": oturduysa hemen, oturmadıysa en geç 2 sn'de bir (değişiklik varsa) gönder
-    const go = !live.sent || (live.stable >= 2 && changed > 7) || (since > 2000 && changed > 5);
+    const go = !live.sent || (live.stable >= 2 && changed > 0.012) || (since > 2000 && changed > 0.06);
     if (!go) return;
     if (live.gen) { live.pending = true; return; }
     if (since < 700) return;
