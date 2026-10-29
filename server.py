@@ -33,7 +33,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.10.30-v79.1"
+APP_VERSION = "2026.10.30-v79.2"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -2817,7 +2817,7 @@ def transcribe_forced(
             os.unlink(wav)
 
 
-def transcribe_pair(data: bytes, a: str, b: str) -> tuple[str, str]:
+def transcribe_pair(data: bytes, a: str, b: str, dbg: dict | None = None) -> tuple[str, str]:
     """Eller serbest: konuşulan dil a mı b mi? Whisper'ın dil kararı + her iki dilde kilitli STT paralel;
     yanlış dil kilitlenince çıkan çöp (komşu dilde uydurma) reddedilir. Türkçe'ye kayırma YOK."""
     wav = prepare_wav_bas_konus(data)
@@ -2837,6 +2837,8 @@ def transcribe_pair(data: bytes, a: str, b: str) -> tuple[str, str]:
         det = (auto[1] if auto else "") or ""
         ta = clean_stt_text(ra[0]) if ra and ra[0] else ""
         tb = clean_stt_text(rb[0]) if rb and rb[0] else ""
+        if dbg is not None:
+            dbg.update({"det": det, "auto": (auto[0] if auto else None), "ta": ta, "tb": tb})
         if det == a and ta:
             return ta, a
         if det == b and tb:
@@ -3786,8 +3788,9 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             if isinstance(pair, list) and len(pair) == 2 and all(x in STT_LANG for x in pair) and pair[0] != pair[1]:
                 # Karşılıklı (eller serbest): iki dilden hangisi konuşuldu → metin + dil
-                text, from_lang = transcribe_pair(data, pair[0], pair[1])
-                return self._send_json({"ok": True, "text": text, "lang": from_lang})
+                dbg = {} if p.get("dbg") else None
+                text, from_lang = transcribe_pair(data, pair[0], pair[1], dbg)
+                return self._send_json({"ok": True, "text": text, "lang": from_lang, **({"dbg": dbg} if dbg is not None else {})})
             text, _ = transcribe_forced(data, lang)
         except Exception as e:
             return self.send_json_error(422, self.api_error_message(e))
