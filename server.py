@@ -33,7 +33,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.10.30-v79.6"
+APP_VERSION = "2026.10.30-v80.0"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -3313,6 +3313,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self.handle_camera_translate()
         if parsed.path == "/api/edu/stt":
             return self.handle_edu_stt()
+        if parsed.path == "/api/voice/turn":
+            return self.handle_voice_turn()
         if parsed.path == "/api/education/session-end":
             return self.handle_education_session_end(parse_qs(parsed.query))
         if parsed.path == "/api/builder/word":
@@ -3832,12 +3834,50 @@ class Handler(SimpleHTTPRequestHandler):
             source=safe_str(p.get("source") or "tr")[:8],
             both=bool(p.get("both")),
             step=int(p.get("step") or 0) if str(p.get("step") or "0").isdigit() else 0,
+            bad_kid=re.sub(r"[^0-9a-f]", "", safe_str(p.get("bad_kid")))[:8],
             history=[{"role": "user" if (h or {}).get("role") == "user" else "model", "text": safe_str((h or {}).get("text"))[:300]}
                      for h in (p.get("history") if isinstance(p.get("history"), list) else [])[-12:] if isinstance(h, dict)],
         )
         if not res.get("ok") and p.get("model"):
             edu_live.mark_model_dead(safe_str(p.get("model")))
         self._send_json(res, 200 if res.get("ok") else 503)
+
+    def handle_voice_turn(self):
+        """Çeviri / Karşılıklı yedek (ve güvenilir) yol: kayıt → konuşulan dil + döküm → çeviri. Tek istek.
+
+        source verilirse dil kilitli (bas-konuş); pair verilirse iki dilden hangisi konuşuldu bulunur (eller serbest).
+        """
+        import base64
+        t0 = time.perf_counter()
+        p = self._read_json_body()
+        try:
+            data = base64.b64decode(safe_str(p.get("audio")).split(",")[-1])
+        except Exception:
+            return self.send_json_error(400, "Ses okunamadı")
+        if len(data) < 6000 or len(data) > 8_000_000:
+            return self.send_json_error(400, "Kayıt çok kısa")
+        pair = p.get("pair")
+        source = safe_str(p.get("source")).strip().lower()[:5]
+        target = safe_str(p.get("target")).strip().lower()[:5]
+        try:
+            if isinstance(pair, list) and len(pair) == 2 and all(x in STT_LANG for x in pair) and pair[0] != pair[1]:
+                text, lang = transcribe_pair(data, pair[0], pair[1])
+                to = pair[1] if lang == pair[0] else pair[0]
+            elif source in STT_LANG and target in STT_LANG and source != target:
+                text, _ = transcribe_forced(data, source)
+                lang, to = source, target
+            else:
+                return self.send_json_error(400, "Dil seçimi geçersiz")
+        except Exception as e:
+            return self.send_json_error(422, "Seni anlayamadım — tekrar konuş" if "speech" in str(e) or "no speech" in str(e) else self.api_error_message(e))
+        t_stt = int((time.perf_counter() - t0) * 1000)
+        text = re.sub(r"\s+", " ", text).strip()
+        try:
+            translation = translate_text(text, lang, to)
+        except Exception as e:
+            return self.send_json_error(422, self.api_error_message(e))
+        self._send_json({"ok": True, "text": text, "lang": lang, "to": to, "translation": translation,
+                         "stt_ms": t_stt, "ms": int((time.perf_counter() - t0) * 1000)})
 
     def handle_edu_stt(self):
         """Canlı dökümü güvenilmeyen diller (ör. Gürcüce) için: aynı kayıt Whisper ile yazıya dökülür."""

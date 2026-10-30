@@ -296,6 +296,7 @@
   }
 
   // ------------------------------------------------------------- Session
+  const quota = { kid: '', at: 0 }; // son 'kota doldu' zamanı (sayfa yedek yola geçmek için bakar)
   class Session {
     constructor(opts) {
       this.o = opts; this.ws = null; this.state = 'idle'; this.ready = null; this.handle = null;
@@ -312,6 +313,7 @@
     }
     async _open(attempt = 0) {
       const body = Object.assign({}, (typeof this.o.body === 'function' ? this.o.body() : this.o.body) || {}, { variant: this.variant });
+      if (quota.kid) { body.bad_kid = quota.kid; quota.kid = ''; } // kotası dolan anahtarı sunucuya bildir → varsa diğer anahtar
       let d;
       try {
         const r = await fetch('/api/live/session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -328,6 +330,7 @@
       await new Promise((resolve, reject) => {
         const ws = new WebSocket(d.ws);
         this.ws = ws;
+        const kid = d.kid || '';
         let done = false;
         const timer = setTimeout(() => { if (!done) { done = true; try { ws.close(); } catch { /* ignore */ } reject(new Error('Bağlantı zaman aşımı')); } }, 12000);
         ws.onopen = () => ws.send(JSON.stringify({ setup }));
@@ -343,6 +346,7 @@
         ws.onclose = (e) => {
           clearTimeout(timer);
           if (this.ws === ws) this.ws = null;
+          if (/quota|exhaust|billing/i.test(String(e.reason || '')) || e.code === 1011) { quota.kid = kid; quota.at = Date.now(); }
           if (!done) {
             done = true;
             if (e.code === 1007 && attempt === 0) { this.variant = this.variant ? 0 : 1; this.handle = null; this._open(1).then(resolve, reject); return; }
@@ -470,7 +474,7 @@
     return { text: '', lang: '' };
   }
 
-  global.LiveAudio = { wavB64, sttFallback, sttFull, unlock, audioCtx, micReady, micPermission, openMic, closeMic, warmIfGranted, Mic, Player, Session, Turn, b64FromBytes, bytesFromB64 };
+  global.LiveAudio = { quota, wavB64, sttFallback, sttFull, unlock, audioCtx, micReady, micPermission, openMic, closeMic, warmIfGranted, Mic, Player, Session, Turn, b64FromBytes, bytesFromB64 };
   if (typeof document !== 'undefined' && navigator.mediaDevices) {
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', warmIfGranted);
     else warmIfGranted();

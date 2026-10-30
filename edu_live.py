@@ -315,6 +315,18 @@ def _post(key: str, body: dict, timeout: float = 10) -> tuple[int, dict]:
         return 0, {"error": {"message": str(exc)[:200]}}
 
 
+def _kid(key: str) -> str:
+    import hashlib
+    return hashlib.sha1(key.encode()).hexdigest()[:8]
+
+
+def mark_key_quota(kid: str) -> None:
+    """İstemci canlı bağlantıda 'kota doldu' gördü → o anahtarı bir süre kullanma (varsa diğer anahtara geç)."""
+    for k in ee._gemini_keys():
+        if _kid(k) == kid:
+            _KEY_COOLDOWN[k] = time.time() + 1200
+
+
 def create_token(setup: dict, minutes: int = 30) -> dict:
     """Ephemeral token. Önce kurulumu jetona kilitlemeyi dener (talimat sunucuda kalır), olmazsa açık jeton."""
     keys = [k for k in ee._gemini_keys() if _KEY_COOLDOWN.get(k, 0) < time.time()] or ee._gemini_keys()
@@ -335,7 +347,7 @@ def create_token(setup: dict, minutes: int = 30) -> dict:
         for mode, body in variants:
             status, data = _post(key, body)
             if status == 200 and data.get("name"):
-                return {"ok": True, "token": data["name"], "lock": mode}
+                return {"ok": True, "token": data["name"], "lock": mode, "kid": _kid(key)}
             msg = ((data.get("error") or {}).get("message") or "")[:300]
             last_err = f"{status} {msg}"
             if status in (401, 403, 429):
@@ -347,8 +359,10 @@ def create_token(setup: dict, minutes: int = 30) -> dict:
 def live_session(kind: str, *, lang: str = "en", level: str = "A1", scenario: str | None = None,
                  weak: list[str] | None = None, target: str = "en", voice: str = "", model: str = "",
                  variant: int = 0, vad: bool = False, source: str = "tr", both: bool = False,
-                 history: list[dict] | None = None, step: int = 0) -> dict:
+                 history: list[dict] | None = None, step: int = 0, bad_kid: str = "") -> dict:
     """Jeton + kurulum mesajı + WebSocket adresi (istemci doğrudan Google'a bağlanır)."""
+    if bad_kid:
+        mark_key_quota(bad_kid)
     if kind == "translate":
         models = [model] if model else TRANSLATE_MODELS
         build = lambda m: translate_setup(m, target, variant)  # noqa: E731
@@ -372,6 +386,7 @@ def live_session(kind: str, *, lang: str = "en", level: str = "A1", scenario: st
         "ws": WS_TOKEN_URL + tok["token"],
         "setup": setup,
         "lock": tok["lock"],
+        "kid": tok.get("kid", ""),
         "model": m,
         "fallback_models": models[1:],
         # Bazı sürümlerde jetonla gelen sistem talimatı yok sayılabiliyor → istemci ayrıca ilk mesajda gönderir
