@@ -33,7 +33,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.10.30-v80.3"
+APP_VERSION = "2026.10.30-v80.4"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -2839,6 +2839,51 @@ _PAIR_NAMES = {"tr": "Turkish", "en": "English", "de": "German", "fr": "French",
                "ru": "Russian", "ar": "Arabic", "zh": "Chinese (Mandarin)", "ka": "Georgian", "id": "Indonesian"}
 
 
+_VOICE_POOL = ThreadPoolExecutor(max_workers=8, thread_name_prefix="voice-gem")
+
+
+def _voice_gemini(body: dict, hedge: float = 2.5, timeout: float = 12.0) -> str | None:
+    """Konuşma yolu için hızlı Gemini: birinci model 2,5 sn'de bitmezse ikinci model de başlar, ilk cevap kazanır.
+    (Genel istemcide bekleme 6 sn idi → ara sıra 10+ sn gecikme.)"""
+    from concurrent.futures import wait as _fwait, FIRST_COMPLETED as _FC
+    ee = edu_tutor.ee
+    keys = ee._gemini_keys()
+    if not keys:
+        return None
+    now = time.time()
+    key = next((k for k in keys if ee._GEMINI_KEY_COOLDOWN.get(k, 0) <= now), keys[0])
+    first = os.environ.get("GEMINI_MODEL", ee.DEFAULT_GEMINI_MODEL).strip() or ee.DEFAULT_GEMINI_MODEL
+    models = [m for m in (first, "gemini-3.5-flash-lite", "gemini-3.5-flash") if m]
+    models = list(dict.fromkeys(models))[:2]
+
+    def body_for(m: str) -> dict:
+        if "lite" in m:
+            return body
+        gen = dict(body.get("generationConfig") or {})
+        gen.setdefault("thinkingConfig", {"thinkingLevel": "minimal"})
+        return {**body, "generationConfig": gen}
+
+    deadline = time.time() + timeout
+    pending = {_VOICE_POOL.submit(ee._gemini_call_once, key, models[0], body_for(models[0]), timeout): models[0]}
+    launched = 1
+    while pending and time.time() < deadline:
+        wait_for = (hedge if launched < len(models) else deadline - time.time())
+        done, _ = _fwait(list(pending), timeout=max(0.05, wait_for), return_when=_FC)
+        for fut in done:
+            pending.pop(fut, None)
+            try:
+                text, _status = fut.result()
+            except Exception:
+                text = None
+            if text:
+                return text
+        if launched < len(models) and (not done or not pending):
+            m = models[launched]
+            launched += 1
+            pending[_VOICE_POOL.submit(ee._gemini_call_once, key, m, body_for(m), max(3.0, deadline - time.time()))] = m
+    return None
+
+
 def gemini_transcribe_pair(wav: str, a: str, b: str, err: list | None = None, extra: dict | None = None) -> tuple[str, str] | None:
     """Gemini ses anlama: konuşma a mı b mi + o dilin kendi yazısıyla birebir döküm."""
     import base64
@@ -2866,7 +2911,7 @@ def gemini_transcribe_pair(wav: str, a: str, b: str, err: list | None = None, ex
             "contents": [{"role": "user", "parts": [{"text": prompt}, {"inlineData": {"mimeType": "audio/wav", "data": base64.b64encode(raw).decode()}}]}],
             "generationConfig": {"responseMimeType": "application/json", "temperature": 0, "maxOutputTokens": 600},
         }
-        out = edu_tutor.ee._gemini_api_request(body, 600, timeout_sec=20)
+        out = _voice_gemini(body, hedge=2.5, timeout=12)
         if not out:
             return None
         parsed = edu_tutor.ee._parse_json_object(edu_tutor._strip_think(out)) or {}
@@ -2901,7 +2946,7 @@ def gemini_translate(text: str, src: str, tgt: str) -> tuple[str, str] | None:
         )
         body = {"contents": [{"role": "user", "parts": [{"text": prompt}]}],
                 "generationConfig": {"responseMimeType": "application/json", "temperature": 0.1, "maxOutputTokens": 700}}
-        out = edu_tutor.ee._gemini_api_request(body, 700, timeout_sec=10)
+        out = _voice_gemini(body, hedge=2.0, timeout=9)
         parsed = edu_tutor.ee._parse_json_object(edu_tutor._strip_think(out or "")) or {}
         tr = re.sub(r"\s+", " ", safe_str(parsed.get("translation"))).strip()
         if not tr or len(tr) > 4 * len(text) + 40 or not _script_matches_lang(tr, tgt):
@@ -3918,9 +3963,9 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             if isinstance(pair, list) and len(pair) == 2 and all(x in STT_LANG for x in pair) and pair[0] != pair[1]:
                 extra: dict = {}
-                text, lang = transcribe_pair(data, pair[0], pair[1], None, extra)
+                text, lang = transcribe_pair(data, pair[0], pair[1], None, None)
                 to = pair[1] if lang == pair[0] else pair[0]
-                if extra.get("translation"):
+                if extra.get("translation"):  # (birleşik çağrı kapalı: sesten çeviri Gürcücede kalitesiz)
                     t_stt = int((time.perf_counter() - t0) * 1000)
                     return self._send_json({"ok": True, "text": re.sub(r"\s+", " ", text).strip(), "lang": lang, "to": to,
                                             "translation": extra["translation"], "stt_ms": t_stt, "ms": t_stt, "one": True})
