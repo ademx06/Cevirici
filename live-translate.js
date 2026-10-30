@@ -336,10 +336,10 @@
       const i = bubbles.indexOf(b);
       const tt = b.trans || ((b.orig || b._busy) && !b.done ? 'Çevriliyor…' : '');
       return `<article class="bubble ${b.dir === 'toOther' ? 'me' : 'other'} ${b.done ? '' : 'is-live'}" data-b="${i}">
-        <div class="bubble-label">${f.flag} ${esc(f.name)}</div>
+        <div class="bubble-label" lang="${f.code}">${f.flag} ${esc(f.name)}</div>
         <div class="bubble-original"${b.from === 'ar' ? ' dir="rtl"' : ''}>${esc(origText(b))}</div>
         <div class="bubble-divider"></div>
-        <div class="bubble-label">${t.flag} ${esc(t.name)}</div>
+        <div class="bubble-label" lang="${t.code}">${t.flag} ${esc(t.name)}</div>
         <div class="bubble-translated"${b.to === 'ar' ? ' dir="rtl"' : ''}>${esc(tt)}</div>
         ${b.okunus ? `<div class="bubble-phonetic"><b>Okunuş</b> · ${esc(b.okunus)}</div>` : ''}
         ${b.done && (b.audio.length || (b._pipe && b.trans)) ? `<button type="button" class="replay-btn" data-replay="${i}">▶ Tekrar dinle</button>` : ''}
