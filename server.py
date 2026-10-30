@@ -33,7 +33,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.10.30-v80.4"
+APP_VERSION = "2026.10.30-v80.5"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -2842,7 +2842,7 @@ _PAIR_NAMES = {"tr": "Turkish", "en": "English", "de": "German", "fr": "French",
 _VOICE_POOL = ThreadPoolExecutor(max_workers=8, thread_name_prefix="voice-gem")
 
 
-def _voice_gemini(body: dict, hedge: float = 2.5, timeout: float = 12.0) -> str | None:
+def _voice_gemini(body: dict, hedge: float = 2.5, timeout: float = 12.0, strong: bool = False) -> str | None:
     """Konuşma yolu için hızlı Gemini: birinci model 2,5 sn'de bitmezse ikinci model de başlar, ilk cevap kazanır.
     (Genel istemcide bekleme 6 sn idi → ara sıra 10+ sn gecikme.)"""
     from concurrent.futures import wait as _fwait, FIRST_COMPLETED as _FC
@@ -2855,6 +2855,8 @@ def _voice_gemini(body: dict, hedge: float = 2.5, timeout: float = 12.0) -> str 
     first = os.environ.get("GEMINI_MODEL", ee.DEFAULT_GEMINI_MODEL).strip() or ee.DEFAULT_GEMINI_MODEL
     models = [m for m in (first, "gemini-3.5-flash-lite", "gemini-3.5-flash") if m]
     models = list(dict.fromkeys(models))[:2]
+    if strong:  # Gürcüce gibi dillerde güçlü model önce (lite Gürcücede hatalı)
+        models = ["gemini-3.5-flash", first if first != "gemini-3.5-flash" else "gemini-3.5-flash-lite"]
 
     def body_for(m: str) -> dict:
         if "lite" in m:
@@ -2946,7 +2948,7 @@ def gemini_translate(text: str, src: str, tgt: str) -> tuple[str, str] | None:
         )
         body = {"contents": [{"role": "user", "parts": [{"text": prompt}]}],
                 "generationConfig": {"responseMimeType": "application/json", "temperature": 0.1, "maxOutputTokens": 700}}
-        out = _voice_gemini(body, hedge=2.0, timeout=9)
+        out = _voice_gemini(body, hedge=2.0 if tgt != "ka" else 3.0, timeout=9, strong=(tgt == "ka"))
         parsed = edu_tutor.ee._parse_json_object(edu_tutor._strip_think(out or "")) or {}
         tr = re.sub(r"\s+", " ", safe_str(parsed.get("translation"))).strip()
         if not tr or len(tr) > 4 * len(text) + 40 or not _script_matches_lang(tr, tgt):
