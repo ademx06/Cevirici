@@ -388,7 +388,7 @@
     if (!liveOk()) return;
     const keys = PAGE === 'talk' ? ['both'] : ['toOther', 'toMine'];
     keys.forEach((k) => {
-      const langs = k === 'both' ? [prefs.my, prefs.other] : [sourceOf(k), targetOf(k)];
+      const langs = k === 'both' ? [prefs.my, prefs.other] : [sourceOf(k)];
       if (!pipeFor(langs)) session(k).connect().catch(() => { liveDownAt = Date.now(); });
     });
   }
@@ -432,7 +432,7 @@
     setStatus(`Dinliyorum — ${lang(sourceOf(dir)).name} konuş`, true);
     sessMute[dir] = false;
     const b = newBubble(dir, dir); b.listening = true; b._heard = false; b._single = true; b._pcm = []; b._hits = 0; renderSoon();
-    if (pipeFor([sourceOf(dir), targetOf(dir)])) {
+    if (pipeFor([sourceOf(dir)])) { // yalnızca DUYULAN dil önemli (ör. tr→ka canlı yolla sorunsuz)
       // güvenilir yol: yalnızca kayıt; bırakınca tek istekle döküm + çeviri, sonra tek ses
       b._pipe = true; cur[dir] = null; turn = null;
       mic = new LiveAudio.Mic({

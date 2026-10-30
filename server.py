@@ -33,7 +33,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.10.30-v80.0"
+APP_VERSION = "2026.10.30-v80.2"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -1498,6 +1498,9 @@ def google_stt(wav: str, lang_code: str) -> tuple[str, str, float] | None:
     return None
 
 
+_GROQ_STT_DOWN: dict[str, float] = {}
+
+
 def _groq_stt_request(
     wav: str,
     *,
@@ -1513,6 +1516,9 @@ def _groq_stt_request(
     api_key = os.environ.get("GROQ_API_KEY", "").strip()
     if not api_key or not groq_api_key_valid():
         return None
+    stt_model_key = (model or "whisper-large-v3-turbo").strip() or "whisper-large-v3-turbo"
+    if _GROQ_STT_DOWN.get(stt_model_key, 0) > time.time():
+        return None  # bu model kısa süre önce 401/403 verdi → boşuna bekleme
     short = lang_code if lang_code in STT_LANG else None
     # json yeterli — dil metinden + (varsa) language alanından
     response_format = "verbose_json" if verbose else "json"
@@ -1578,6 +1584,8 @@ def _groq_stt_request(
     except Exception as _e:
         if err is not None:
             err.append(repr(_e)[:300])
+        if getattr(_e, "code", None) in (401, 403):
+            _GROQ_STT_DOWN[stt_model_key] = time.time() + 900
         return None
 
 
@@ -2868,6 +2876,34 @@ def gemini_transcribe_pair(wav: str, a: str, b: str, err: list | None = None) ->
 
 
 
+def gemini_translate(text: str, src: str, tgt: str) -> tuple[str, str] | None:
+    """Konuşma çevirisi (güvenilir yol): Gemini ile doğal çeviri + aynı kelimelerle noktalaması düzeltilmiş kaynak.
+    Dönen kaynak yalnızca harfleri birebir aynıysa kullanılır (kelime değiştirilemez). Başarısızsa None."""
+    try:
+        sn, tn = _PAIR_NAMES.get(src, src), _PAIR_NAMES.get(tgt, tgt)
+        prompt = (
+            f"Below is a speech-recognition transcript in {sn}. "
+            f"1) source: the SAME words, only add correct punctuation and capitalization (do not change, add or remove any word). "
+            f"2) translation: translate it into natural, fluent, everyday {tn} exactly as a professional human interpreter would say it, "
+            f"keeping the exact meaning, tone, politeness, names and numbers, written in {tn}'s native script. "
+            'Return ONLY JSON: {"source":"...","translation":"..."}\n\nTranscript: ' + text
+        )
+        body = {"contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                "generationConfig": {"responseMimeType": "application/json", "temperature": 0.1, "maxOutputTokens": 700}}
+        out = edu_tutor.ee._gemini_api_request(body, 700, timeout_sec=10)
+        parsed = edu_tutor.ee._parse_json_object(edu_tutor._strip_think(out or "")) or {}
+        tr = re.sub(r"\s+", " ", safe_str(parsed.get("translation"))).strip()
+        if not tr or len(tr) > 4 * len(text) + 40 or not _script_matches_lang(tr, tgt):
+            return None
+        sp = re.sub(r"\s+", " ", safe_str(parsed.get("source"))).strip()
+        letters = lambda x: re.sub(r"[\W_]+", "", x.lower())  # noqa: E731
+        if not sp or letters(sp) != letters(text):
+            sp = text
+        return sp, tr
+    except Exception:
+        return None
+
+
 def transcribe_pair(data: bytes, a: str, b: str, dbg: dict | None = None) -> tuple[str, str]:
     """Eller serbest: konuşulan dil a mı b mi? Whisper'ın dil kararı + her iki dilde kilitli STT paralel;
     yanlış dil kilitlenince çıkan çöp (komşu dilde uydurma) reddedilir. Türkçe'ye kayırma YOK."""
@@ -3872,10 +3908,15 @@ class Handler(SimpleHTTPRequestHandler):
             return self.send_json_error(422, "Seni anlayamadım — tekrar konuş" if "speech" in str(e) or "no speech" in str(e) else self.api_error_message(e))
         t_stt = int((time.perf_counter() - t0) * 1000)
         text = re.sub(r"\s+", " ", text).strip()
-        try:
-            translation = translate_text(text, lang, to)
-        except Exception as e:
-            return self.send_json_error(422, self.api_error_message(e))
+        g = gemini_translate(text, lang, to)
+        translation = ""
+        if g:
+            text, translation = g
+        if not translation:
+            try:
+                translation = translate_text(text, lang, to)
+            except Exception as e:
+                return self.send_json_error(422, self.api_error_message(e))
         self._send_json({"ok": True, "text": text, "lang": lang, "to": to, "translation": translation,
                          "stt_ms": t_stt, "ms": int((time.perf_counter() - t0) * 1000)})
 
