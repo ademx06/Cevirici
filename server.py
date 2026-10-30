@@ -33,7 +33,7 @@ from builder_engine import (
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP_VERSION = "2026.10.30-v80.2"
+APP_VERSION = "2026.10.30-v80.3"
 TARGET_APP_VERSION = APP_VERSION
 PORT = int(os.environ.get("PORT", "8780"))
 
@@ -2839,7 +2839,7 @@ _PAIR_NAMES = {"tr": "Turkish", "en": "English", "de": "German", "fr": "French",
                "ru": "Russian", "ar": "Arabic", "zh": "Chinese (Mandarin)", "ka": "Georgian", "id": "Indonesian"}
 
 
-def gemini_transcribe_pair(wav: str, a: str, b: str, err: list | None = None) -> tuple[str, str] | None:
+def gemini_transcribe_pair(wav: str, a: str, b: str, err: list | None = None, extra: dict | None = None) -> tuple[str, str] | None:
     """Gemini ses anlama: konuşma a mı b mi + o dilin kendi yazısıyla birebir döküm."""
     import base64
     try:
@@ -2853,8 +2853,14 @@ def gemini_transcribe_pair(wav: str, a: str, b: str, err: list | None = None) ->
             "Decide which language is actually spoken from how it sounds - do not default to either one. "
             "Transcribe exactly what was said, verbatim, in that language's own native writing system "
             "(Georgian in Mkhedruli, Russian in Cyrillic, Arabic in Arabic script, Chinese in Chinese characters, others in Latin letters with correct diacritics). "
-            "Never translate, never romanize, never add comments. If there is no clear human speech, return empty text. "
-            f'Return ONLY JSON: {{"lang":"{a}" or "{b}","text":"<verbatim transcript>"}}'
+            "Never translate the transcript, never romanize, never add comments. Add correct punctuation. If there is no clear human speech, return empty text. "
+            + (
+                f'Also give "translation": what was said, translated into the OTHER language of the pair ({nb} if {na} was spoken, {na} if {nb} was spoken) '
+                "as natural, fluent everyday speech a professional interpreter would say, in that language's native script. "
+                f'Return ONLY JSON: {{"lang":"{a}" or "{b}","text":"<verbatim transcript>","translation":"<translation>"}}'
+                if extra is not None else
+                f'Return ONLY JSON: {{"lang":"{a}" or "{b}","text":"<verbatim transcript>"}}'
+            )
         )
         body = {
             "contents": [{"role": "user", "parts": [{"text": prompt}, {"inlineData": {"mimeType": "audio/wav", "data": base64.b64encode(raw).decode()}}]}],
@@ -2868,6 +2874,11 @@ def gemini_transcribe_pair(wav: str, a: str, b: str, err: list | None = None) ->
         text = clean_stt_text(safe_str(parsed.get("text")))
         if lang not in (a, b) or not text or is_hallucination(text) or not _script_matches_lang(text, lang):
             return None
+        if extra is not None:
+            to = b if lang == a else a
+            tr = re.sub(r"\s+", " ", safe_str(parsed.get("translation"))).strip()
+            if tr and _script_matches_lang(tr, to) and len(tr) < 4 * len(text) + 40:
+                extra["translation"] = tr
         return text, lang
     except Exception as e:  # noqa: BLE001
         if err is not None:
@@ -2904,7 +2915,7 @@ def gemini_translate(text: str, src: str, tgt: str) -> tuple[str, str] | None:
         return None
 
 
-def transcribe_pair(data: bytes, a: str, b: str, dbg: dict | None = None) -> tuple[str, str]:
+def transcribe_pair(data: bytes, a: str, b: str, dbg: dict | None = None, extra: dict | None = None) -> tuple[str, str]:
     """Eller serbest: konuşulan dil a mı b mi? Whisper'ın dil kararı + her iki dilde kilitli STT paralel;
     yanlış dil kilitlenince çıkan çöp (komşu dilde uydurma) reddedilir. Türkçe'ye kayırma YOK."""
     wav = prepare_wav_bas_konus(data)
@@ -2912,19 +2923,28 @@ def transcribe_pair(data: bytes, a: str, b: str, dbg: dict | None = None) -> tup
         if not audio_has_speech(wav):
             raise ValueError("no speech")
         _gerr: list = []
-        g = gemini_transcribe_pair(wav, a, b, _gerr)
-        if dbg is not None:
-            dbg["gem"] = g
-            dbg["gerr"] = _gerr
-        if g:
-            if g[1] == "ka":  # Gürcüce yazıda kilitli (Google/Whisper) STT Gemini'den daha doğru
-                try:
-                    kr = stt_for_bas_konus(wav, "ka")
-                    if kr and (kr[0] or "").strip():
-                        return clean_stt_text(kr[0]), "ka"
-                except Exception:
-                    pass
-            return g
+        # Gürcüce çiftte kilitli Gürcüce dökümü Gemini ile AYNI ANDA başlat (Gürcü yazıda daha doğru; bekleme eklemez)
+        ka_pool = ThreadPoolExecutor(max_workers=1) if "ka" in (a, b) else None
+        f_ka = ka_pool.submit(stt_for_bas_konus, wav, "ka") if ka_pool else None
+        try:
+            g = gemini_transcribe_pair(wav, a, b, _gerr, extra)
+            if dbg is not None:
+                dbg["gem"] = g
+                dbg["gerr"] = _gerr
+            if g:
+                if g[1] == "ka" and f_ka is not None:
+                    try:
+                        kr = f_ka.result(timeout=8)
+                        if kr and (kr[0] or "").strip():
+                            if extra is not None:
+                                extra.pop("translation", None)  # Gemini'nin Gürcüce duyduğuna göre çeviri → kullanma
+                            return clean_stt_text(kr[0]), "ka"
+                    except Exception:
+                        pass
+                return g
+        finally:
+            if ka_pool:
+                ka_pool.shutdown(wait=False, cancel_futures=True)
         with ThreadPoolExecutor(max_workers=3) as pool:
             _aerr: list = []
             f_auto = pool.submit(lambda: _groq_stt_request(wav, lang_code=None, prompt="", model=None, verbose=True, err=_aerr))
@@ -3897,8 +3917,13 @@ class Handler(SimpleHTTPRequestHandler):
         target = safe_str(p.get("target")).strip().lower()[:5]
         try:
             if isinstance(pair, list) and len(pair) == 2 and all(x in STT_LANG for x in pair) and pair[0] != pair[1]:
-                text, lang = transcribe_pair(data, pair[0], pair[1])
+                extra: dict = {}
+                text, lang = transcribe_pair(data, pair[0], pair[1], None, extra)
                 to = pair[1] if lang == pair[0] else pair[0]
+                if extra.get("translation"):
+                    t_stt = int((time.perf_counter() - t0) * 1000)
+                    return self._send_json({"ok": True, "text": re.sub(r"\s+", " ", text).strip(), "lang": lang, "to": to,
+                                            "translation": extra["translation"], "stt_ms": t_stt, "ms": t_stt, "one": True})
             elif source in STT_LANG and target in STT_LANG and source != target:
                 text, _ = transcribe_forced(data, source)
                 lang, to = source, target
